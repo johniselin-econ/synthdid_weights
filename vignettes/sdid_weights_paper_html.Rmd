@@ -1,0 +1,765 @@
+---
+title: "Synthetic Difference-in-Differences: an Update"
+author: "John Iselin and Erica Ryan"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    theme: readable
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 7,
+  fig.height = 4.5
+)
+
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(ggplot2)
+library(readr)
+library(fixest)
+
+# SDID
+library(synthdid)
+
+```
+
+## Abstract
+
+ABSTRACT
+
+**Keywords:** Synthetic Difference-in-Differences  
+**JEL Codes:**  
+
+---
+
+# 1. Introduction
+
+Empirical methods for evaluating the causal effects of policies without random assignment have played a critical role in economics for the last several decades. In particular, in the context of panel data, Difference-in-Difference (DID) has become the workhorse model in cases where multiple units are treated, and the Synthetic Control Method (SCM) dominates in cases with one treated unit. Arkhangelsky et al. (2021) combined elements of both methods to create the Synthetic Difference-in-Difference (SDID) approach. The authors borrow the re-weighting of control units based on pre-treatment trends and covariates from SCM in such a way to allow for a weaker parallel trend assumption, and allow level-shifts between treatment and control groups, like DID. This method also includes time-weights, allowing the method to find the pre-exposure periods that best reflect the post-exposure periods characteristics.
+
+In this paper we identify a key limitation of SDID that emerges when a procedure designed for a single treated unit is implemented in contexts with multiple treated units: namely, the inability to incorporate weights for treated units. In practice, the current implementation of SDID assumes that treated units are all equally weighted, which is unrealistic in many empirical panel-data settings. This is particularly an issue when the researcher is studying a setting where heterogeneous treatment effects are correlated with the weighting variable. In the simplest case, if a researcher wanted to weight by population size, and the treatment under investigation had a larger effect in smaller states, then the recovered average treatment effect (ATE) would be larger than the “true” weighted ATE.
+
+We propose two potential solutions:
+1. Construct a weighted-average treated unit and run a single SDID.
+2. Run a SDID for each treated unit and take a weighted average of the estimated effects.
+
+---
+
+# 2. Description of Synthetic Difference-in-Differences
+
+Synthetic difference-in-differences was created by Arkhangelsky et al. (2021), combining elements of synthetic control methods and difference-in-differences to take advantage of benefits of both estimators while increasing precision. From SCM, re-weighting and matching of pre-exposure trends in SDID allows weaker reliance on parallel trend assumptions. From DiD, SDID does not require that treated and control groups have the same post-treatment trends, instead allowing for level differences.
+
+Following closely the description in Arkhangelsky et al. (2021), take the setting with ...
+
+SDID estimates the following:
+
+$$
+(\hat{\tau}^{sdid}, \hat{\mu}, \hat{\alpha}, \hat{\beta}) =
+\underset{\tau , \mu, \alpha, \beta}{\text{argmin}} \left \{ \sum_{i=1}^N \sum_{t=1}^T
+(Y_{it} - \mu - \alpha_i - \beta_t - W_{it}\tau)^2\ \hat{\omega}_i^{sdid}\ \hat{\lambda}_t^{sdid} \right \}
+$$
+
+where $\alpha_i$ are unit fixed effects, $\hat{\omega}_i$ are unit weights, and $\hat{\lambda}_t$ are time weights.
+
+Unit weights are calculated as follows:
+
+$$
+( \hat{\omega}_0, \hat{\omega}^{sdid}  ) =
+\underset{\omega_0 \in \mathbb{R}, \omega \in \Omega } {\text{argmin}}
+\sum_{t=1}^{T_{pre}} \left (\omega_0 + \sum_{i=1}^{N_{co}} \omega_i Y_{it} + \frac{1}{N_{tr}} \sum_{i=N_{co}+1}^{N} Y_{it} \right )^2
++ \zeta^2 T_{pre} || \omega ||_2^2
+$$
+
+Time weights are calculated similarly:
+
+$$
+( \hat{\lambda}_0, \hat{\lambda}^{sdid}  ) =
+\underset{\lambda_0 \in \mathbb{R}, \lambda \in \Lambda } {\text{argmin}}
+\sum_{i=1}^{N_{co}} \left (\lambda_0 + \sum_{t=1}^{T_{pre}} \lambda_t Y_{it} + \frac{1}{T_{post}} \sum_{t=T_{pre}+1}^{T} Y_{it} \right )^2
++ \zeta^2 N_{co} || \lambda ||^2
+$$
+
+The authors show that the estimator is asymptotically normal and propose inference using block bootstrap, jackknife, or permutation approaches.
+
+---
+
+# 3. Basic SDID run (sanity check)
+
+This section is included so the HTML file produces a working SDID estimate and plots before you connect to project-specific data.
+
+```{r sdid-example}
+data("california_prop99")
+
+setup <- panel.matrices(california_prop99)
+tau_sdid <- synthdid_estimate(setup$Y, setup$N0, setup$T0)
+
+# Common practice in examples: placebo standard errors
+se_placebo <- sqrt(vcov(tau_sdid, method = "placebo"))
+
+c(
+  point_estimate = as.numeric(tau_sdid),
+  se_placebo = se_placebo,
+  ci_lo = as.numeric(tau_sdid) - 1.96 * se_placebo,
+  ci_hi = as.numeric(tau_sdid) + 1.96 * se_placebo
+)
+```
+
+```{r sdid-plot, fig.cap="SDID estimate plot (Prop 99 example)."}
+plot(tau_sdid, se.method = "placebo")
+```
+
+```{r sdid-units, fig.cap="Unit weights visualization (Prop 99 example)."}
+synthdid_units_plot(tau_sdid, se.method = "placebo")
+```
+
+---
+
+# 4. Analysis of Weighting Issue
+
+There are two places in SDID where the lack of treated-unit weights becomes problematic:
+
+1. **Control weights** are chosen to match the *average treated unit*, but that treated “average” is a simple average across treated units. If a researcher wants to weight treated units (e.g., by population), those weights are ignored, which matters when treatment heterogeneity is correlated with the weighting variable.
+
+2. In the final effect estimation, SDID effectively treats treated units as equally weighted (i.e., treated units are not re-weighted by user-specified weights). This departs from the approach often used in DID, where analysts commonly weight observations by a relevant characteristic.
+
+We propose two solutions:
+
+- **Solution 1:** Construct a weighted-average treated unit and run a single SDID.
+- **Solution 2:** Run SDID separately for each treated unit and take a weighted average of the unit-level treatment effects.
+
+---
+
+## 4.1 Helper functions (scaffold)
+
+These are minimal utilities to support the simulation section and later replication. They assume a long panel with columns:
+`unit`, `time`, `y`, `treated_unit` (0/1), `post` (0/1), and optionally `pop` (weights).
+
+```{r helpers}
+did_twfe <- function(df,
+                     y = "y",
+                     treated_unit = "treated_unit",
+                     post = "post",
+                     unit = "unit",
+                     time = "time",
+                     controls = NULL,      # NULL, character vector, or one-sided formula
+                     w = NULL,             # NULL or weight column name
+                     cluster = "unit",     # NULL, or column name (or a ~formula string)
+                     return_model = FALSE) {
+
+  if (!requireNamespace("fixest", quietly = TRUE)) {
+    stop("Package `fixest` is required. Install via install.packages('fixest').")
+  }
+
+  # Controls -> RHS string
+  controls_rhs <- ""
+  if (!is.null(controls)) {
+    if (inherits(controls, "formula")) {
+      # e.g., controls = ~ x1 + x2 + i(region)
+      # Convert formula to text and drop leading "~"
+      controls_rhs <- paste0(" + ", gsub("^\\s*~\\s*", "", deparse(controls)))
+    } else if (is.character(controls)) {
+      # e.g., controls = c("x1","x2")
+      controls_rhs <- paste0(" + ", paste(controls, collapse = " + "))
+    } else {
+      stop("`controls` must be NULL, a character vector of column names, or a one-sided formula like ~ x1 + x2.")
+    }
+  }
+
+  # Main formula: y ~ treated*post + controls | unit + time
+  fml_txt <- paste0(
+    y, " ~ ", treated_unit, " * ", post,
+    controls_rhs,
+    " | ", unit, " + ", time
+  )
+  fml <- stats::as.formula(fml_txt)
+
+  # Weights vector (optional)
+  weights_vec <- if (is.null(w)) NULL else df[[w]]
+
+  # Cluster handling
+  cluster_fml <- NULL
+  if (!is.null(cluster)) {
+    if (inherits(cluster, "formula")) {
+      cluster_fml <- cluster
+    } else if (is.character(cluster)) {
+      cluster_fml <- stats::as.formula(paste0("~", cluster))
+    } else {
+      stop("`cluster` must be NULL, a column name (character), or a formula like ~unit.")
+    }
+  }
+
+  m <- fixest::feols(
+    fml,
+    data = df,
+    weights = weights_vec,
+    cluster = cluster_fml
+  )
+
+  # Extract interaction coefficient
+  cn <- names(stats::coef(m))
+  target <- paste0(treated_unit, ":", post)
+  if (!target %in% cn) {
+    target2 <- paste0(post, ":", treated_unit)
+    if (target2 %in% cn) {
+      target <- target2
+    } else {
+      stop("Could not find interaction coefficient. Coef names: ", paste(cn, collapse = ", "))
+    }
+  }
+  tau_hat <- unname(stats::coef(m)[[target]])
+
+  if (return_model) list(tau_hat = tau_hat, model = m, formula = fml) else tau_hat
+}
+
+
+run_sdid_long <- function(df,
+                          treat_start_time,
+                          controls = NULL,     # NULL, character vector, or one-sided formula
+                          unit = "unit",
+                          time = "time",
+                          y = "y",
+                          treated_unit = "treated_unit",
+                          use_twfe_residualization = TRUE, # controls + unit/time FE
+                          return_setup = FALSE) {
+
+  # Defensive checks
+  if (!requireNamespace("synthdid", quietly = TRUE)) {
+    stop("Package `synthdid` is required.")
+  }
+
+  df2 <- df
+
+  # Coerce and standardize time
+  df2 <- df2 %>%
+    dplyr::mutate(
+      .unit = as.factor(.data[[unit]]),
+      .time_raw = .data[[time]],
+      .time = if (inherits(.data[[time]], "Date")) as.integer(.data[[time]])
+              else suppressWarnings(as.numeric(as.character(.data[[time]])))
+    )
+
+  if (anyNA(df2$.time)) stop("Time coercion produced NA values. Ensure `time` is numeric/character-numeric or Date.")
+
+  # Treatment indicator
+  df2 <- df2 %>%
+    dplyr::mutate(.W = as.integer((.data[[treated_unit]] == 1) & (.time >= treat_start_time)))
+
+  # Optional covariate adjustment: residualize y on controls (and optionally TWFE)
+  if (!is.null(controls)) {
+    if (!requireNamespace("fixest", quietly = TRUE)) {
+      stop("To use `controls`, please install `fixest` (install.packages('fixest')).")
+    }
+
+    # Build RHS for controls
+    controls_rhs <- ""
+    if (inherits(controls, "formula")) {
+      controls_rhs <- gsub("^\\s*~\\s*", "", deparse(controls))
+    } else if (is.character(controls)) {
+      controls_rhs <- paste(controls, collapse = " + ")
+    } else {
+      stop("`controls` must be NULL, a character vector of column names, or a one-sided formula like ~ x1 + x2.")
+    }
+
+    # Residualization regression
+    # Default: y ~ controls | unit + time  (TWFE residualization)
+    if (use_twfe_residualization) {
+      fml_txt <- paste0(y, " ~ ", controls_rhs, " | .unit + .time")
+    } else {
+      # Alternative: y ~ controls (no FE) — usually not recommended for panel SDID
+      fml_txt <- paste0(y, " ~ ", controls_rhs)
+    }
+
+    # Run regression 
+    m_resid <- fixest::feols(stats::as.formula(fml_txt), data = df2)
+
+    # Drop unmatched observations 
+    df2 <- df2[fixest::obs(m_resid), , drop = FALSE]
+    
+    # Replace outcome with residualized outcome
+    df2[[y]] <- as.numeric(stats::resid(m_resid))
+
+  }
+
+  # Prepare panel for synthdid
+  dfp <- df2 %>%
+    dplyr::arrange(.unit, .time) %>%
+    dplyr::select(.unit, .time, !!y, .W) %>%
+    dplyr::rename(y = !!y)
+
+  dfp <- as.data.frame(dfp)
+
+  # Balance check (panel.matrices requires balanced panel)
+  # This check is cheap and gives a clearer error than panel.matrices.
+  bad <- dfp %>%
+    dplyr::count(.unit, .time) %>%
+    dplyr::filter(n != 1)
+  if (nrow(bad) > 0) {
+    stop("Input must be a balanced panel with unique (.unit, .time) rows. Found duplicates/missingness.")
+  }
+
+  setup <- synthdid::panel.matrices(dfp)
+  est <- synthdid::synthdid_estimate(setup$Y, setup$N0, setup$T0)
+
+  if (return_setup) {
+    return(list(estimate = est, setup = setup))
+  } else {
+    return(est)
+  }
+}
+
+make_weighted_treated_unit <- function(df,
+                                       treat_start_time,
+                                       weight_col = "pop",
+                                       controls = NULL,
+                                       unit = "unit",
+                                       time = "time",
+                                       y = "y",
+                                       treated_unit = "treated_unit") {
+
+  baseline_time <- treat_start_time - 1
+
+  # synthetic id
+  max_id <- suppressWarnings(max(as.integer(df[[unit]]), na.rm = TRUE))
+  if (!is.finite(max_id)) stop("`unit` must be coercible to integer for synth_id construction.")
+  synth_id <- max_id + 1L
+
+  # Parse controls into character vector (if provided)
+  control_vars <- character(0)
+  if (!is.null(controls)) {
+    if (inherits(controls, "formula")) {
+      # keep it simple: assume formula is like ~ x1 + x2 (no i(), no interactions)
+      # If you need i() etc, you should not aggregate those directly as columns.
+      tt <- attr(stats::terms(controls), "term.labels")
+      control_vars <- tt
+    } else if (is.character(controls)) {
+      control_vars <- controls
+    } else {
+      stop("`controls` must be NULL, character vector, or one-sided formula like ~ x1 + x2.")
+    }
+  }
+
+  # Ensure baseline weights are unique per unit (avoid duplicating rows)
+  w0 <- df %>%
+    dplyr::filter(.data[[time]] == baseline_time) %>%
+    dplyr::group_by(.data[[unit]]) %>%
+    dplyr::summarise(w0 = mean(.data[[weight_col]], na.rm = TRUE), .groups = "drop")
+
+  df2 <- df %>% dplyr::left_join(w0, by = unit)
+
+  treated <- df2 %>% dplyr::filter(.data[[treated_unit]] == 1)
+  controls_df <- df2 %>% dplyr::filter(.data[[treated_unit]] == 0)
+
+  # Weighted means per time for y and (optionally) controls
+  treated_super <- treated %>%
+    dplyr::group_by(.data[[time]]) %>%
+    dplyr::summarise(
+      # outcome
+      !!y := sum(.data[[y]] * w0, na.rm = TRUE) / sum(w0, na.rm = TRUE),
+
+      # controls (if any)
+      dplyr::across(
+        dplyr::all_of(control_vars),
+        ~ sum(.x * w0, na.rm = TRUE) / sum(w0, na.rm = TRUE),
+        .names = "{.col}"
+      ),
+
+      # indicators
+      !!treated_unit := 1L,
+      post = as.integer(dplyr::first(.data[[time]]) >= treat_start_time),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(!!unit := synth_id)
+
+  # Keep consistent columns for bind_rows
+  keep_cols <- c(unit, time, y, control_vars, treated_unit, "post")
+  out <- dplyr::bind_rows(
+    controls_df %>% dplyr::select(dplyr::all_of(keep_cols)),
+    treated_super %>% dplyr::select(dplyr::all_of(keep_cols))
+  )
+
+  out
+}
+
+
+run_sdid_by_treated_and_average <- function(df,
+                                           treat_start_time,
+                                           weight_col = "pop",
+                                           controls = NULL,        # NULL, character vector, or one-sided formula
+                                           unit = "unit",
+                                           time = "time",
+                                           y = "y",
+                                           treated_unit = "treated_unit",
+                                           use_twfe_residualization = TRUE) {
+
+  # Robust baseline time (last pre period that exists)
+  baseline_time <- max(df[[time]][df[[time]] < treat_start_time], na.rm = TRUE)
+  if (!is.finite(baseline_time)) stop("No pre-treatment period found (time < treat_start_time).")
+
+  treated_ids <- df %>%
+    dplyr::filter(.data[[treated_unit]] == 1) %>%
+    dplyr::distinct(.data[[unit]]) %>%
+    dplyr::pull(.data[[unit]])
+
+  controls_df <- df %>% dplyr::filter(.data[[treated_unit]] == 0)
+
+  # Baseline weights for treated units (force one row per unit)
+  weights <- df %>%
+    dplyr::filter(.data[[treated_unit]] == 1, .data[[time]] == baseline_time) %>%
+    dplyr::group_by(.data[[unit]]) %>%
+    dplyr::summarise(w0 = mean(.data[[weight_col]], na.rm = TRUE), .groups = "drop")
+
+  est <- purrr::map_dfr(treated_ids, function(id) {
+
+    dfi <- dplyr::bind_rows(
+      controls_df,
+      df %>% dplyr::filter(.data[[unit]] == id)
+    )
+
+    tau <- run_sdid_long(
+      dfi,
+      treat_start_time = treat_start_time,
+      controls = controls,
+      unit = unit,
+      time = time,
+      y = y,
+      treated_unit = treated_unit,
+      use_twfe_residualization = use_twfe_residualization,
+      return_setup = FALSE
+    )
+
+    tibble::tibble(!!unit := id, tau = as.numeric(tau))
+  }) %>%
+    dplyr::left_join(weights, by = unit)
+
+  tau_wavg <- sum(est$tau * est$w0, na.rm = TRUE) / sum(est$w0, na.rm = TRUE)
+
+  list(unit_level = est, tau_weighted_average = tau_wavg)
+}
+
+```
+
+---
+
+# 5. Simulations
+
+We begin with the following setup:
+
+- Randomly generate a dataset where N = 100, T = 20
+- Treat N_tr = 20 units at time T0 = 10
+- Each unit has a population that grows or shrinks over time
+- Generate outcomes using either additive or interacted unit/time components
+
+Additive:
+
+$$
+Y_{it} = \alpha_i + \beta_t + W_{it}\tau + \epsilon_{it}
+$$
+
+Interacted:
+
+$$
+Y_{it} = \alpha_i + \beta_t + \alpha_i\beta_t + W_{it}\tau + \epsilon_{it}
+$$
+
+We consider homogeneous treatment (tau=2 for all treated units) and heterogeneous treatment where tau_i is a function of population.
+
+```{r simulation}
+simulate_panel <- function(
+  N = 100, T = 20, N_tr = 20, T0 = 10,
+  tau0 = 2,
+  fe_type = c("additive", "interactive"),
+  tau_type = c("homogeneous", "heterogeneous"),
+  sigma = 1,
+  seed = NULL
+) {
+  fe_type <- match.arg(fe_type)
+  tau_type <- match.arg(tau_type)
+  if (!is.null(seed)) set.seed(seed)
+
+  units <- 1:N
+  times <- 1:T
+  treated_units <- (N - N_tr + 1):N
+
+  alpha <- rnorm(N, 0, 1)
+  beta <- rnorm(T, 0, 1)
+
+  pop0 <- exp(rnorm(N, log(1e6), 0.6))
+  trend <- rnorm(N, 0, 0.02)
+
+  df <- tidyr::expand_grid(unit = units, time = times) %>%
+    mutate(
+      treated_unit = as.integer(unit %in% treated_units),
+      post = as.integer(time >= T0),
+      W = treated_unit * post,
+      pop = pop0[unit] * exp(trend[unit] * (time - 1))
+    )
+
+  tau_i <- rep(tau0, N)
+  if (tau_type == "heterogeneous") {
+    # illustrative: larger effects in smaller baseline populations
+    tau_i <- tau0 * (median(pop0) / pop0)
+  }
+
+  signal <- alpha[df$unit] + beta[df$time]
+  if (fe_type == "interactive") signal <- signal + alpha[df$unit] * beta[df$time]
+
+  df <- df %>%
+    mutate(
+      tau_it = tau_i[unit],
+      y = signal + W * tau_it + rnorm(n(), 0, sigma)
+    )
+
+  baseline_time <- T0 - 1
+  treated_baseline <- df %>%
+    filter(treated_unit == 1, time == baseline_time) %>%
+    select(unit, pop, tau_it)
+
+  true_tau_weighted <- with(treated_baseline, sum(tau_it * pop) / sum(pop))
+
+  list(df = df, T0 = T0, true_tau_weighted = true_tau_weighted)
+}
+
+
+estimate_methods <- function(sim) {
+  
+  df <- sim$df
+  T0 <- sim$T0
+
+  # Basic SID 
+  tau_sdid <- run_sdid_long(df, T0)
+
+  # Solution 1: SDID on weighted-average treated unit
+  df_super <- make_weighted_treated_unit(df, T0, weight_col = "pop")
+  tau_sdid_super <- run_sdid_long(df_super, T0)
+
+  # Solution 2: weighted average of unit-level SDIDs
+  sol2 <- run_sdid_by_treated_and_average(df, T0, weight_col = "pop")
+
+  # DID
+  tau_did_unw <- did_twfe(df)
+  tau_did_w <- did_twfe(df, w = "pop")
+  
+  tibble(
+    tau_sdid = as.numeric(tau_sdid),
+    tau_sdid_super = as.numeric(tau_sdid_super),
+    tau_sdid_unit_wavg = as.numeric(sol2$tau_weighted_average),
+    tau_did_unw = as.numeric(tau_did_unw),
+    tau_did_w = as.numeric(tau_did_w)
+  )
+}
+
+B <- 100
+grid <- tidyr::expand_grid(
+  fe_type = c("additive", "interactive"),
+  tau_type = c("homogeneous", "heterogeneous")
+)
+
+sim_results <- grid %>%
+  mutate(draws = pmap(list(fe_type, tau_type), function(fe_type, tau_type) {
+    map_dfr(1:B, function(b) {
+      sim <- simulate_panel(fe_type = fe_type, tau_type = tau_type, seed = 1000 + b)
+      est <- estimate_methods(sim)
+      est %>%
+        mutate(
+          true_tau_weighted = sim$true_tau_weighted,
+          draw = b
+        )
+    })
+  })) %>%
+  unnest(draws)
+```
+
+## 5.1 Simulation Results
+
+RMSE table (relative to the weighted true ATE):
+
+```{r rmse-table}
+rmse_tbl <- sim_results %>%
+  pivot_longer(    cols = starts_with("tau_") & !any_of(c("tau_type", "true_tau_weighted")),
+               names_to = "method", 
+               values_to = "tau_hat") %>%
+  mutate(err = tau_hat - true_tau_weighted) %>%
+  group_by(fe_type, tau_type, method) %>%
+  summarise(
+    rmse = sqrt(mean(err^2, na.rm = TRUE)),
+    bias = mean(err, na.rm = TRUE),
+    sd = sd(err, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(fe_type, tau_type, method)
+
+knitr::kable(rmse_tbl, digits = 3, caption = "RMSE, bias, and SD of estimation error (tau_hat - tau_true_weighted)")
+```
+
+Distribution plots (actual minus estimated ATE):
+
+```{r sim-plots, fig.cap="Simulation: distribution of estimation error (tau_hat - tau_true_weighted)."}
+plot_df <- sim_results %>%
+  pivot_longer(
+    cols = starts_with("tau_") & !any_of(c("tau_type", "true_tau_weighted")),
+    names_to = "method",
+    values_to = "tau_hat"
+  ) %>%
+  mutate(
+    diff = tau_hat - true_tau_weighted,
+    method = recode(method,
+      tau_sdid = "SDID (unweighted)",
+      tau_sdid_super = "SDID of weighted treated average (Sol. 1)",
+      tau_sdid_unit_wavg = "Weighted avg of unit SDIDs (Sol. 2)",
+      tau_did_unw = "DID (unweighted)",
+      tau_did_w = "DID (weighted)"
+    )
+  )
+
+# Common x-axis limits across BOTH plots
+x_lim <- range(plot_df$diff, na.rm = TRUE)
+
+# Homogeneous plot
+p_homogeneous <- plot_df %>%
+  filter(tau_type == "homogeneous") %>%
+  ggplot(aes(x = diff)) +
+  geom_histogram(bins = 35) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  coord_cartesian(xlim = x_lim) +
+  facet_grid(fe_type ~ method, scales = "free_y") +
+  labs(
+    title = "Simulation error distributions: Homogeneous treatment",
+    x = "tau_hat - tau_true_weighted",
+    y = "Count"
+  )
+
+# Heterogeneous plot
+p_heterogeneous <- plot_df %>%
+  filter(tau_type == "heterogeneous") %>%
+  ggplot(aes(x = diff)) +
+  geom_histogram(bins = 35) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  coord_cartesian(xlim = x_lim) +
+  facet_grid(fe_type ~ method, scales = "free_y") +
+  labs(
+    title = "Simulation error distributions: Heterogeneous treatment",
+    x = "tau_hat - tau_true_weighted",
+    y = "Count"
+  )
+
+p_homogeneous
+p_heterogeneous
+
+```
+
+---
+
+# 6. Replication (Draft)
+
+We apply our discussion of treated-unit weighting to Borgschulte and Vogler (2020), who study whether the Affordable Care Act (ACA) Medicaid expansion reduced mortality. Their core estimand is the change in county-level mortality in expansion states relative to non-expansion states in the years following the policy change, with a particular focus on working-age adults (ages 20–64). Empirically, they implement a differences-in-differences research design using county-by-year variation, but they explicitly address observable pre-expansion differences between expansion and non-expansion areas by combining propensity-score weighting with machine-learning-assisted matching to improve comparability across counties. 
+
+
+This setting is useful for our purposes for two reasons. First, it naturally features many treated units (counties in expansion states) and many control units (counties in non-expansion states), which makes the treated-unit aggregation problem salient whenever one wants an estimand that reflects population exposure rather than an equal-weighted county average. Second, Borgschulte and Vogler motivate their reweighting strategy precisely because DID is complicated by systematic pre-expansion level differences in mortality rates between treatment and control areas; in such environments, methods that reweight units to improve pre-treatment balance—whether via propensity-score weights or SDID’s synthetic weighting—are especially relevant to assess side-by-side. 
+
+In our partial replication, we implement two classes of estimators on a common analysis sample: (i) a conventional DID regression (both unweighted and population-weighted) and (ii) SDID estimators (unweighted SDID and population-weighted variants aligned with the weighting discussion in this paper). The objective is not to reproduce every modeling choice in Borgschulte and Vogler (2020), but to use their empirical context to illustrate how the choice of treated-unit weights can change the estimand and, in finite samples, the behavior of SDID relative to DID in the presence of meaningful baseline differences. 
+
+A key practical constraint is data access. Borgschulte and Vogler (2020) rely on restricted-access microdata covering all deaths in the United States, which we do not have. Consequently, our replication uses publicly available mortality data and imposes additional restrictions to align the public data structure with the panel requirements of our methods. These are discussed in Appendix X, which compares our data with those in BV (2020)/ These constraints limit exact comparability to the published results, but they still provide a clean environment to demonstrate the paper’s main point: when many treated units differ substantially in size, population weighting is not a cosmetic choice—it changes the target parameter and can materially affect the SDID estimate and its interpretation.
+
+```{r replication}
+
+## Data (created previously)
+data_path <- normalizePath(file.path("..", "data", "analysis_data.csv"), mustWork = FALSE)
+
+## Check to make sure data exist
+if (!is.na(data_path)) {
+  
+  message("Loading data: ", data_path)
+  panel <- read_csv(data_path, show_col_types = FALSE)
+
+  ## Define control variables 
+  control_vars <- c("pct_white", "pop_20_64", "pct_55_64", "log_35_44", "log_f_20_64", "unemp")
+  
+  ## Basic version for now, with controls to come
+  panel <- panel %>% dplyr::select(time = year, 
+                                   unit = fips, 
+                                   y = crude_rate, 
+                                   treated_unit = expansion, 
+                                   pop = population, 
+                                   control_vars )
+  
+  required <- c("unit", "time", "y", "treated_unit")
+  if (!all(required %in% names(panel))) {
+    stop("Replication data found, but missing required columns: unit, time, y, treated_unit (and optional pop).")
+  }
+
+  # You should set this explicitly for the application:
+  T0_emp <- 2014
+  panel <- panel %>% mutate(post = as.integer(time >= T0_emp))
+  
+
+  ## Estimate models (unweighted) (SDID)
+  tau_emp_sdid_unw_nc <- run_sdid_long(panel, T0_emp)
+  tau_emp_sdid_unw_wc <- run_sdid_long(panel, T0_emp, controls = control_vars)
+  
+  ## Estimated Models (unweighted) (DiD)
+  tau_emp_did_unw_nc <- did_twfe(panel)
+  tau_emp_did_unw_wc <- did_twfe(panel, controls = control_vars)
+  
+  ## Estimate models (weighted) (SDID)
+  df_super <- make_weighted_treated_unit(panel, T0_emp, weight_col = "pop")
+  tau_emp_sdid_w1_nc <- run_sdid_long(df_super, T0_emp)
+  df_super <- make_weighted_treated_unit(panel, T0_emp, weight_col = "pop", 
+                                         controls = control_vars)
+  tau_emp_sdid_w1_wc <- run_sdid_long(df_super, T0_emp, controls = control_vars)
+
+  tau_emp_sdid_w2_nc <- run_sdid_by_treated_and_average(panel, T0_emp, weight_col = "pop")
+  tau_emp_sdid_w2_wc <- run_sdid_by_treated_and_average(panel, T0_emp, weight_col = "pop", controls = control_vars)
+
+  ## Estimated Models (Weighted) (DiD)
+  tau_emp_did_w_nc <- did_twfe(panel, w = "pop")
+  tau_emp_did_w_wc <- did_twfe(panel, controls = control_vars, w = "pop")
+
+    ## Store in table 
+  out <- tibble(
+    method = c("SDID (UnW)","SDID (UnW) (Controls)", 
+               "SDID (Weight 1)", "SDID (Weight 1) (Controls)",
+               "SDID (Weight 2)", "SDID (Weight 2) (Controls)",
+               "DID (UnW)","DID (UnW) (Controls)", 
+               "DID (Weighted)","DID (Weighted) (Controls)" ),
+    tau = c(as.numeric(tau_emp_sdid_unw_nc),as.numeric(tau_emp_sdid_unw_wc), 
+            as.numeric(tau_emp_sdid_w1_nc),as.numeric(tau_emp_sdid_w1_wc),
+            as.numeric(tau_emp_sdid_w2_nc$tau_weighted_average),
+            as.numeric(tau_emp_sdid_w2_wc$tau_weighted_average),
+            as.numeric(tau_emp_did_unw_nc),as.numeric(tau_emp_did_unw_wc),
+            as.numeric(tau_emp_did_w_nc),as.numeric(tau_emp_did_w_wc))
+  )
+ knitr::kable(out, digits = 3, caption = "Replication: SDID/DID estimates (placeholder)")
+} else {
+  cat("No replication data found. Put data/analysis_panel.csv or data/analysis_panel.rds in the repo to enable this section.")
+}
+```
+
+---
+
+# 7. Analysis of Bias (Draft)
+
+DRAFT: To be filled in.
+
+---
+
+# 8. Conclusion (Draft)
+
+DRAFT: To be filled in.
+
+---
+
+# References
+
+Abadie, Alberto, and Javier Gardeazabal. 2003. “The Economic Costs of Conflict: A Case Study of the Basque Country.” *American Economic Review* 93(1): 113–132.
+
+Abadie, Alberto, Alexis Diamond, and Jens Hainmueller. 2010. “Synthetic Control Methods for Comparative Case Studies: Estimating the Effect of California’s Tobacco Control Program.” *Journal of the American Statistical Association* 105(490): 493–505.
+
+Arkhangelsky, Dmitry, Susan Athey, David A. Hirshberg, Guido W. Imbens, and Stefan Wager. 2021. “Synthetic Difference-in-Differences.” *American Economic Review* 111(12): 4088–4118.
