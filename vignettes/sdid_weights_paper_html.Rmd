@@ -30,6 +30,19 @@ library(fixest)
 # SDID
 library(synthdid)
 
+# Double-lasso propensity score (Borgschulte-Vogler approach)
+library(hdm)    # For double-lasso variable selection
+library(glmnet) # For regularized regression
+
+# Source weighted SDID functions (Solution 3)
+# These extend the synthdid package to allow user-specified treated unit weights
+source("../R_weighted/utils.R")
+source("../R_weighted/solver.R")
+source("../R_weighted/synthdid.R")
+source("../R_weighted/vcov.R")
+source("../R_weighted/summary.R")
+source("../R_weighted/print.R")
+
 ```
 
 ## Abstract
@@ -57,9 +70,24 @@ We propose two potential solutions:
 
 Synthetic difference-in-differences was created by Arkhangelsky et al. (2021), combining elements of synthetic control methods and difference-in-differences to take advantage of benefits of both estimators while increasing precision. From SCM, re-weighting and matching of pre-exposure trends in SDID allows weaker reliance on parallel trend assumptions. From DiD, SDID does not require that treated and control groups have the same post-treatment trends, instead allowing for level differences.
 
-Following closely the description in Arkhangelsky et al. (2021), take the setting with ...
+## 2.1 Setup and Notation
 
-SDID estimates the following:
+Following closely the description in Arkhangelsky et al. (2021), consider a balanced panel with $N$ units observed over $T$ time periods. The first $N_{co}$ units are controls (never treated), and the remaining $N_{tr} = N - N_{co}$ units are treated starting at time $T_{pre} + 1$. Let $T_{post} = T - T_{pre}$ denote the number of post-treatment periods.
+
+Define the treatment indicator:
+$$
+W_{it} = \begin{cases} 1 & \text{if } i > N_{co} \text{ and } t > T_{pre} \\ 0 & \text{otherwise} \end{cases}
+$$
+
+The observed outcome $Y_{it}$ can be decomposed as:
+$$
+Y_{it} = Y_{it}(0) + \tau_{it} W_{it}
+$$
+where $Y_{it}(0)$ is the potential outcome under no treatment and $\tau_{it}$ is the unit-time specific treatment effect.
+
+## 2.2 The SDID Estimator
+
+SDID estimates the average treatment effect on the treated (ATT) via a weighted regression:
 
 $$
 (\hat{\tau}^{sdid}, \hat{\mu}, \hat{\alpha}, \hat{\beta}) =
@@ -67,27 +95,116 @@ $$
 (Y_{it} - \mu - \alpha_i - \beta_t - W_{it}\tau)^2\ \hat{\omega}_i^{sdid}\ \hat{\lambda}_t^{sdid} \right \}
 $$
 
-where $\alpha_i$ are unit fixed effects, $\hat{\omega}_i$ are unit weights, and $\hat{\lambda}_t$ are time weights.
+where $\alpha_i$ are unit fixed effects, $\hat{\omega}_i^{sdid}$ are unit weights, and $\hat{\lambda}_t^{sdid}$ are time weights.
 
-Unit weights are calculated as follows:
+**Importantly, this regression formulation yields a closed-form solution for $\hat{\tau}^{sdid}$:**
+
+$$
+\hat{\tau}^{sdid} = \left( \sum_{i=N_{co}+1}^{N} \pi_i \bar{Y}_{i,post} - \sum_{i=1}^{N_{co}} \hat{\omega}_i \bar{Y}_{i,post} \right) - \left( \sum_{i=N_{co}+1}^{N} \pi_i \tilde{Y}_{i,pre} - \sum_{i=1}^{N_{co}} \hat{\omega}_i \tilde{Y}_{i,pre} \right)
+$$
+
+where:
+- $\bar{Y}_{i,post} = \frac{1}{T_{post}} \sum_{t=T_{pre}+1}^{T} Y_{it}$ is unit $i$'s simple average outcome in the post-period
+- $\tilde{Y}_{i,pre} = \sum_{t=1}^{T_{pre}} \hat{\lambda}_t Y_{it}$ is unit $i$'s $\lambda$-weighted average outcome in the pre-period
+- $\pi_i$ are the weights on treated units
+
+**In the standard SDID implementation, treated units receive equal weights:**
+$$
+\pi_i = \frac{1}{N_{tr}} \quad \text{for all } i > N_{co}
+$$
+
+This equal-weighting assumption is embedded in how the control unit weights $\hat{\omega}$ are estimated.
+
+## 2.3 Control Unit Weights ($\omega$)
+
+Control unit weights are chosen to make the weighted average of control units match the (equally-weighted) average of treated units in the pre-treatment period:
 
 $$
 ( \hat{\omega}_0, \hat{\omega}^{sdid}  ) =
 \underset{\omega_0 \in \mathbb{R}, \omega \in \Omega } {\text{argmin}}
-\sum_{t=1}^{T_{pre}} \left (\omega_0 + \sum_{i=1}^{N_{co}} \omega_i Y_{it} + \frac{1}{N_{tr}} \sum_{i=N_{co}+1}^{N} Y_{it} \right )^2
+\sum_{t=1}^{T_{pre}} \left (\omega_0 + \sum_{i=1}^{N_{co}} \omega_i Y_{it} - \underbrace{\frac{1}{N_{tr}} \sum_{i=N_{co}+1}^{N} Y_{it}}_{\text{equal-weighted treated avg}} \right )^2
 + \zeta^2 T_{pre} || \omega ||_2^2
 $$
 
-Time weights are calculated similarly:
+where $\Omega = \{\omega \in \mathbb{R}^{N_{co}}_+ : \sum_i \omega_i = 1\}$ is the unit simplex and $\zeta$ is a regularization parameter.
+
+**Key observation:** The target for matching is the *simple average* of treated units' outcomes. If treated units differ in size or importance, this target does not reflect a population-weighted average.
+
+## 2.4 Time Weights ($\lambda$)
+
+Time weights are calculated similarly, matching the pre-treatment trajectory to post-treatment:
 
 $$
 ( \hat{\lambda}_0, \hat{\lambda}^{sdid}  ) =
 \underset{\lambda_0 \in \mathbb{R}, \lambda \in \Lambda } {\text{argmin}}
-\sum_{i=1}^{N_{co}} \left (\lambda_0 + \sum_{t=1}^{T_{pre}} \lambda_t Y_{it} + \frac{1}{T_{post}} \sum_{t=T_{pre}+1}^{T} Y_{it} \right )^2
+\sum_{i=1}^{N_{co}} \left (\lambda_0 + \sum_{t=1}^{T_{pre}} \lambda_t Y_{it} - \frac{1}{T_{post}} \sum_{t=T_{pre}+1}^{T} Y_{it} \right )^2
 + \zeta^2 N_{co} || \lambda ||^2
 $$
 
-The authors show that the estimator is asymptotically normal and propose inference using block bootstrap, jackknife, or permutation approaches.
+where $\Lambda = \{\lambda \in \mathbb{R}^{T_{pre}}_+ : \sum_t \lambda_t = 1\}$.
+
+## 2.5 Implementation in the `synthdid` Package
+
+The `synthdid` R package implements this estimator using a "collapsed form" representation. Define the collapsed outcome matrix $\tilde{Y}$ as an $(N_{co}+1) \times (T_{pre}+1)$ matrix:
+
+$$
+\tilde{Y} = \begin{pmatrix}
+Y_{1,1} & \cdots & Y_{1,T_{pre}} & \bar{Y}_{1,post} \\
+\vdots & \ddots & \vdots & \vdots \\
+Y_{N_{co},1} & \cdots & Y_{N_{co},T_{pre}} & \bar{Y}_{N_{co},post} \\
+\frac{1}{N_{tr}}\sum_{i>N_{co}} Y_{i,1} & \cdots & \frac{1}{N_{tr}}\sum_{i>N_{co}} Y_{i,T_{pre}} & \frac{1}{N_{tr}}\sum_{i>N_{co}} \bar{Y}_{i,post}
+\end{pmatrix}
+$$
+
+The last row averages treated units with **equal weights** ($1/N_{tr}$). The last column averages post-treatment periods with equal weights ($1/T_{post}$).
+
+The treatment effect is then computed as:
+$$
+\hat{\tau}^{sdid} = \begin{pmatrix} -\hat{\omega} \\ 1 \end{pmatrix}^\top \tilde{Y} \begin{pmatrix} -\hat{\lambda} \\ 1 \end{pmatrix}
+$$
+
+This is a double-difference: the difference between the treated average and synthetic control, comparing post-treatment to $\lambda$-weighted pre-treatment.
+
+## 2.6 The Weighted SDID Estimator
+
+To allow for user-specified weights on treated units, we modify the estimator by replacing the uniform weights $1/N_{tr}$ with user-specified weights $\pi = (\pi_{N_{co}+1}, \ldots, \pi_N)$ where $\sum_{i>N_{co}} \pi_i = 1$.
+
+**Modified collapsed form:**
+
+$$
+\tilde{Y}^{(\pi,\rho)} = \begin{pmatrix}
+Y_{1,1} & \cdots & Y_{1,T_{pre}} & \sum_{t>T_{pre}} \rho_t Y_{1,t} \\
+\vdots & \ddots & \vdots & \vdots \\
+Y_{N_{co},1} & \cdots & Y_{N_{co},T_{pre}} & \sum_{t>T_{pre}} \rho_t Y_{N_{co},t} \\
+\sum_{i>N_{co}} \pi_i Y_{i,1} & \cdots & \sum_{i>N_{co}} \pi_i Y_{i,T_{pre}} & \sum_{i>N_{co}} \sum_{t>T_{pre}} \pi_i \rho_t Y_{i,t}
+\end{pmatrix}
+$$
+
+where $\rho = (\rho_{T_{pre}+1}, \ldots, \rho_T)$ are optional post-period weights (defaulting to $1/T_{post}$).
+
+**Modified control weight optimization:**
+
+$$
+( \hat{\omega}_0, \hat{\omega}^{w}  ) =
+\underset{\omega_0 \in \mathbb{R}, \omega \in \Omega } {\text{argmin}}
+\sum_{t=1}^{T_{pre}} \left (\omega_0 + \sum_{i=1}^{N_{co}} \omega_i Y_{it} - \underbrace{\sum_{i=N_{co}+1}^{N} \pi_i Y_{it}}_{\text{user-weighted treated avg}} \right )^2
++ \zeta^2 T_{pre} || \omega ||_2^2
+$$
+
+**Modified treatment effect:**
+
+$$
+\hat{\tau}^{sdid,w} = \begin{pmatrix} -\hat{\omega}^w \\ \pi \end{pmatrix}^\top Y \begin{pmatrix} -\hat{\lambda}^w \\ \rho \end{pmatrix}
+$$
+
+This weighted estimator targets the $\pi$-weighted average treatment effect:
+$$
+\tau^{(\pi)} = \sum_{i=N_{co}+1}^{N} \pi_i \cdot \frac{1}{T_{post}} \sum_{t=T_{pre}+1}^{T} \tau_{it}
+$$
+
+When $\pi_i$ reflects population shares, $\tau^{(\pi)}$ is the population-weighted ATT.
+
+The authors show that the estimator is asymptotically normal and propose inference using block bootstrap, jackknife, or permutation approaches. For the weighted estimator, we adapt these procedures to properly handle weight renormalization during resampling.
 
 ---
 
@@ -126,14 +243,23 @@ synthdid_units_plot(tau_sdid, se.method = "placebo")
 
 There are two places in SDID where the lack of treated-unit weights becomes problematic:
 
-1. **Control weights** are chosen to match the *average treated unit*, but that treated “average” is a simple average across treated units. If a researcher wants to weight treated units (e.g., by population), those weights are ignored, which matters when treatment heterogeneity is correlated with the weighting variable.
+1. **Control weights** are chosen to match the *average treated unit*, but that treated "average" is a simple average across treated units. If a researcher wants to weight treated units (e.g., by population), those weights are ignored, which matters when treatment heterogeneity is correlated with the weighting variable.
 
 2. In the final effect estimation, SDID effectively treats treated units as equally weighted (i.e., treated units are not re-weighted by user-specified weights). This departs from the approach often used in DID, where analysts commonly weight observations by a relevant characteristic.
 
-We propose two solutions:
+We propose three solutions:
 
 - **Solution 1:** Construct a weighted-average treated unit and run a single SDID.
 - **Solution 2:** Run SDID separately for each treated unit and take a weighted average of the unit-level treatment effects.
+- **Solution 3:** Modify the SDID algorithm to directly incorporate treated-unit weights in both the weight optimization and effect calculation (the "weighted SDID" approach described in Section 2.6).
+
+Each solution has distinct trade-offs:
+
+| Solution | Pros | Cons |
+|----------|------|------|
+| **Sol. 1: Weighted avg treated** | Simple to implement; single SDID run | Loses unit-level heterogeneity; aggregation may distort dynamics |
+| **Sol. 2: Unit-level SDIDs** | Preserves heterogeneity; allows unit-specific inference | Computationally intensive; each unit-SDID has fewer treated obs |
+| **Sol. 3: Weighted SDID** | Theoretically grounded; single coherent optimization; efficient | Requires modified code; variance estimation needs adaptation |
 
 ---
 
@@ -444,6 +570,339 @@ run_sdid_by_treated_and_average <- function(df,
   list(unit_level = est, tau_weighted_average = tau_wavg)
 }
 
+
+# Solution 3: Run weighted SDID using modified synthdid functions
+run_sdid_weighted <- function(df,
+                              treat_start_time,
+                              weight_col = "pop",
+                              controls = NULL,
+                              unit = "unit",
+                              time = "time",
+                              y = "y",
+                              treated_unit = "treated_unit",
+                              use_twfe_residualization = TRUE) {
+
+  # Defensive checks
+  if (!exists("synthdid_estimate_weighted")) {
+    stop("Weighted SDID functions not loaded. Source the R_weighted files first.")
+  }
+
+  df2 <- df
+
+  # Coerce and standardize time
+  df2 <- df2 %>%
+    dplyr::mutate(
+      .unit = as.factor(.data[[unit]]),
+      .time_raw = .data[[time]],
+      .time = if (inherits(.data[[time]], "Date")) as.integer(.data[[time]])
+              else suppressWarnings(as.numeric(as.character(.data[[time]])))
+    )
+
+  if (anyNA(df2$.time)) stop("Time coercion produced NA values.")
+
+  # Treatment indicator
+  df2 <- df2 %>%
+    dplyr::mutate(.W = as.integer((.data[[treated_unit]] == 1) & (.time >= treat_start_time)))
+
+  # Optional covariate adjustment: residualize y on controls
+  if (!is.null(controls)) {
+    if (!requireNamespace("fixest", quietly = TRUE)) {
+      stop("To use `controls`, please install `fixest`.")
+    }
+
+    controls_rhs <- ""
+    if (inherits(controls, "formula")) {
+      controls_rhs <- gsub("^\\s*~\\s*", "", deparse(controls))
+    } else if (is.character(controls)) {
+      controls_rhs <- paste(controls, collapse = " + ")
+    }
+
+    if (use_twfe_residualization) {
+      fml_txt <- paste0(y, " ~ ", controls_rhs, " | .unit + .time")
+    } else {
+      fml_txt <- paste0(y, " ~ ", controls_rhs)
+    }
+
+    m_resid <- fixest::feols(stats::as.formula(fml_txt), data = df2)
+    df2 <- df2[fixest::obs(m_resid), , drop = FALSE]
+    df2[[y]] <- as.numeric(stats::resid(m_resid))
+  }
+
+  # Prepare panel for synthdid
+  dfp <- df2 %>%
+    dplyr::arrange(.unit, .time) %>%
+    dplyr::select(.unit, .time, !!y, .W) %>%
+    dplyr::rename(y = !!y)
+
+  dfp <- as.data.frame(dfp)
+
+  # Balance check
+  bad <- dfp %>%
+    dplyr::count(.unit, .time) %>%
+    dplyr::filter(n != 1)
+  if (nrow(bad) > 0) {
+    stop("Input must be a balanced panel with unique (.unit, .time) rows.")
+  }
+
+  setup <- synthdid::panel.matrices(dfp)
+
+  # Calculate treated unit weights from baseline population
+  baseline_time <- max(df[[time]][df[[time]] < treat_start_time], na.rm = TRUE)
+  treated_weights_df <- df %>%
+    dplyr::filter(.data[[treated_unit]] == 1, .data[[time]] == baseline_time) %>%
+    dplyr::group_by(.data[[unit]]) %>%
+    dplyr::summarise(w0 = mean(.data[[weight_col]], na.rm = TRUE), .groups = "drop")
+
+  # Get treated unit order from setup$Y (row names should match)
+  treated_unit_names <- rownames(setup$Y)[(setup$N0 + 1):nrow(setup$Y)]
+
+  # Match weights to the order in Y matrix
+  treated_weights_df <- treated_weights_df %>%
+    dplyr::mutate(unit_char = as.character(.data[[unit]]))
+
+  # Ensure weights are in the correct order
+  weight_order <- match(treated_unit_names, treated_weights_df$unit_char)
+  if (any(is.na(weight_order))) {
+    # Fall back to order as-is if matching fails
+    treated_weights <- treated_weights_df$w0
+  } else {
+    treated_weights <- treated_weights_df$w0[weight_order]
+  }
+
+  # Normalize to sum to 1
+  treated_weights <- treated_weights / sum(treated_weights)
+
+  # Run weighted SDID
+  est <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
+                                    treated.weights = treated_weights)
+
+  est
+}
+
+
+#' Double-Lasso Propensity Score Weighting (Borgschulte-Vogler Approach)
+#'
+#' Implements the double-lasso variable selection procedure for propensity score
+#' estimation following Belloni et al. (2014) and as applied in Borgschulte & Vogler (2020).
+#'
+#' @param df Data frame with panel data
+#' @param outcome_var Name of the outcome variable (e.g., mortality rate)
+#' @param treatment_var Name of the treatment indicator (county-level expansion status)
+#' @param covariate_vars Character vector of potential covariates for selection
+#' @param unit Unit identifier column name
+#' @param time Time identifier column name
+#' @param pre_period_end Last pre-treatment period (for baseline characteristics)
+#' @param trim_quantiles Quantiles for trimming extreme propensity scores (default c(0.038, 0.971))
+#'
+#' @return List containing: propensity scores, selected variables, trimmed sample indicator, weights
+double_lasso_ps <- function(df,
+                            outcome_var,
+                            treatment_var,
+                            covariate_vars,
+                            unit = "unit",
+                            time = "time",
+                            pre_period_end,
+                            trim_quantiles = c(0.038, 0.971)) {
+
+  # Create baseline (pre-treatment) dataset at the unit level
+  baseline <- df %>%
+    dplyr::filter(.data[[time]] <= pre_period_end) %>%
+    dplyr::group_by(.data[[unit]]) %>%
+    dplyr::summarise(
+      # Treatment status (constant within unit)
+      treatment = mean(.data[[treatment_var]], na.rm = TRUE),
+      # Average outcome in pre-period
+      outcome_pre = mean(.data[[outcome_var]], na.rm = TRUE),
+      # Average of all covariates
+      dplyr::across(dplyr::all_of(covariate_vars), ~ mean(.x, na.rm = TRUE)),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(treatment = as.integer(treatment > 0))
+
+  # Remove any rows with missing values
+
+  baseline_complete <- baseline %>%
+    tidyr::drop_na()
+
+  if (nrow(baseline_complete) < nrow(baseline)) {
+    message(sprintf("Dropped %d units with missing baseline data",
+                    nrow(baseline) - nrow(baseline_complete)))
+  }
+
+  # Prepare matrices for lasso
+  X <- baseline_complete %>%
+    dplyr::select(dplyr::all_of(covariate_vars)) %>%
+    as.matrix()
+
+  Y <- baseline_complete$outcome_pre
+  D <- baseline_complete$treatment
+
+  # Standardize covariates for lasso
+  X_scaled <- scale(X)
+
+  # Step 1: Lasso regression of outcome on covariates
+  # This identifies variables predictive of the outcome
+  cv_outcome <- glmnet::cv.glmnet(X_scaled, Y, alpha = 1, nfolds = 10)
+  coef_outcome <- as.vector(coef(cv_outcome, s = "lambda.min"))[-1]  # Remove intercept
+  vars_outcome <- covariate_vars[coef_outcome != 0]
+
+  # Step 2: Lasso regression of treatment on covariates
+  # This identifies variables predictive of treatment assignment
+  cv_treatment <- glmnet::cv.glmnet(X_scaled, D, alpha = 1, family = "binomial", nfolds = 10)
+  coef_treatment <- as.vector(coef(cv_treatment, s = "lambda.min"))[-1]
+  vars_treatment <- covariate_vars[coef_treatment != 0]
+
+  # Union of selected variables (double-lasso)
+  vars_selected <- unique(c(vars_outcome, vars_treatment))
+
+  message(sprintf("Double-lasso selected %d variables:", length(vars_selected)))
+  message(sprintf("  - From outcome model: %d (%s)",
+                  length(vars_outcome), paste(vars_outcome, collapse = ", ")))
+  message(sprintf("  - From treatment model: %d (%s)",
+                  length(vars_treatment), paste(vars_treatment, collapse = ", ")))
+
+  # Step 3: Estimate propensity score using selected variables
+  if (length(vars_selected) > 0) {
+    ps_formula <- as.formula(paste("treatment ~", paste(vars_selected, collapse = " + ")))
+    ps_model <- glm(ps_formula, data = baseline_complete, family = binomial(link = "logit"))
+    ps <- predict(ps_model, type = "response")
+  } else {
+    # If no variables selected, use simple mean
+    warning("No variables selected by double-lasso. Using unconditional probability.")
+    ps <- rep(mean(D), length(D))
+  }
+
+  # Add propensity scores to baseline data
+  baseline_complete$ps <- ps
+
+  # Step 4: Trim based on overlap
+  ps_lower <- quantile(ps, trim_quantiles[1])
+  ps_upper <- quantile(ps, trim_quantiles[2])
+
+  baseline_complete <- baseline_complete %>%
+    dplyr::mutate(
+      in_overlap = (ps >= ps_lower & ps <= ps_upper),
+      # Propensity score weights (for ATT estimation)
+      # Treated: weight = 1, Control: weight = p/(1-p)
+      ps_weight = ifelse(treatment == 1, 1, ps / (1 - ps))
+    )
+
+  n_trimmed <- sum(!baseline_complete$in_overlap)
+  message(sprintf("Trimmed %d units outside overlap region [%.3f, %.3f]",
+                  n_trimmed, ps_lower, ps_upper))
+
+  # Return results
+  list(
+    baseline_data = baseline_complete,
+    vars_selected = vars_selected,
+    vars_outcome = vars_outcome,
+    vars_treatment = vars_treatment,
+    ps_model = if (length(vars_selected) > 0) ps_model else NULL,
+    trim_bounds = c(ps_lower, ps_upper),
+    n_trimmed = n_trimmed
+  )
+}
+
+
+#' Run DID with Double-Lasso Propensity Score Weights
+#'
+#' Combines double-lasso PS estimation with weighted DID regression
+#'
+#' @param df Panel data frame
+#' @param outcome_var Outcome variable name
+#' @param treatment_var Treatment indicator name
+#' @param post_var Post-treatment period indicator name
+#' @param covariate_vars Potential covariates for double-lasso selection
+#' @param unit Unit identifier
+#' @param time Time identifier
+#' @param pre_period_end Last pre-treatment period
+#' @param cluster Cluster variable for standard errors
+#' @param controls Optional additional controls for the DID regression (can differ from PS covariates)
+#' @param trim_quantiles Propensity score trimming quantiles
+#'
+#' @return List with DID estimate, PS results, and model object
+did_double_lasso_ps <- function(df,
+                                outcome_var = "y",
+                                treatment_var = "treated_unit",
+                                post_var = "post",
+                                covariate_vars,
+                                unit = "unit",
+                                time = "time",
+                                pre_period_end,
+                                cluster = "unit",
+                                controls = NULL,
+                                trim_quantiles = c(0.038, 0.971),
+                                return_model = FALSE) {
+
+  # Step 1: Estimate propensity scores using double-lasso
+  ps_results <- double_lasso_ps(
+    df = df,
+    outcome_var = outcome_var,
+    treatment_var = treatment_var,
+    covariate_vars = covariate_vars,
+    unit = unit,
+    time = time,
+    pre_period_end = pre_period_end,
+    trim_quantiles = trim_quantiles
+  )
+
+  # Step 2: Merge PS weights back to panel data
+  ps_weights <- ps_results$baseline_data %>%
+    dplyr::select(dplyr::all_of(unit), ps, ps_weight, in_overlap)
+
+  df_weighted <- df %>%
+    dplyr::left_join(ps_weights, by = unit) %>%
+    dplyr::filter(in_overlap)
+
+  # Step 3: Compute final weights (population * PS weight for controls, population for treated)
+  # Following BV: weight = T + (1-T) * p/(1-p), then multiply by population
+  if ("pop" %in% names(df_weighted)) {
+    df_weighted <- df_weighted %>%
+      dplyr::mutate(final_weight = pop * ps_weight)
+  } else {
+    df_weighted <- df_weighted %>%
+      dplyr::mutate(final_weight = ps_weight)
+  }
+
+  # Step 4: Run weighted DID
+  # Use the variables selected by double-lasso as controls (matching BV approach)
+  if (is.null(controls) && length(ps_results$vars_selected) > 0) {
+    # Use double-lasso selected variables as controls
+    controls <- ps_results$vars_selected
+  }
+
+  tau_hat <- did_twfe(
+    df = df_weighted,
+    y = outcome_var,
+    treated_unit = treatment_var,
+    post = post_var,
+    unit = unit,
+    time = time,
+    controls = controls,
+    w = "final_weight",
+    cluster = cluster,
+    return_model = return_model
+  )
+
+  if (return_model) {
+    list(
+      tau_hat = tau_hat$tau_hat,
+      model = tau_hat$model,
+      ps_results = ps_results,
+      n_units_trimmed = ps_results$n_trimmed,
+      n_obs_final = nrow(df_weighted),
+      vars_selected = ps_results$vars_selected
+    )
+  } else {
+    list(
+      tau_hat = tau_hat,
+      ps_results = ps_results,
+      n_units_trimmed = ps_results$n_trimmed,
+      vars_selected = ps_results$vars_selected
+    )
+  }
+}
+
 ```
 
 ---
@@ -529,11 +988,11 @@ simulate_panel <- function(
 
 
 estimate_methods <- function(sim) {
-  
+
   df <- sim$df
   T0 <- sim$T0
 
-  # Basic SID 
+  # Basic SDID (unweighted)
   tau_sdid <- run_sdid_long(df, T0)
 
   # Solution 1: SDID on weighted-average treated unit
@@ -543,14 +1002,21 @@ estimate_methods <- function(sim) {
   # Solution 2: weighted average of unit-level SDIDs
   sol2 <- run_sdid_by_treated_and_average(df, T0, weight_col = "pop")
 
+  # Solution 3: Weighted SDID (direct incorporation of treated weights)
+  tau_sdid_weighted <- tryCatch(
+    run_sdid_weighted(df, T0, weight_col = "pop"),
+    error = function(e) NA
+  )
+
   # DID
   tau_did_unw <- did_twfe(df)
   tau_did_w <- did_twfe(df, w = "pop")
-  
+
   tibble(
     tau_sdid = as.numeric(tau_sdid),
     tau_sdid_super = as.numeric(tau_sdid_super),
     tau_sdid_unit_wavg = as.numeric(sol2$tau_weighted_average),
+    tau_sdid_weighted = as.numeric(tau_sdid_weighted),
     tau_did_unw = as.numeric(tau_did_unw),
     tau_did_w = as.numeric(tau_did_w)
   )
@@ -601,7 +1067,7 @@ knitr::kable(rmse_tbl, digits = 3, caption = "RMSE, bias, and SD of estimation e
 
 Distribution plots (actual minus estimated ATE):
 
-```{r sim-plots, fig.cap="Simulation: distribution of estimation error (tau_hat - tau_true_weighted)."}
+```{r sim-plots, fig.cap="Simulation: distribution of estimation error (tau_hat - tau_true_weighted).", fig.width=10, fig.height=5}
 plot_df <- sim_results %>%
   pivot_longer(
     cols = starts_with("tau_") & !any_of(c("tau_type", "true_tau_weighted")),
@@ -612,8 +1078,9 @@ plot_df <- sim_results %>%
     diff = tau_hat - true_tau_weighted,
     method = recode(method,
       tau_sdid = "SDID (unweighted)",
-      tau_sdid_super = "SDID of weighted treated average (Sol. 1)",
-      tau_sdid_unit_wavg = "Weighted avg of unit SDIDs (Sol. 2)",
+      tau_sdid_super = "Sol. 1: Weighted avg treated",
+      tau_sdid_unit_wavg = "Sol. 2: Avg of unit SDIDs",
+      tau_sdid_weighted = "Sol. 3: Weighted SDID",
       tau_did_unw = "DID (unweighted)",
       tau_did_w = "DID (weighted)"
     )
@@ -659,14 +1126,57 @@ p_heterogeneous
 
 # 6. Replication (Draft)
 
-We apply our discussion of treated-unit weighting to Borgschulte and Vogler (2020), who study whether the Affordable Care Act (ACA) Medicaid expansion reduced mortality. Their core estimand is the change in county-level mortality in expansion states relative to non-expansion states in the years following the policy change, with a particular focus on working-age adults (ages 20–64). Empirically, they implement a differences-in-differences research design using county-by-year variation, but they explicitly address observable pre-expansion differences between expansion and non-expansion areas by combining propensity-score weighting with machine-learning-assisted matching to improve comparability across counties. 
+We apply our discussion of treated-unit weighting to Borgschulte and Vogler (2020), who study whether the Affordable Care Act (ACA) Medicaid expansion reduced mortality. Their core estimand is the change in county-level mortality in expansion states relative to non-expansion states in the years following the policy change, with a particular focus on working-age adults (ages 20–64).
 
+## 6.1 Summary of Borgschulte and Vogler (2020)
 
-This setting is useful for our purposes for two reasons. First, it naturally features many treated units (counties in expansion states) and many control units (counties in non-expansion states), which makes the treated-unit aggregation problem salient whenever one wants an estimand that reflects population exposure rather than an equal-weighted county average. Second, Borgschulte and Vogler motivate their reweighting strategy precisely because DID is complicated by systematic pre-expansion level differences in mortality rates between treatment and control areas; in such environments, methods that reweight units to improve pre-treatment balance—whether via propensity-score weights or SDID’s synthetic weighting—are especially relevant to assess side-by-side. 
+**Research Question:** Did the 2014 ACA Medicaid expansion reduce mortality rates among working-age adults (ages 20–64)?
 
-In our partial replication, we implement two classes of estimators on a common analysis sample: (i) a conventional DID regression (both unweighted and population-weighted) and (ii) SDID estimators (unweighted SDID and population-weighted variants aligned with the weighting discussion in this paper). The objective is not to reproduce every modeling choice in Borgschulte and Vogler (2020), but to use their empirical context to illustrate how the choice of treated-unit weights can change the estimand and, in finite samples, the behavior of SDID relative to DID in the presence of meaningful baseline differences. 
+**Key Finding:** The authors find a reduction in all-cause mortality of 11.36 deaths per 100,000 people (a 3.6% decrease), with effects largely driven by reductions in "amenable" causes of death—those most likely to be averted through optimal healthcare access—particularly cardiovascular and respiratory mortality.
 
-A key practical constraint is data access. Borgschulte and Vogler (2020) rely on restricted-access microdata covering all deaths in the United States, which we do not have. Consequently, our replication uses publicly available mortality data and imposes additional restrictions to align the public data structure with the panel requirements of our methods. These are discussed in Appendix X, which compares our data with those in BV (2020)/ These constraints limit exact comparability to the published results, but they still provide a clean environment to demonstrate the paper’s main point: when many treated units differ substantially in size, population weighting is not a cosmetic choice—it changes the target parameter and can materially affect the SDID estimate and its interpretation.
+**Methodological Innovation:** The paper's primary methodological contribution is its use of **double-lasso propensity score weighting** to address pre-existing differences in mortality trends between expansion and non-expansion counties. This data-driven approach provides two key advantages:
+
+1. **Prevention of overfitting:** The double-lasso procedure (Belloni et al., 2014) selects variables for inclusion in the propensity score model by fitting two lasso regressions: one predicting the outcome (mortality) and one predicting treatment (Medicaid expansion). The union of variables with non-zero coefficients in either regression is included in the final propensity score model.
+
+2. **Cross-validation of parallel trends:** The authors deliberately exclude mortality outcomes from the four years preceding the 2014 expansion from the propensity score model. This allows them to verify that the reweighted data displays flat pre-trends in this held-out window—a crucial check on the validity of the control group construction.
+
+**Variables Used in the Propensity Score Model:**
+
+The double-lasso procedure selects from a rich set of pre-expansion county-level variables:
+
+- **Demographics:** Population percentages in five age groups (20–24, 25–34, 35–44, 45–54, 55–64), percentage male, percentage white/black/Hispanic
+- **Economic:** Unemployment rate, poverty rate, logged real median income, logged population, population density
+- **Political:** Obama vote share in 2008 and 2012, indicator for Democratic governor in 2010
+- **Health-related:** Pre-expansion uninsured rate for non-elderly adults, logged average state health and welfare expenditures (2005–2013)
+- **Pre-expansion mortality:** All-cause mortality rates for adults 20–64 for each year 2005–2009, average all-cause/amenable/non-amenable mortality rates 2005–2013
+
+**Estimation Strategy:**
+
+The authors estimate event-study and difference-in-differences models of the form:
+$$
+Y_{cst} = \alpha_c + \gamma_t + \beta_1 \text{MedicaidExpansion}_{cs} + \beta X_{cst} + \epsilon_{cst}
+$$
+where observations are weighted by county population multiplied by propensity score weights: $T + (1-T) \times \frac{p}{1-p}$, where $T$ is a treatment indicator and $p$ is the estimated propensity score. Counties with propensity scores outside the overlap region are trimmed from the sample.
+
+## 6.2 Relevance to Weighted SDID
+
+This setting is useful for our purposes for two reasons. First, it naturally features many treated units (counties in expansion states) and many control units (counties in non-expansion states), which makes the treated-unit aggregation problem salient whenever one wants an estimand that reflects population exposure rather than an equal-weighted county average. Second, Borgschulte and Vogler motivate their reweighting strategy precisely because DID is complicated by systematic pre-expansion level differences in mortality rates between treatment and control areas; in such environments, methods that reweight units to improve pre-treatment balance—whether via propensity-score weights or SDID's synthetic weighting—are especially relevant to assess side-by-side.
+
+In our partial replication, we implement three classes of estimators on a common analysis sample:
+
+1. **Conventional DID regression** (both unweighted and population-weighted)
+2. **SDID estimators** (unweighted SDID and all three population-weighted variants discussed in this paper)
+3. **Double-lasso propensity score weighted DID** (replicating the Borgschulte-Vogler approach)
+
+The objective is not to reproduce every modeling choice in Borgschulte and Vogler (2020), but to use their empirical context to illustrate how the choice of treated-unit weights can change the estimand and, in finite samples, the behavior of SDID relative to DID in the presence of meaningful baseline differences.
+
+## 6.3 Data Limitations
+
+A key practical constraint is data access. Borgschulte and Vogler (2020) rely on restricted-access microdata covering all deaths in the United States, which we do not have. Consequently, our replication uses publicly available mortality data from CDC WONDER and imposes additional restrictions to align the public data structure with the panel requirements of our methods.
+
+Our available covariates include: percent white, population ages 20–64, percent ages 55–64, logged population subgroups, and unemployment rate. We lack several variables used in the original propensity score model (poverty rate, median income, political variables, uninsured rate). These constraints limit exact comparability to the published results, but they still provide a clean environment to demonstrate the paper's main point: when many treated units differ substantially in size, population weighting is not a cosmetic choice—it changes the target parameter and can materially affect the estimate and its interpretation.
+
+## 6.4 Estimation Results
 
 ```{r replication}
 
@@ -675,70 +1185,241 @@ data_path <- normalizePath(file.path("..", "data", "analysis_data.csv"), mustWor
 
 ## Check to make sure data exist
 if (!is.na(data_path)) {
-  
+
   message("Loading data: ", data_path)
   panel <- read_csv(data_path, show_col_types = FALSE)
 
-  ## Define control variables 
+  ## Define control variables (matching those used in BV 2020 where available)
+  ## BV uses: unemployment rate, percent white, percent 55-64, log population 20-64,
+  ## log population 35-44, log female population 20-64, and additional controls we lack
   control_vars <- c("pct_white", "pop_20_64", "pct_55_64", "log_35_44", "log_f_20_64", "unemp")
-  
+
   ## Basic version for now, with controls to come
-  panel <- panel %>% dplyr::select(time = year, 
-                                   unit = fips, 
-                                   y = crude_rate, 
-                                   treated_unit = expansion, 
-                                   pop = population, 
-                                   control_vars )
-  
+  panel <- panel %>% dplyr::select(time = year,
+                                   unit = fips,
+                                   y = crude_rate,
+                                   treated_unit = expansion,
+                                   pop = population,
+                                   all_of(control_vars))
+
   required <- c("unit", "time", "y", "treated_unit")
   if (!all(required %in% names(panel))) {
     stop("Replication data found, but missing required columns: unit, time, y, treated_unit (and optional pop).")
   }
 
-  # You should set this explicitly for the application:
+  # Treatment begins in 2014
   T0_emp <- 2014
   panel <- panel %>% mutate(post = as.integer(time >= T0_emp))
-  
+
+  message(sprintf("Panel: %d observations, %d units, years %d-%d",
+                  nrow(panel), n_distinct(panel$unit),
+                  min(panel$time), max(panel$time)))
+  message(sprintf("Treated units: %d, Control units: %d",
+                  n_distinct(panel$unit[panel$treated_unit == 1]),
+                  n_distinct(panel$unit[panel$treated_unit == 0])))
+
+  ## ============================================================
+  ## PANEL A: Standard DID Estimates
+  ## ============================================================
+
+  ## Estimated Models (unweighted) (DiD)
+  tau_emp_did_unw_nc <- did_twfe(panel)
+  tau_emp_did_unw_wc <- did_twfe(panel, controls = control_vars)
+
+  ## Estimated Models (Population-Weighted) (DiD)
+  tau_emp_did_w_nc <- did_twfe(panel, w = "pop")
+  tau_emp_did_w_wc <- did_twfe(panel, controls = control_vars, w = "pop")
+
+  ## ============================================================
+  ## PANEL B: Double-Lasso Propensity Score Weighted DID (BV Approach)
+  ## ============================================================
+
+  ## Run double-lasso PS-weighted DID (replicating Borgschulte-Vogler methodology)
+  ## This uses the double-lasso procedure to select controls and compute PS weights
+
+  tau_emp_dlps <- tryCatch({
+    did_double_lasso_ps(
+      df = panel,
+      outcome_var = "y",
+      treatment_var = "treated_unit",
+      post_var = "post",
+      covariate_vars = control_vars,
+      unit = "unit",
+      time = "time",
+      pre_period_end = T0_emp - 1,
+      cluster = "unit",
+      controls = NULL,  # Use double-lasso selected controls
+      trim_quantiles = c(0.038, 0.971),  # Matching BV trimming
+      return_model = TRUE
+    )
+  }, error = function(e) {
+    message("Double-lasso PS estimation error: ", e$message)
+    list(tau_hat = NA, vars_selected = character(0), n_units_trimmed = NA)
+  })
+
+  ## Also run with pre-specified controls (not double-lasso selected)
+  tau_emp_dlps_fixed <- tryCatch({
+    did_double_lasso_ps(
+      df = panel,
+      outcome_var = "y",
+      treatment_var = "treated_unit",
+      post_var = "post",
+      covariate_vars = control_vars,
+      unit = "unit",
+      time = "time",
+      pre_period_end = T0_emp - 1,
+      cluster = "unit",
+      controls = control_vars,  # Use all controls (override double-lasso selection)
+      trim_quantiles = c(0.038, 0.971),
+      return_model = FALSE
+    )
+  }, error = function(e) {
+    message("Double-lasso PS (fixed controls) error: ", e$message)
+    list(tau_hat = NA, vars_selected = character(0))
+  })
+
+  ## ============================================================
+  ## PANEL C: SDID Estimates
+  ## ============================================================
 
   ## Estimate models (unweighted) (SDID)
   tau_emp_sdid_unw_nc <- run_sdid_long(panel, T0_emp)
   tau_emp_sdid_unw_wc <- run_sdid_long(panel, T0_emp, controls = control_vars)
-  
-  ## Estimated Models (unweighted) (DiD)
-  tau_emp_did_unw_nc <- did_twfe(panel)
-  tau_emp_did_unw_wc <- did_twfe(panel, controls = control_vars)
-  
-  ## Estimate models (weighted) (SDID)
+
+  ## Solution 1: SDID on weighted-average treated unit
   df_super <- make_weighted_treated_unit(panel, T0_emp, weight_col = "pop")
   tau_emp_sdid_w1_nc <- run_sdid_long(df_super, T0_emp)
-  df_super <- make_weighted_treated_unit(panel, T0_emp, weight_col = "pop", 
-                                         controls = control_vars)
-  tau_emp_sdid_w1_wc <- run_sdid_long(df_super, T0_emp, controls = control_vars)
+  df_super_wc <- make_weighted_treated_unit(panel, T0_emp, weight_col = "pop",
+                                            controls = control_vars)
+  tau_emp_sdid_w1_wc <- run_sdid_long(df_super_wc, T0_emp, controls = control_vars)
 
+  ## Solution 2: Weighted average of unit-level SDIDs
   tau_emp_sdid_w2_nc <- run_sdid_by_treated_and_average(panel, T0_emp, weight_col = "pop")
-  tau_emp_sdid_w2_wc <- run_sdid_by_treated_and_average(panel, T0_emp, weight_col = "pop", controls = control_vars)
+  tau_emp_sdid_w2_wc <- run_sdid_by_treated_and_average(panel, T0_emp, weight_col = "pop",
+                                                        controls = control_vars)
 
-  ## Estimated Models (Weighted) (DiD)
-  tau_emp_did_w_nc <- did_twfe(panel, w = "pop")
-  tau_emp_did_w_wc <- did_twfe(panel, controls = control_vars, w = "pop")
-
-    ## Store in table 
-  out <- tibble(
-    method = c("SDID (UnW)","SDID (UnW) (Controls)", 
-               "SDID (Weight 1)", "SDID (Weight 1) (Controls)",
-               "SDID (Weight 2)", "SDID (Weight 2) (Controls)",
-               "DID (UnW)","DID (UnW) (Controls)", 
-               "DID (Weighted)","DID (Weighted) (Controls)" ),
-    tau = c(as.numeric(tau_emp_sdid_unw_nc),as.numeric(tau_emp_sdid_unw_wc), 
-            as.numeric(tau_emp_sdid_w1_nc),as.numeric(tau_emp_sdid_w1_wc),
-            as.numeric(tau_emp_sdid_w2_nc$tau_weighted_average),
-            as.numeric(tau_emp_sdid_w2_wc$tau_weighted_average),
-            as.numeric(tau_emp_did_unw_nc),as.numeric(tau_emp_did_unw_wc),
-            as.numeric(tau_emp_did_w_nc),as.numeric(tau_emp_did_w_wc))
+  ## Solution 3: Weighted SDID (direct incorporation of weights)
+  tau_emp_sdid_w3_nc <- tryCatch(
+    run_sdid_weighted(panel, T0_emp, weight_col = "pop"),
+    error = function(e) { message("Sol 3 (no controls) error: ", e$message); NA }
   )
- knitr::kable(out, digits = 3, caption = "Replication: SDID/DID estimates (placeholder)")
+  tau_emp_sdid_w3_wc <- tryCatch(
+    run_sdid_weighted(panel, T0_emp, weight_col = "pop", controls = control_vars),
+    error = function(e) { message("Sol 3 (w/ controls) error: ", e$message); NA }
+  )
+
+  ## ============================================================
+  ## Results Tables
+  ## ============================================================
+
+  ## Table 1: All estimation methods comparison
+  out <- tibble(
+    Method = c(
+      "**Panel A: Standard DID**", "", "", "",
+      "**Panel B: Double-Lasso PS DID (BV Approach)**", "",
+      "**Panel C: SDID Methods**", "", "", "", "", ""
+    ),
+    Specification = c(
+      "DID (Unweighted)", "DID (Unweighted) + Controls",
+      "DID (Pop-Weighted)", "DID (Pop-Weighted) + Controls",
+      "DL-PS DID (selected controls)", "DL-PS DID (all controls)",
+      "SDID (Unweighted)", "SDID (Unweighted) + Controls",
+      "Sol. 1: Weighted avg treated", "Sol. 1 + Controls",
+      "Sol. 2: Avg of unit SDIDs", "Sol. 2 + Controls"
+    ),
+    Estimate = c(
+      as.numeric(tau_emp_did_unw_nc), as.numeric(tau_emp_did_unw_wc),
+      as.numeric(tau_emp_did_w_nc), as.numeric(tau_emp_did_w_wc),
+      as.numeric(tau_emp_dlps$tau_hat), as.numeric(tau_emp_dlps_fixed$tau_hat),
+      as.numeric(tau_emp_sdid_unw_nc), as.numeric(tau_emp_sdid_unw_wc),
+      as.numeric(tau_emp_sdid_w1_nc), as.numeric(tau_emp_sdid_w1_wc),
+      as.numeric(tau_emp_sdid_w2_nc$tau_weighted_average),
+      as.numeric(tau_emp_sdid_w2_wc$tau_weighted_average)
+    )
+  )
+
+  knitr::kable(out, digits = 3,
+               caption = "Table 1: Replication Estimates - Effect of ACA Medicaid Expansion on Mortality",
+               col.names = c("", "Specification", "Estimate (deaths/100k)"))
+
 } else {
-  cat("No replication data found. Put data/analysis_panel.csv or data/analysis_panel.rds in the repo to enable this section.")
+  cat("No replication data found. Put data/analysis_data.csv in the repo to enable this section.")
+}
+```
+
+## 6.5 Double-Lasso Variable Selection Results
+
+The following shows which variables were selected by the double-lasso procedure for inclusion in the propensity score model:
+
+```{r dlps-diagnostics, eval=exists("tau_emp_dlps")}
+if (exists("tau_emp_dlps") && !is.null(tau_emp_dlps$ps_results)) {
+
+  cat("Double-Lasso Variable Selection Results:\n")
+  cat("=========================================\n\n")
+
+  ps_res <- tau_emp_dlps$ps_results
+
+  cat(sprintf("Variables selected from OUTCOME model (mortality): %d\n",
+              length(ps_res$vars_outcome)))
+  if (length(ps_res$vars_outcome) > 0) {
+    cat(sprintf("  %s\n", paste(ps_res$vars_outcome, collapse = ", ")))
+  }
+
+  cat(sprintf("\nVariables selected from TREATMENT model (expansion): %d\n",
+              length(ps_res$vars_treatment)))
+  if (length(ps_res$vars_treatment) > 0) {
+    cat(sprintf("  %s\n", paste(ps_res$vars_treatment, collapse = ", ")))
+  }
+
+  cat(sprintf("\nUnion of selected variables (used in PS model): %d\n",
+              length(ps_res$vars_selected)))
+  if (length(ps_res$vars_selected) > 0) {
+    cat(sprintf("  %s\n", paste(ps_res$vars_selected, collapse = ", ")))
+  }
+
+  cat(sprintf("\nPropensity score trimming:\n"))
+  cat(sprintf("  Bounds: [%.3f, %.3f]\n", ps_res$trim_bounds[1], ps_res$trim_bounds[2]))
+  cat(sprintf("  Units trimmed: %d\n", ps_res$n_trimmed))
+
+  # Show propensity score distribution
+  if (!is.null(ps_res$baseline_data)) {
+    ps_summary <- ps_res$baseline_data %>%
+      group_by(treatment) %>%
+      summarise(
+        n = n(),
+        ps_mean = mean(ps),
+        ps_sd = sd(ps),
+        ps_min = min(ps),
+        ps_max = max(ps),
+        .groups = "drop"
+      ) %>%
+      mutate(treatment = ifelse(treatment == 1, "Expansion", "Non-expansion"))
+
+    cat("\nPropensity Score Distribution by Treatment Status:\n")
+    print(knitr::kable(ps_summary, digits = 3))
+  }
+}
+```
+
+```{r ps-distribution-plot, eval=exists("tau_emp_dlps"), fig.cap="Propensity score distribution by treatment status"}
+if (exists("tau_emp_dlps") && !is.null(tau_emp_dlps$ps_results$baseline_data)) {
+
+  ps_data <- tau_emp_dlps$ps_results$baseline_data %>%
+    mutate(Group = ifelse(treatment == 1, "Expansion Counties", "Non-expansion Counties"))
+
+  ggplot(ps_data, aes(x = ps, fill = Group)) +
+    geom_histogram(alpha = 0.6, position = "identity", bins = 50) +
+    geom_vline(xintercept = tau_emp_dlps$ps_results$trim_bounds,
+               linetype = "dashed", color = "red") +
+    labs(
+      title = "Propensity Score Distribution",
+      subtitle = "Red dashed lines indicate trimming bounds",
+      x = "Propensity Score",
+      y = "Count",
+      fill = ""
+    ) +
+    theme_minimal() +
+    theme(legend.position = "bottom")
 }
 ```
 
@@ -758,8 +1439,12 @@ DRAFT: To be filled in.
 
 # References
 
-Abadie, Alberto, and Javier Gardeazabal. 2003. “The Economic Costs of Conflict: A Case Study of the Basque Country.” *American Economic Review* 93(1): 113–132.
+Abadie, Alberto, and Javier Gardeazabal. 2003. "The Economic Costs of Conflict: A Case Study of the Basque Country." *American Economic Review* 93(1): 113–132.
 
-Abadie, Alberto, Alexis Diamond, and Jens Hainmueller. 2010. “Synthetic Control Methods for Comparative Case Studies: Estimating the Effect of California’s Tobacco Control Program.” *Journal of the American Statistical Association* 105(490): 493–505.
+Abadie, Alberto, Alexis Diamond, and Jens Hainmueller. 2010. "Synthetic Control Methods for Comparative Case Studies: Estimating the Effect of California's Tobacco Control Program." *Journal of the American Statistical Association* 105(490): 493–505.
 
-Arkhangelsky, Dmitry, Susan Athey, David A. Hirshberg, Guido W. Imbens, and Stefan Wager. 2021. “Synthetic Difference-in-Differences.” *American Economic Review* 111(12): 4088–4118.
+Arkhangelsky, Dmitry, Susan Athey, David A. Hirshberg, Guido W. Imbens, and Stefan Wager. 2021. "Synthetic Difference-in-Differences." *American Economic Review* 111(12): 4088–4118.
+
+Belloni, Alexandre, Victor Chernozhukov, and Christian Hansen. 2014. "Inference on Treatment Effects after Selection among High-Dimensional Controls." *Review of Economic Studies* 81(2): 608–650.
+
+Borgschulte, Mark, and Jacob Vogler. 2020. "Did the ACA Medicaid Expansion Save Lives?" *Journal of Health Economics* 72: 102333. https://doi.org/10.1016/j.jhealeco.2020.102333.
