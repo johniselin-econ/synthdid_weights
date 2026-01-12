@@ -15,4 +15,4 @@
 !old_files/*.pdf
 .Rproj.user
 docs
-.Rhistory
+.Rhistorytmpclaude-*
