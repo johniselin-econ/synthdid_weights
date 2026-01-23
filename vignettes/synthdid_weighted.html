@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="utf-8" />
+<meta name="generator" content="pandoc" />
+<meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
+
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+
+
+<title>Weighted Synthetic Difference-in-Differences</title>
+
+<script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
+// be compatible with the behavior of Pandoc < 2.8).
+document.addEventListener('DOMContentLoaded', function(e) {
+  var hs = document.querySelectorAll("div.section[class*='level'] > :first-child");
+  var i, h, a;
+  for (i = 0; i < hs.length; i++) {
+    h = hs[i];
+    if (!/^h[1-6]$/i.test(h.tagName)) continue;  // it should be a header h1-h6
+    a = h.attributes;
+    while (a.length > 0) h.removeAttribute(a[0].name);
+  }
+});
+</script>
+
+<style type="text/css">
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+span.underline{text-decoration: underline;}
+div.column{display: inline-block; vertical-align: top; width: 50%;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+</style>
+
+
+
+<style type="text/css">
+code {
+white-space: pre;
+}
+.sourceCode {
+overflow: visible;
+}
+</style>
+<style type="text/css" data-origin="pandoc">
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+{ counter-reset: source-line 0; }
+pre.numberSource code > span
+{ position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+{ content: counter(source-line);
+position: relative; left: -1em; text-align: right; vertical-align: baseline;
+border: none; display: inline-block;
+-webkit-touch-callout: none; -webkit-user-select: none;
+-khtml-user-select: none; -moz-user-select: none;
+-ms-user-select: none; user-select: none;
+padding: 0 4px; width: 4em;
+color: #aaaaaa;
+}
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa; padding-left: 4px; }
+div.sourceCode
+{ }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } 
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.at { color: #7d9029; } 
+code span.bn { color: #40a070; } 
+code span.bu { color: #008000; } 
+code span.cf { color: #007020; font-weight: bold; } 
+code span.ch { color: #4070a0; } 
+code span.cn { color: #880000; } 
+code span.co { color: #60a0b0; font-style: italic; } 
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.do { color: #ba2121; font-style: italic; } 
+code span.dt { color: #902000; } 
+code span.dv { color: #40a070; } 
+code span.er { color: #ff0000; font-weight: bold; } 
+code span.ex { } 
+code span.fl { color: #40a070; } 
+code span.fu { color: #06287e; } 
+code span.im { color: #008000; font-weight: bold; } 
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.kw { color: #007020; font-weight: bold; } 
+code span.op { color: #666666; } 
+code span.ot { color: #007020; } 
+code span.pp { color: #bc7a00; } 
+code span.sc { color: #4070a0; } 
+code span.ss { color: #bb6688; } 
+code span.st { color: #4070a0; } 
+code span.va { color: #19177c; } 
+code span.vs { color: #4070a0; } 
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } 
+</style>
+<script>
+// apply pandoc div.sourceCode style to pre.sourceCode instead
+(function() {
+  var sheets = document.styleSheets;
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].ownerNode.dataset["origin"] !== "pandoc") continue;
+    try { var rules = sheets[i].cssRules; } catch (e) { continue; }
+    var j = 0;
+    while (j < rules.length) {
+      var rule = rules[j];
+      // check if there is a div.sourceCode rule
+      if (rule.type !== rule.STYLE_RULE || rule.selectorText !== "div.sourceCode") {
+        j++;
+        continue;
+      }
+      var style = rule.style.cssText;
+      // check if color or background-color is set
+      if (rule.style.color === '' && rule.style.backgroundColor === '') {
+        j++;
+        continue;
+      }
+      // replace div.sourceCode by a pre.sourceCode rule
+      sheets[i].deleteRule(j);
+      sheets[i].insertRule('pre.sourceCode{' + style + '}', j);
+    }
+  }
+})();
+</script>
+
+
+
+
+<style type="text/css">body {
+background-color: #fff;
+margin: 1em auto;
+max-width: 700px;
+overflow: visible;
+padding-left: 2em;
+padding-right: 2em;
+font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+font-size: 14px;
+line-height: 1.35;
+}
+#TOC {
+clear: both;
+margin: 0 0 10px 10px;
+padding: 4px;
+width: 400px;
+border: 1px solid #CCCCCC;
+border-radius: 5px;
+background-color: #f6f6f6;
+font-size: 13px;
+line-height: 1.3;
+}
+#TOC .toctitle {
+font-weight: bold;
+font-size: 15px;
+margin-left: 5px;
+}
+#TOC ul {
+padding-left: 40px;
+margin-left: -1.5em;
+margin-top: 5px;
+margin-bottom: 5px;
+}
+#TOC ul ul {
+margin-left: -2em;
+}
+#TOC li {
+line-height: 16px;
+}
+table {
+margin: 1em auto;
+border-width: 1px;
+border-color: #DDDDDD;
+border-style: outset;
+border-collapse: collapse;
+}
+table th {
+border-width: 2px;
+padding: 5px;
+border-style: inset;
+}
+table td {
+border-width: 1px;
+border-style: inset;
+line-height: 18px;
+padding: 5px 5px;
+}
+table, table th, table td {
+border-left-style: none;
+border-right-style: none;
+}
+table thead, table tr.even {
+background-color: #f7f7f7;
+}
+p {
+margin: 0.5em 0;
+}
+blockquote {
+background-color: #f6f6f6;
+padding: 0.25em 0.75em;
+}
+hr {
+border-style: solid;
+border: none;
+border-top: 1px solid #777;
+margin: 28px 0;
+}
+dl {
+margin-left: 0;
+}
+dl dd {
+margin-bottom: 13px;
+margin-left: 13px;
+}
+dl dt {
+font-weight: bold;
+}
+ul {
+margin-top: 0;
+}
+ul li {
+list-style: circle outside;
+}
+ul ul {
+margin-bottom: 0;
+}
+pre, code {
+background-color: #f7f7f7;
+border-radius: 3px;
+color: #333;
+white-space: pre-wrap; 
+}
+pre {
+border-radius: 3px;
+margin: 5px 0px 10px 0px;
+padding: 10px;
+}
+pre:not([class]) {
+background-color: #f7f7f7;
+}
+code {
+font-family: Consolas, Monaco, 'Courier New', monospace;
+font-size: 85%;
+}
+p > code, li > code {
+padding: 2px 0px;
+}
+div.figure {
+text-align: center;
+}
+img {
+background-color: #FFFFFF;
+padding: 2px;
+border: 1px solid #DDDDDD;
+border-radius: 3px;
+border: 1px solid #CCCCCC;
+margin: 0 5px;
+}
+h1 {
+margin-top: 0;
+font-size: 35px;
+line-height: 40px;
+}
+h2 {
+border-bottom: 4px solid #f7f7f7;
+padding-top: 10px;
+padding-bottom: 2px;
+font-size: 145%;
+}
+h3 {
+border-bottom: 2px solid #f7f7f7;
+padding-top: 10px;
+font-size: 120%;
+}
+h4 {
+border-bottom: 1px solid #f7f7f7;
+margin-left: 8px;
+font-size: 105%;
+}
+h5, h6 {
+border-bottom: 1px solid #ccc;
+font-size: 105%;
+}
+a {
+color: #0033dd;
+text-decoration: none;
+}
+a:hover {
+color: #6666ff; }
+a:visited {
+color: #800080; }
+a:visited:hover {
+color: #BB00BB; }
+a[href^="http:"] {
+text-decoration: underline; }
+a[href^="https:"] {
+text-decoration: underline; }
+
+code > span.kw { color: #555; font-weight: bold; } 
+code > span.dt { color: #902000; } 
+code > span.dv { color: #40a070; } 
+code > span.bn { color: #d14; } 
+code > span.fl { color: #d14; } 
+code > span.ch { color: #d14; } 
+code > span.st { color: #d14; } 
+code > span.co { color: #888888; font-style: italic; } 
+code > span.ot { color: #007020; } 
+code > span.al { color: #ff0000; font-weight: bold; } 
+code > span.fu { color: #900; font-weight: bold; } 
+code > span.er { color: #a61717; background-color: #e3d2d2; } 
+</style>
+
+
+
+
+</head>
+
+<body>
+
+
+
+
+<h1 class="title toc-ignore">Weighted Synthetic
+Difference-in-Differences</h1>
+
+
+
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="fu">library</span>(synthdid)</span>
+<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a><span class="fu">library</span>(ggplot2)</span>
+<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">42</span>)</span>
+<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a><span class="co"># Source the weighted functions (in correct order for dependencies)</span></span>
+<span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a><span class="co"># Note: The base synthdid package provides helper functions like sc.weight.fw, contract3</span></span>
+<span id="cb1-7"><a href="#cb1-7" tabindex="-1"></a><span class="fu">source</span>(<span class="st">&quot;../R_weighted/utils.R&quot;</span>)</span>
+<span id="cb1-8"><a href="#cb1-8" tabindex="-1"></a><span class="fu">source</span>(<span class="st">&quot;../R_weighted/solver.R&quot;</span>)</span>
+<span id="cb1-9"><a href="#cb1-9" tabindex="-1"></a><span class="fu">source</span>(<span class="st">&quot;../R_weighted/synthdid.R&quot;</span>)</span>
+<span id="cb1-10"><a href="#cb1-10" tabindex="-1"></a><span class="fu">source</span>(<span class="st">&quot;../R_weighted/vcov.R&quot;</span>)</span>
+<span id="cb1-11"><a href="#cb1-11" tabindex="-1"></a><span class="fu">source</span>(<span class="st">&quot;../R_weighted/summary.R&quot;</span>)</span>
+<span id="cb1-12"><a href="#cb1-12" tabindex="-1"></a><span class="fu">source</span>(<span class="st">&quot;../R_weighted/print.R&quot;</span>)</span></code></pre></div>
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>This vignette demonstrates the weighted synthetic
+difference-in-differences estimator, which extends the standard SDID to
+allow for user-specified weights on treated units. This is particularly
+useful when:</p>
+<ol style="list-style-type: decimal">
+<li>There are multiple treated units of different sizes (e.g., states
+with different populations)</li>
+<li>You want to estimate a population-weighted average treatment effect
+rather than a simple average</li>
+<li>Some treated units are more policy-relevant than others</li>
+</ol>
+</div>
+<div id="simulating-panel-data-with-heterogeneous-treatment-effects" class="section level1">
+<h1>Simulating Panel Data with Heterogeneous Treatment Effects</h1>
+<p>We simulate a panel dataset with: - 40 control units - 3 treated
+units with different populations and treatment effects - 20
+pre-treatment periods and 5 post-treatment periods</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="co"># Parameters</span></span>
+<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a>N0 <span class="ot">&lt;-</span> <span class="dv">40</span>        <span class="co"># Control units</span></span>
+<span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a>N1 <span class="ot">&lt;-</span> <span class="dv">3</span>         <span class="co"># Treated units</span></span>
+<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a>T0 <span class="ot">&lt;-</span> <span class="dv">20</span>        <span class="co"># Pre-treatment periods</span></span>
+<span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a>T1 <span class="ot">&lt;-</span> <span class="dv">5</span>         <span class="co"># Post-treatment periods</span></span>
+<span id="cb2-6"><a href="#cb2-6" tabindex="-1"></a>N <span class="ot">&lt;-</span> N0 <span class="sc">+</span> N1</span>
+<span id="cb2-7"><a href="#cb2-7" tabindex="-1"></a>T_total <span class="ot">&lt;-</span> T0 <span class="sc">+</span> T1</span>
+<span id="cb2-8"><a href="#cb2-8" tabindex="-1"></a></span>
+<span id="cb2-9"><a href="#cb2-9" tabindex="-1"></a><span class="co"># Population weights for treated units (e.g., reflecting state populations)</span></span>
+<span id="cb2-10"><a href="#cb2-10" tabindex="-1"></a><span class="co"># Unit 1: Large state (60% of treated population)</span></span>
+<span id="cb2-11"><a href="#cb2-11" tabindex="-1"></a><span class="co"># Unit 2: Medium state (30% of treated population)</span></span>
+<span id="cb2-12"><a href="#cb2-12" tabindex="-1"></a><span class="co"># Unit 3: Small state (10% of treated population)</span></span>
+<span id="cb2-13"><a href="#cb2-13" tabindex="-1"></a>pop_weights <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="fl">0.60</span>, <span class="fl">0.30</span>, <span class="fl">0.10</span>)</span>
+<span id="cb2-14"><a href="#cb2-14" tabindex="-1"></a></span>
+<span id="cb2-15"><a href="#cb2-15" tabindex="-1"></a><span class="co"># Heterogeneous treatment effects by unit</span></span>
+<span id="cb2-16"><a href="#cb2-16" tabindex="-1"></a><span class="co"># Large state: small effect (tau = 5)</span></span>
+<span id="cb2-17"><a href="#cb2-17" tabindex="-1"></a><span class="co"># Medium state: medium effect (tau = 15)</span></span>
+<span id="cb2-18"><a href="#cb2-18" tabindex="-1"></a><span class="co"># Small state: large effect (tau = 30)</span></span>
+<span id="cb2-19"><a href="#cb2-19" tabindex="-1"></a>tau_by_unit <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">5</span>, <span class="dv">15</span>, <span class="dv">30</span>)</span>
+<span id="cb2-20"><a href="#cb2-20" tabindex="-1"></a></span>
+<span id="cb2-21"><a href="#cb2-21" tabindex="-1"></a><span class="co"># True population-weighted average treatment effect</span></span>
+<span id="cb2-22"><a href="#cb2-22" tabindex="-1"></a>tau_true_weighted <span class="ot">&lt;-</span> <span class="fu">sum</span>(pop_weights <span class="sc">*</span> tau_by_unit)</span>
+<span id="cb2-23"><a href="#cb2-23" tabindex="-1"></a><span class="co"># True simple average treatment effect</span></span>
+<span id="cb2-24"><a href="#cb2-24" tabindex="-1"></a>tau_true_simple <span class="ot">&lt;-</span> <span class="fu">mean</span>(tau_by_unit)</span>
+<span id="cb2-25"><a href="#cb2-25" tabindex="-1"></a></span>
+<span id="cb2-26"><a href="#cb2-26" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;True treatment effects by unit:</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb2-27"><a href="#cb2-27" tabindex="-1"></a><span class="co">#&gt; True treatment effects by unit:</span></span>
+<span id="cb2-28"><a href="#cb2-28" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Unit 1 (pop weight %.0f%%): tau = %.1f</span><span class="sc">\n</span><span class="st">&quot;</span>, pop_weights[<span class="dv">1</span>]<span class="sc">*</span><span class="dv">100</span>, tau_by_unit[<span class="dv">1</span>]))</span>
+<span id="cb2-29"><a href="#cb2-29" tabindex="-1"></a><span class="co">#&gt;   Unit 1 (pop weight 60%): tau = 5.0</span></span>
+<span id="cb2-30"><a href="#cb2-30" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Unit 2 (pop weight %.0f%%): tau = %.1f</span><span class="sc">\n</span><span class="st">&quot;</span>, pop_weights[<span class="dv">2</span>]<span class="sc">*</span><span class="dv">100</span>, tau_by_unit[<span class="dv">2</span>]))</span>
+<span id="cb2-31"><a href="#cb2-31" tabindex="-1"></a><span class="co">#&gt;   Unit 2 (pop weight 30%): tau = 15.0</span></span>
+<span id="cb2-32"><a href="#cb2-32" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Unit 3 (pop weight %.0f%%): tau = %.1f</span><span class="sc">\n</span><span class="st">&quot;</span>, pop_weights[<span class="dv">3</span>]<span class="sc">*</span><span class="dv">100</span>, tau_by_unit[<span class="dv">3</span>]))</span>
+<span id="cb2-33"><a href="#cb2-33" tabindex="-1"></a><span class="co">#&gt;   Unit 3 (pop weight 10%): tau = 30.0</span></span>
+<span id="cb2-34"><a href="#cb2-34" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">True simple average effect: %.1f</span><span class="sc">\n</span><span class="st">&quot;</span>, tau_true_simple))</span>
+<span id="cb2-35"><a href="#cb2-35" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb2-36"><a href="#cb2-36" tabindex="-1"></a><span class="co">#&gt; True simple average effect: 16.7</span></span>
+<span id="cb2-37"><a href="#cb2-37" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;True population-weighted effect: %.1f</span><span class="sc">\n</span><span class="st">&quot;</span>, tau_true_weighted))</span>
+<span id="cb2-38"><a href="#cb2-38" tabindex="-1"></a><span class="co">#&gt; True population-weighted effect: 10.5</span></span></code></pre></div>
+<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="co"># Generate outcome matrix Y</span></span>
+<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a><span class="co"># Y_it = alpha_i + beta_t + epsilon_it + tau_i * W_it</span></span>
+<span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" tabindex="-1"></a><span class="co"># Unit fixed effects</span></span>
+<span id="cb3-5"><a href="#cb3-5" tabindex="-1"></a>alpha <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="fu">rnorm</span>(N0, <span class="at">mean =</span> <span class="dv">50</span>, <span class="at">sd =</span> <span class="dv">10</span>),</span>
+<span id="cb3-6"><a href="#cb3-6" tabindex="-1"></a>           <span class="fu">rnorm</span>(N1, <span class="at">mean =</span> <span class="dv">55</span>, <span class="at">sd =</span> <span class="dv">5</span>))</span>
+<span id="cb3-7"><a href="#cb3-7" tabindex="-1"></a></span>
+<span id="cb3-8"><a href="#cb3-8" tabindex="-1"></a><span class="co"># Time fixed effects (with a trend)</span></span>
+<span id="cb3-9"><a href="#cb3-9" tabindex="-1"></a>beta <span class="ot">&lt;-</span> <span class="fu">cumsum</span>(<span class="fu">rnorm</span>(T_total, <span class="at">mean =</span> <span class="fl">0.5</span>, <span class="at">sd =</span> <span class="dv">1</span>))</span>
+<span id="cb3-10"><a href="#cb3-10" tabindex="-1"></a></span>
+<span id="cb3-11"><a href="#cb3-11" tabindex="-1"></a><span class="co"># Generate Y matrix</span></span>
+<span id="cb3-12"><a href="#cb3-12" tabindex="-1"></a>Y <span class="ot">&lt;-</span> <span class="fu">matrix</span>(<span class="dv">0</span>, <span class="at">nrow =</span> N, <span class="at">ncol =</span> T_total)</span>
+<span id="cb3-13"><a href="#cb3-13" tabindex="-1"></a><span class="cf">for</span> (i <span class="cf">in</span> <span class="dv">1</span><span class="sc">:</span>N) {</span>
+<span id="cb3-14"><a href="#cb3-14" tabindex="-1"></a>  <span class="cf">for</span> (t <span class="cf">in</span> <span class="dv">1</span><span class="sc">:</span>T_total) {</span>
+<span id="cb3-15"><a href="#cb3-15" tabindex="-1"></a>    Y[i, t] <span class="ot">&lt;-</span> alpha[i] <span class="sc">+</span> beta[t] <span class="sc">+</span> <span class="fu">rnorm</span>(<span class="dv">1</span>, <span class="at">sd =</span> <span class="dv">2</span>)</span>
+<span id="cb3-16"><a href="#cb3-16" tabindex="-1"></a>  }</span>
+<span id="cb3-17"><a href="#cb3-17" tabindex="-1"></a>}</span>
+<span id="cb3-18"><a href="#cb3-18" tabindex="-1"></a></span>
+<span id="cb3-19"><a href="#cb3-19" tabindex="-1"></a><span class="co"># Add treatment effects for treated units in post-period</span></span>
+<span id="cb3-20"><a href="#cb3-20" tabindex="-1"></a><span class="cf">for</span> (j <span class="cf">in</span> <span class="dv">1</span><span class="sc">:</span>N1) {</span>
+<span id="cb3-21"><a href="#cb3-21" tabindex="-1"></a>  i <span class="ot">&lt;-</span> N0 <span class="sc">+</span> j</span>
+<span id="cb3-22"><a href="#cb3-22" tabindex="-1"></a>  <span class="cf">for</span> (t <span class="cf">in</span> (T0 <span class="sc">+</span> <span class="dv">1</span>)<span class="sc">:</span>T_total) {</span>
+<span id="cb3-23"><a href="#cb3-23" tabindex="-1"></a>    Y[i, t] <span class="ot">&lt;-</span> Y[i, t] <span class="sc">+</span> tau_by_unit[j]</span>
+<span id="cb3-24"><a href="#cb3-24" tabindex="-1"></a>  }</span>
+<span id="cb3-25"><a href="#cb3-25" tabindex="-1"></a>}</span>
+<span id="cb3-26"><a href="#cb3-26" tabindex="-1"></a></span>
+<span id="cb3-27"><a href="#cb3-27" tabindex="-1"></a><span class="co"># Add row and column names</span></span>
+<span id="cb3-28"><a href="#cb3-28" tabindex="-1"></a><span class="fu">rownames</span>(Y) <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="fu">paste0</span>(<span class="st">&quot;Control_&quot;</span>, <span class="dv">1</span><span class="sc">:</span>N0), <span class="fu">paste0</span>(<span class="st">&quot;Treated_&quot;</span>, <span class="dv">1</span><span class="sc">:</span>N1))</span>
+<span id="cb3-29"><a href="#cb3-29" tabindex="-1"></a><span class="fu">colnames</span>(Y) <span class="ot">&lt;-</span> <span class="fu">paste0</span>(<span class="st">&quot;t&quot;</span>, <span class="dv">1</span><span class="sc">:</span>T_total)</span>
+<span id="cb3-30"><a href="#cb3-30" tabindex="-1"></a></span>
+<span id="cb3-31"><a href="#cb3-31" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;Dimensions of Y:&quot;</span>, <span class="fu">nrow</span>(Y), <span class="st">&quot;units x&quot;</span>, <span class="fu">ncol</span>(Y), <span class="st">&quot;periods</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb3-32"><a href="#cb3-32" tabindex="-1"></a><span class="co">#&gt; Dimensions of Y: 43 units x 25 periods</span></span>
+<span id="cb3-33"><a href="#cb3-33" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;N0 =&quot;</span>, N0, <span class="st">&quot;control units, N1 =&quot;</span>, N1, <span class="st">&quot;treated units</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb3-34"><a href="#cb3-34" tabindex="-1"></a><span class="co">#&gt; N0 = 40 control units, N1 = 3 treated units</span></span>
+<span id="cb3-35"><a href="#cb3-35" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;T0 =&quot;</span>, T0, <span class="st">&quot;pre-treatment periods, T1 =&quot;</span>, T1, <span class="st">&quot;post-treatment periods</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb3-36"><a href="#cb3-36" tabindex="-1"></a><span class="co">#&gt; T0 = 20 pre-treatment periods, T1 = 5 post-treatment periods</span></span></code></pre></div>
+</div>
+<div id="standard-unweighted-estimation" class="section level1">
+<h1>Standard (Unweighted) Estimation</h1>
+<p>First, we estimate the treatment effect using the standard SDID
+estimator, which gives equal weight to all treated units.</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a><span class="co"># Standard SDID (equal weights on treated units)</span></span>
+<span id="cb4-2"><a href="#cb4-2" tabindex="-1"></a>tau_sdid <span class="ot">&lt;-</span> <span class="fu">synthdid_estimate</span>(Y, N0, T0)</span>
+<span id="cb4-3"><a href="#cb4-3" tabindex="-1"></a>tau_sc <span class="ot">&lt;-</span> <span class="fu">sc_estimate</span>(Y, N0, T0)</span>
+<span id="cb4-4"><a href="#cb4-4" tabindex="-1"></a>tau_did <span class="ot">&lt;-</span> <span class="fu">did_estimate</span>(Y, N0, T0)</span>
+<span id="cb4-5"><a href="#cb4-5" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;Standard Estimates (equal weights on treated units):</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb4-7"><a href="#cb4-7" tabindex="-1"></a><span class="co">#&gt; Standard Estimates (equal weights on treated units):</span></span>
+<span id="cb4-8"><a href="#cb4-8" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Diff-in-Diff:              %.2f</span><span class="sc">\n</span><span class="st">&quot;</span>, tau_did))</span>
+<span id="cb4-9"><a href="#cb4-9" tabindex="-1"></a><span class="co">#&gt;   Diff-in-Diff:              16.53</span></span>
+<span id="cb4-10"><a href="#cb4-10" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Synthetic Control:         %.2f</span><span class="sc">\n</span><span class="st">&quot;</span>, tau_sc))</span>
+<span id="cb4-11"><a href="#cb4-11" tabindex="-1"></a><span class="co">#&gt;   Synthetic Control:         16.98</span></span>
+<span id="cb4-12"><a href="#cb4-12" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Synthetic Diff-in-Diff:    %.2f</span><span class="sc">\n</span><span class="st">&quot;</span>, tau_sdid))</span>
+<span id="cb4-13"><a href="#cb4-13" tabindex="-1"></a><span class="co">#&gt;   Synthetic Diff-in-Diff:    16.95</span></span>
+<span id="cb4-14"><a href="#cb4-14" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">True simple average effect:  %.2f</span><span class="sc">\n</span><span class="st">&quot;</span>, tau_true_simple))</span>
+<span id="cb4-15"><a href="#cb4-15" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb4-16"><a href="#cb4-16" tabindex="-1"></a><span class="co">#&gt; True simple average effect:  16.67</span></span></code></pre></div>
+</div>
+<div id="weighted-estimation" class="section level1">
+<h1>Weighted Estimation</h1>
+<p>Now we use the weighted estimator with population weights. This gives
+more weight to larger treated units.</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="co"># Weighted SDID (population weights on treated units)</span></span>
+<span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a>tau_sdid_w <span class="ot">&lt;-</span> <span class="fu">synthdid_estimate_weighted</span>(Y, N0, T0, <span class="at">treated.weights =</span> pop_weights)</span>
+<span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a>tau_sc_w <span class="ot">&lt;-</span> <span class="fu">sc_estimate_weighted</span>(Y, N0, T0, <span class="at">treated.weights =</span> pop_weights)</span>
+<span id="cb5-4"><a href="#cb5-4" tabindex="-1"></a>tau_did_w <span class="ot">&lt;-</span> <span class="fu">did_estimate_weighted</span>(Y, N0, T0, <span class="at">treated.weights =</span> pop_weights)</span>
+<span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a></span>
+<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;Weighted Estimates (population weights on treated units):</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a><span class="co">#&gt; Weighted Estimates (population weights on treated units):</span></span>
+<span id="cb5-8"><a href="#cb5-8" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Diff-in-Diff:              %.2f</span><span class="sc">\n</span><span class="st">&quot;</span>, tau_did_w))</span>
+<span id="cb5-9"><a href="#cb5-9" tabindex="-1"></a><span class="co">#&gt;   Diff-in-Diff:              10.25</span></span>
+<span id="cb5-10"><a href="#cb5-10" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Synthetic Control:         %.2f</span><span class="sc">\n</span><span class="st">&quot;</span>, tau_sc_w))</span>
+<span id="cb5-11"><a href="#cb5-11" tabindex="-1"></a><span class="co">#&gt;   Synthetic Control:         10.98</span></span>
+<span id="cb5-12"><a href="#cb5-12" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Synthetic Diff-in-Diff:    %.2f</span><span class="sc">\n</span><span class="st">&quot;</span>, tau_sdid_w))</span>
+<span id="cb5-13"><a href="#cb5-13" tabindex="-1"></a><span class="co">#&gt;   Synthetic Diff-in-Diff:    10.66</span></span>
+<span id="cb5-14"><a href="#cb5-14" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">True population-weighted effect: %.2f</span><span class="sc">\n</span><span class="st">&quot;</span>, tau_true_weighted))</span>
+<span id="cb5-15"><a href="#cb5-15" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb5-16"><a href="#cb5-16" tabindex="-1"></a><span class="co">#&gt; True population-weighted effect: 10.50</span></span></code></pre></div>
+</div>
+<div id="comparison-of-results" class="section level1">
+<h1>Comparison of Results</h1>
+<div class="sourceCode" id="cb6"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" tabindex="-1"></a>results <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
+<span id="cb6-2"><a href="#cb6-2" tabindex="-1"></a>  <span class="at">Estimator =</span> <span class="fu">c</span>(<span class="st">&quot;Diff-in-Diff&quot;</span>, <span class="st">&quot;Synthetic Control&quot;</span>, <span class="st">&quot;Synthetic Diff-in-Diff&quot;</span>),</span>
+<span id="cb6-3"><a href="#cb6-3" tabindex="-1"></a>  <span class="at">Unweighted =</span> <span class="fu">c</span>(<span class="fu">as.numeric</span>(tau_did), <span class="fu">as.numeric</span>(tau_sc), <span class="fu">as.numeric</span>(tau_sdid)),</span>
+<span id="cb6-4"><a href="#cb6-4" tabindex="-1"></a>  <span class="at">Weighted =</span> <span class="fu">c</span>(<span class="fu">as.numeric</span>(tau_did_w), <span class="fu">as.numeric</span>(tau_sc_w), <span class="fu">as.numeric</span>(tau_sdid_w)),</span>
+<span id="cb6-5"><a href="#cb6-5" tabindex="-1"></a>  <span class="at">True_Simple =</span> <span class="fu">rep</span>(tau_true_simple, <span class="dv">3</span>),</span>
+<span id="cb6-6"><a href="#cb6-6" tabindex="-1"></a>  <span class="at">True_Weighted =</span> <span class="fu">rep</span>(tau_true_weighted, <span class="dv">3</span>)</span>
+<span id="cb6-7"><a href="#cb6-7" tabindex="-1"></a>)</span>
+<span id="cb6-8"><a href="#cb6-8" tabindex="-1"></a></span>
+<span id="cb6-9"><a href="#cb6-9" tabindex="-1"></a>results<span class="sc">$</span>Unweighted_Error <span class="ot">&lt;-</span> results<span class="sc">$</span>Unweighted <span class="sc">-</span> results<span class="sc">$</span>True_Simple</span>
+<span id="cb6-10"><a href="#cb6-10" tabindex="-1"></a>results<span class="sc">$</span>Weighted_Error <span class="ot">&lt;-</span> results<span class="sc">$</span>Weighted <span class="sc">-</span> results<span class="sc">$</span>True_Weighted</span>
+<span id="cb6-11"><a href="#cb6-11" tabindex="-1"></a></span>
+<span id="cb6-12"><a href="#cb6-12" tabindex="-1"></a>knitr<span class="sc">::</span><span class="fu">kable</span>(results, <span class="at">digits =</span> <span class="dv">2</span>,</span>
+<span id="cb6-13"><a href="#cb6-13" tabindex="-1"></a>             <span class="at">caption =</span> <span class="st">&quot;Comparison of Weighted vs Unweighted Estimates&quot;</span>)</span></code></pre></div>
+<table>
+<caption>Comparison of Weighted vs Unweighted Estimates</caption>
+<colgroup>
+<col width="22%" />
+<col width="10%" />
+<col width="8%" />
+<col width="11%" />
+<col width="13%" />
+<col width="16%" />
+<col width="14%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th align="left">Estimator</th>
+<th align="right">Unweighted</th>
+<th align="right">Weighted</th>
+<th align="right">True_Simple</th>
+<th align="right">True_Weighted</th>
+<th align="right">Unweighted_Error</th>
+<th align="right">Weighted_Error</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="left">Diff-in-Diff</td>
+<td align="right">16.53</td>
+<td align="right">10.25</td>
+<td align="right">16.67</td>
+<td align="right">10.5</td>
+<td align="right">-0.14</td>
+<td align="right">-0.25</td>
+</tr>
+<tr class="even">
+<td align="left">Synthetic Control</td>
+<td align="right">16.98</td>
+<td align="right">10.98</td>
+<td align="right">16.67</td>
+<td align="right">10.5</td>
+<td align="right">0.31</td>
+<td align="right">0.48</td>
+</tr>
+<tr class="odd">
+<td align="left">Synthetic Diff-in-Diff</td>
+<td align="right">16.95</td>
+<td align="right">10.66</td>
+<td align="right">16.67</td>
+<td align="right">10.5</td>
+<td align="right">0.28</td>
+<td align="right">0.16</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div id="understanding-the-difference" class="section level1">
+<h1>Understanding the Difference</h1>
+<p>The key insight is that with heterogeneous treatment effects across
+treated units, the choice of weights matters:</p>
+<ul>
+<li><p><strong>Unweighted (simple average)</strong>: Each treated unit
+contributes equally to the average treatment effect. This answers: “What
+is the average effect across treated units?”</p></li>
+<li><p><strong>Weighted (population-weighted)</strong>: Larger units
+contribute more to the average. This answers: “What is the average
+effect per person in the treated population?”</p></li>
+</ul>
+<p>In our simulation: - The largest treated unit (60% of population) has
+the smallest effect (tau = 5) - The smallest treated unit (10% of
+population) has the largest effect (tau = 30)</p>
+<p>Therefore, the population-weighted effect (10.5) is smaller than the
+simple average (16.7).</p>
+</div>
+<div id="visualizing-the-weights" class="section level1">
+<h1>Visualizing the Weights</h1>
+<div class="sourceCode" id="cb7"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" tabindex="-1"></a><span class="co"># Compare the treated unit weights</span></span>
+<span id="cb7-2"><a href="#cb7-2" tabindex="-1"></a>weight_df <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
+<span id="cb7-3"><a href="#cb7-3" tabindex="-1"></a>  <span class="at">Unit =</span> <span class="fu">rep</span>(<span class="fu">paste0</span>(<span class="st">&quot;Treated_&quot;</span>, <span class="dv">1</span><span class="sc">:</span>N1), <span class="dv">2</span>),</span>
+<span id="cb7-4"><a href="#cb7-4" tabindex="-1"></a>  <span class="at">Weight =</span> <span class="fu">c</span>(<span class="fu">rep</span>(<span class="dv">1</span><span class="sc">/</span>N1, N1), pop_weights),</span>
+<span id="cb7-5"><a href="#cb7-5" tabindex="-1"></a>  <span class="at">Type =</span> <span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">&quot;Unweighted (equal)&quot;</span>, <span class="st">&quot;Population-weighted&quot;</span>), <span class="at">each =</span> N1),</span>
+<span id="cb7-6"><a href="#cb7-6" tabindex="-1"></a>  <span class="at">Effect =</span> <span class="fu">rep</span>(tau_by_unit, <span class="dv">2</span>)</span>
+<span id="cb7-7"><a href="#cb7-7" tabindex="-1"></a>)</span>
+<span id="cb7-8"><a href="#cb7-8" tabindex="-1"></a></span>
+<span id="cb7-9"><a href="#cb7-9" tabindex="-1"></a><span class="fu">ggplot</span>(weight_df, <span class="fu">aes</span>(<span class="at">x =</span> Unit, <span class="at">y =</span> Weight, <span class="at">fill =</span> Type)) <span class="sc">+</span></span>
+<span id="cb7-10"><a href="#cb7-10" tabindex="-1"></a>  <span class="fu">geom_bar</span>(<span class="at">stat =</span> <span class="st">&quot;identity&quot;</span>, <span class="at">position =</span> <span class="st">&quot;dodge&quot;</span>, <span class="at">alpha =</span> <span class="fl">0.8</span>) <span class="sc">+</span></span>
+<span id="cb7-11"><a href="#cb7-11" tabindex="-1"></a>  <span class="fu">geom_text</span>(<span class="fu">aes</span>(<span class="at">label =</span> <span class="fu">sprintf</span>(<span class="st">&quot;tau=%.0f&quot;</span>, Effect)),</span>
+<span id="cb7-12"><a href="#cb7-12" tabindex="-1"></a>            <span class="at">position =</span> <span class="fu">position_dodge</span>(<span class="at">width =</span> <span class="fl">0.9</span>), <span class="at">vjust =</span> <span class="sc">-</span><span class="fl">0.5</span>, <span class="at">size =</span> <span class="dv">3</span>) <span class="sc">+</span></span>
+<span id="cb7-13"><a href="#cb7-13" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="st">&quot;steelblue&quot;</span>, <span class="st">&quot;coral&quot;</span>)) <span class="sc">+</span></span>
+<span id="cb7-14"><a href="#cb7-14" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">&quot;Treated Unit Weights: Equal vs Population-Weighted&quot;</span>,</span>
+<span id="cb7-15"><a href="#cb7-15" tabindex="-1"></a>       <span class="at">subtitle =</span> <span class="fu">sprintf</span>(<span class="st">&quot;Simple avg effect = %.1f, Population-weighted effect = %.1f&quot;</span>,</span>
+<span id="cb7-16"><a href="#cb7-16" tabindex="-1"></a>                         tau_true_simple, tau_true_weighted),</span>
+<span id="cb7-17"><a href="#cb7-17" tabindex="-1"></a>       <span class="at">y =</span> <span class="st">&quot;Weight&quot;</span>, <span class="at">x =</span> <span class="st">&quot;Treated Unit&quot;</span>) <span class="sc">+</span></span>
+<span id="cb7-18"><a href="#cb7-18" tabindex="-1"></a>  <span class="fu">theme_minimal</span>() <span class="sc">+</span></span>
+<span id="cb7-19"><a href="#cb7-19" tabindex="-1"></a>  <span class="fu">theme</span>(<span class="at">legend.position =</span> <span class="st">&quot;bottom&quot;</span>)</span></code></pre></div>
+<p><img role="img" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAwAAAAGACAIAAACVzJIoAAAABmJLR0QA/wD/AP+gvaeTAAAACXBIWXMAAA7DAAAOwwHHb6hkAAAgAElEQVR4nOzdeVwT59o38DuEhCUsQUClKLgh4opH3I+tG2LrVtytitpaxYXyKEVt0VbFtXVfqvhYOdpWa12qrXXDikVxASoqSKOAVRBcEVmzTTLvH/N03pwkhGBCAszv+4efYZb7vuaey+TKzCTDo2maAAAAAHCJjbUDAAAAALA0FEAAAADAOSiAAAAAgHNQAAEAAADnoAACAAAAzkEBBAAAAJxTtwqg7du3C6umVqvN2NezZ88iIyPfbNu8vDyhUPjs2TO9S5cvX96kSRPd+QsWLAgICDCm/e7du69fv77aOJctW+bp6ak5R6VSiUQioVBYUlKiOb9r167z5s2rUb/Vrrlp0ya9i0wZWE3Lly+vKhMqKipMb9+AgICA3bt311LjixYt0twXkUjUtm3bJUuWaB2y2mD8fmkdROMTw3h1M3uJCQls+GUBAOqaulUARUREKP6xbt06pVIpl8vZOTY25oz2u+++S0pKerNtaZpWKpVVLVWpVHqXqlQqiqKMaT81NXXx4sXVxjl06NCXL1++ePGCnZOVlcXj8VxcXJKTk9mZFRUVt27dGjVqVI36NYyiqKrqUVMGVhPzdqjQRyQSmd6+ARRFqVSqWmpcpVI1adKE3Zfy8vLU1NTbt2936dJFoVDUUqcM4/dL6yAanxjGq5vZS0xIYMMvCwBQ19StAkgTn88nhPB4PGsHUnd17dqVEHLr1i12zqlTpyZNmjRz5swff/yRnZmRkUEI6dWrl+UjNFFDPfqapTyPx3N1dd27d++jR48uXrxoxagsrMFnLwDUcXW3ANKrS5cuW7duff/9952cnJYuXcrMvHXr1vDhw52cnNq2bbtt2zatz7hnz54dPHiwk5OTp6fn1KlTmRPUCxYsiI6OvnXrllAovH79ujHtHDlyJCgoyMXFZcKECWlpaSbuSPfu3X/66ae4uLi2bdu6uLh88MEHz58/11zKnMzXGyfL0dGxR48eCQkJ7Jy9e/eOGzdu5MiRP/74Ixv/77//3qFDBxcXl2p3U+siwrFjx7p37+7k5DRs2LAbN24IhcJ79+6xSwsLCzdt2tS6dWsXF5dJkyYxH+V1Ay4qKpo1a5anp6erq2tISIjme/xvv/0mFAqfPHliykgeO3aMPS5ZWVlsg1qXe5jLE5p96U0Mw7Zu3dq8eXPNH0+/fPmynZ2dVCo1vKfVaty4MSEkJyeHnZOUlBQcHMwcpk2bNmmeWujevfuBAwfWrFnTrFkzLy+vmJgYJgBGtTte7QjoHkStxDAcm4HE1vRm2UuqTmDTs1fvvhvokZj7ZQEALIquq7Zs2aIbXvv27QkhmZmZcrm8sLCQpunz588TQn799VeKooqLi4cMGTJ06FC1Ws2sv2/fPl9f38ePH6vV6vLy8vnz53t5ealUKpqm161b17lzZ7Zlw+3s3r27adOmEolEpVKlpKQwl2CePn2qN/KlS5e6ubnpzo+IiGjTpg0zHRgY6OjoeODAAYVCIZVKp06d6uPjw3YXGBi4Zs0aZlorTi1bt25t2bIlM828iL9+/Zp5O8zIyGDmd+rUacOGDcbspma/3377rYeHR2Zmpkql+vPPP8ViMSHkr7/+YtckhOzZs4eJf/r06d7e3roDq1KpvL29161bp1AoVCoV8w6RmZlZ1e4YM4ya4uLi3Nzc7ty5o1KpkpOTmSCZxGjTps2OHTvYNR8+fMguog0mhu62rMLCQkJIVlYWO2fixIlhYWE12tOFCxf6+PhozXz06BEh5Pfff2fDc3Z2vnr1qkqlevbs2XvvvdejRw82vMDAQIFAEBMTI5PJXr9+PXr06KCgIIqi9AavueOaiwyPgFbWaSZGtbEZSGwtNc1e2mACmyV7dffdQI81elkAgLqm/hVAo0ePZv9UqVRisfjLL79k5xQXFxNCrl27RtO0Wq12c3M7fvw4u/TBgweEkCdPntA0/fXXXwcGBhrTjkwm4/P5Z86cYZf+8MMPphdA/fv3ZxcxH/3Zt2fNl3LNOHXdvXuXEFJWVkbT9NGjR9u3b8/M79ev39q1a2maZu4XZt6JDe+mZr8ymUwgEJw+fZpd89SpU1pvIQMGDNCKX3dgmU//EomkqvgNYM7wCXRER0czK8hkMhsbG83je+DAAWMKIMOJobutpp49ey5ZsoSZZsY2JSWlRnuqWwA9ffp08ODBfn5+TBHD5NuJEyfYFSorKzX3NDAwsFu3bppLCSFnz57VG7zeAqjaEdDKOs3EqDY2A4mtpUbZS1eXwGbJXtroV4aaviwAQF1Tzy6BEUK6devGTufl5b1+/XrcuHHsHLFY7Ofnd/r0aUIIj8d79epVSEhIamrqoUOHoqKiBg8eTAiRy+VabRpuJzc3V6VSde/enV369ttvm74jAwYMYKeZM/wymaymjfj7+/P5/MzMTELIwYMHZ8yYwcyfMmXKvn37CCGZmZl8Pr9du3akut3UdO/ePaVS2bt3b3ZO3759tdbp378/O+3m5kYIKSsr01rHw8OjQ4cO/fv3j4uLy8/Pp2v45F2xWKx7B/RXX33FLM3NzVWr1Zp3hzDHt1rGJ4auxYsX79y5k7mFNiEhQSwWMwlZoz1lLksx+Hz+O++8069fv/T0dOa+N+aMQr9+/dj1HRwcBg4ceOLECXbO9OnTNZf27duXOVFhpDceAWNiMz6xa5S9xOgENlf2Gu6xll4WAMBi6l8BpPkNoJcvXxJCunTpovm94uzs7Pz8fGaFgwcPOjs7z58/Pzs7e8SIEZo3V2oy3A5zct7R0ZFd39XV1UCE9vb2er/OI5fLNRvRnGbu9q1pfUAI4fP5o0aNSkxMVCqVJ06cGDp0KDN/8ODB2dnZZWVlFy5cGDNmDPPOWu1wsZ4+fUr+e6g1o61qji4ej/fnn3+uWrUqPj7ex8fH3d193bp1Rn4VjlR3EzTzWdzJyYmdY/i4aDIyMXQNHTq0rKzs5s2bhJBNmzYtXLiQuaO5RnvarFkztp5TqVQSieSLL75gR7uoqIj89+ATQnx8fJgLcGwLmkubN2/++PFjI3eB8WYjYExsehP73LlzmlnHXOeqUfYSoxPYXNlruMeaviwAQF1ja+0ATMK84vz999/NmzfXXfrixYvJkyd///33kydPZuZo3gVpfDvMr5VUVlY6ODgwczTvOdXVunXriooKlUrFvnAzsrOzO3fuXO1O1dS4ceO2bds2bNgwHo/H/s5Qy5YtRSKRRCI5evRoTEwMM9Pwbmpq1KgRIaSyspJ9TTe8ywbY2dl99NFHH330UWVl5cWLF8eNG1dRUREbG/tmrWny8PAghJSXlzs7OzNztM40aN6sqnluw/jE0OXg4DB9+vRvv/22VatWSUlJzEU3hvF7avgHHZgTEhUVFXZ2duzMR48etWzZkv3z1atXmpvk5eVpnn6oasdZbzwCxsSmV0hIiN5PBcZnLzE6gc2YvQZ6zMrKIjV5WQCAuqb+nQHS1LJlS6FQeO7cOXaOQqFo1KgRczGeuftB84T8jRs3yD9vDzwej/0tEMPt+Pn5CQQCzS9hpaSkGIiKuSaSm5urOVOhUCQlJYWEhNR0HzXj1Ktfv37Xrl37+eefR48ezZZcPB5v0qRJR44cSU9PZ98aDe+mpo4dO/L5/PT0dHYOc87DlIAdHR2HDx/+wQcfpKamGtmUYa1bt3Z0dLxy5Qo7hzm+DHd3d83vH0kkEnbacGJUa+7cufv27fv+++87dOjg6+uru4KJexoQEGBjY3P16lV2jkwmS0xM1LzAp3nJSSqVXr16lT19YmDHWdWOQFUH0ZjYasT47CVGJ7Ap2UuMfmWo6csCANQ51r0FyYCqboLesmWL5pwffviBeRdUq9VSqXTWrFmtWrVSKpU0TVdWVvL5/KVLlzK//8Z8FZb8c0/l/v37PTw8KIqSyWSG26Fp+uDBgx4eHnfv3qVp+t69e8yXlg3c7Thr1qw2bdrcu3dPrVar1eqnT59OmjSpZ8+ebIOBgYFff/01uz5zOj03N5ddyt4ErRWnLuaGVnt7+yNHjmjOP3PmjFAobNasmZHDpdXv1q1bfXx8cnJyaJrOzs729vYmGjf5asXPXBm5f/++VsB5eXkCgeCPP/5gvmKTm5vr7Oysee+tAcZ8C+zo0aMuLi7p6elM415eXuSfW243bdokFosLCgqY+H18fNhFhhODNngTNE3TKpXKzc2Nz+d///337Ezj91Tvt8C07Nq1SywWp6WlqdXqV69ehYaGBgYGKhQKZinzJab9+/erVKrS0tJx48YNHjyY/aaVgR1n96vaEdDKOs3EqDY2A4mtq0bZSxtMYLNkr+6+G+ixpi8LAFCn1PsCiKbppKSkIUOG2NvbM7+JwnyphHHnzp2QkBChUOjt7T1//vzc3FyRSHTgwAGapktKSvr168fn83/66adq26Fp+tSpUz169BAIBIMHD2ZuODXwSqdWq48cOTJixAgXFxeBQNC3b9+dO3eybxJ0TQog3Th1ffLJJ7rxvH79mhCydOlS44dLs1+apg8dOtSuXTuhUDhs2DDmlANze69u/JpvIVoBp6SkhIaGurm5CYXCPn36nDp1SnNIBQJBVV8RqupbYAKBIDExkV0tMTGROS6DBg3as2cP+2ZPUdSaNWu8vLycnZ2nT5/OnAhh+zKQGHR1BRBN02vWrCGElJaWas40sKeajCmAaJpOSEjo16+fUChs1arVqlWrNMvfwMDA8PDwiIgIsVjs7e29Zs0azdQysOOa+2V4BLQOolZiGI6tRgUQXcPspatOYLNkr+6+G+iRruHLAgDUKTy65jfeAgdJJJKAgACZTKZ580dd8+jRoxYtWhQWFjKnghqqrl27Tp48+dNPP7V2IPVGvcheALCw+n0PENQSpVJpZ2e3du1a5sbVly9fzp49e/HixXj/gLoP2QsAxkABBHoIBILMzEyJRNK8eXNbW9uRI0d+/PHHa9eutXZcANVD9gKAMXAJDAAAADgHZ4AAAACAc1AAAQAAAOegAAIAAADOQQEEAAAAnIMCCAAAADgHBRAAAABwDgqgBoiiqLKyMmtHUc80mEGrLztSX+IEgIaqzhVANE3Hx8cHBQU5ODh07Nhxw4YNFEUxi1QqlVAoNPFFUy6XC4VCqVRqjmDN7/r1661atXJycjp58iQzkZeXV9NGRo0apfcZ4DWiUqn69u377Nkzdg5N03FxcS1atGjUqNGcOXPKy8u1Nrlz545Qh+5qmlq3bs2u6eTk1KtXrzNnzpgYuS5jDjo7aGZJM1MYEwBFUVWtU9Ojf+7cuQkTJtQowrqcpRRFLV261MPDo23btr/++qvere7evauZoh9++KGJYQBAfVTnCqDY2NiTJ0+eP3++srLy2rVrDx48GDZsGLOIz+crFApnZ2cTu1AqlSaHWVs2bdq0bNmysrKyH374gZlgnuZdIyUlJSaGIZfLx48ff/XqVc2Z69evj4+Pv3PnzvPnz319fWfMmKG1VefOnRX/kMvl77333tq1a52cnAx0RFHU+fPnmU3Kysr279///vvvp6WlmRi/rmoPOjto5kqzN2ZkAFXtUU2PPk3T7GcMI9XlLF28eHFZWVlhYeGVK1cWLVp048YN3Q1v3bq1ePFiNlf37dtnYiQAUC9Z9VGseri5ud2+fZv9k/nU/uTJE5qmKYoSCASlpaVKpVIgEKSkpHTr1k0sFq9YsaKkpGTKlCkikWjSpElSqZSmaWad69evd+rUqXHjxl999ZVKpaJpWiaTEUIqKytpmpbL5Z9//rmHh4ePj8/27duZFXTdv3+fecq3m5vbpEmTiouLaZr+8ssvV61axa6zY8eOzz//nKbpkpKSqVOnikSikJCQQ4cO9e/fX7fBqvoNCgoihNjY2DBFg42NTZ8+fQzHKZVKo6Oj3d3dW7ZsuXXrVrVazdQlNjY2GzdufLNDkJub27Rp06+++opoPNpaLpfb2Ng8fPjQyEZ++eWXHj16VDWkLB8fn6SkJM05c+bMiYqKYqYrKio+//xzZu/i4uLUajVd9ZGlaVomkwkEAubg0jR99uzZ8ePH0/990PUeTc1BY9OsqgDYGC5dutStWzdnZ+fw8HDNJ6Kz3nvvPfbB9UuWLAkNDWWmJRKJgSOrGQBdRUYx1c+RI0d69+7t7Ow8c+ZMuVyutSNVtU/TdHFxMfP/Zdy4cV9//fXo0aN1g6+PWVpRUUEIYYfuwoULQ4cO1d02PDz83Llzb9YvADQYda4AGjp06NixY5mKRwvzOZUpgAgh48ePl0qlRUVFjo6O7dq1KywsVCgUoaGhO3bsoP95h+jbt29xcXFZWdl777339ddf0//9Xjh06NCvvvpKLpeXlZVNmTJl+fLlup1KpVJHR8fMzEy1Wl1eXj5y5Mi5c+fSNJ2VldW4cWP2HbFNmzYZGRlqtbpbt27btm2jKCo7O9vNza1v375697GqfkNDQ8+ePas5YXj9wYMHL1u2TC6XS6XSiRMn7t+/n6bpPn36XLt2TavTp0+fCnTorkbTdG5u7uPHj2ma1nxryczMbNq0qb4jpodMJnN2dr537161a+oWQDNnzoyJiaFpWq1WBwUFrVixQi6XFxcXDxkyhKk4qzqy9H8fXJqmz5w5w7y1s/OrOpqag8amWVUBsDGMHTu2rKxMJpMNGzZs9erVunu3b98+Zl9omm7VqpW9vT2TMLt372ayVO+RZQNgBkFvRjEBDBs2jA1gzZo1WjtSVftqtbpz587bt2+nKOrevXvOzs56C6D6mKV//fWXu7s7u87jx49tbGx0t23ZsuXMmTP9/f0bN268atUqiqJ01wGABq/OFUAlJSXvvfceIcTX13fRokXXrl1jP0pqFUDZ2dnM/BEjRmzdupWZ/umnnz744AP6n3eIu3fvMvMfPHggFArVajX7Xvjw4UN3d3e2gnn+/Dmfz6/2pfC3334bOXIkTdNqtbpx48a5ubk0Tefn5zNN3b17t3HjxuzK//u//6tbABnud/To0QkJCZoTBtbPz8/XG3Pfvn1TUlKqGWgjaL61nD9/ftiwYYmJiZ07d3Z3d1++fLlCoahqw927dw8bNsyYLjQLILVanZ6eLhAI/vrrL5qmMzMznZ2d2R1/+PChjY2NQqGo6sjSRhRAWr2zR5PWGDQ2zaoKgP4nuyQSCbPo9OnTes80PHz4sF27djRNl5eXBwUFdejQoaCggKbpQYMGZWdnV3VkNQugqjKKCYBJP5qmz58/HxISorUjVbX/119/icVidv7GjRt1C6B6mqVJSUlBQUHsIuYqG3NujMUkw4kTJyiKKi4ufu+99yIiIkwPAwDqnTp3D5CLi8tvv/1WXFy8a9eusrKyQYMG/fvf/1YoFLprenh4MBMikahly5bMtIODg1qtZtfx8/NjJnx8fBQKRXFxMbtIIpEUFRXZ2dkxN0J6eXmpVCq99yWoVKpr167t3r171qxZU6ZMoWmaEMLj8f7nf/7n559/JoScOHHik08+4fF4GRkZQ4YMYTfs2bOnbmvG91vt+jk5OT179uTz+VVta0ZKpfLy5cupqampqan5+fkFBQVz587VuyZN0ytWrFi6dKmRLffv35/ZNTs7u3nz5p05c6Zdu3aEkKysrKFDh/J4PGY1Hx8ftVr9/Plz5k8DR9YwvUdTL8MBEEKaNm3KTIhEIrlcrtuCj49PYWFhZWVlVlbWmDFj+vbte/v2baVSmZKS0qpVK2MywXBGsf8FnJycdG82r6p9iUQyYMAAdr969+6tG3k9zVKapm1sqnlNs7Ozo2l61KhRfD5fLBbHxcVt375d7+EDgIatzhVADLFY/O67737zzTcvXrwoKCg4ceKE7jqaL6nsq7kW9tWQeZ/TfHFkvj/C3gjJfEJt1KiRVgtyuTwgIGD9+vVisXjBggW7d+9mC6yJEydu376dpumtW7dOmjSJaVNv75qM7NeY9dVqdVU7ruvZs2e6X9G6fv26kZs3atRIoVBERUUJhUIHB4e1a9fu3btX7324f/31V3l5eY8ePYxs+ffff2f3Ljk5edCgQcx8mqY1907rCBo4smxNo3U4iMGjqctwAJrT7Gp79+5lx/bZs2c8Hm/KlClZWVlJSUkDBgxgTqHdu3dv4sSJNjY2xmSC4YwyfPQNtK+5oa2tbY22rWlflsxSDw8Pze+jlZeXCwQCoVBoYJPGjRszaxrZBQA0GHWrAHrw4EGjRo0035McHR1Hjhz5xt9JLiwsZCby8/NFIpGrqyu7qE2bNsnJydV+8ktMTBQIBCdOnJg4cWJAQMDTp0/Z9yTmtNOvv/5aUVHRpk0bQki3bt0uXLjAbnvz5k3dBo3s15j1W7VqlZKSovctXPfERpMmTRQ6evXqZWQYbdu2VSqVbLPsaTDdNX///ffJkydX+0GcVdW5gXbt2jH3lzB/Pn78mBDi6enJ/Kn3yDKdsmXZw4cPtdo0cDSJzqAZDkCvmTNnsmPbpEkTQsjo0aPPnDlz6NChDh069O7d++DBg8eOHRs3bhwxLhOMyShdTMxVtd+uXbsLFy6w+3Xr1i3dFupplrZo0eLp06fs7x3cv3//3//+t9Y6WVlZHh4ebDx5eXnOzs5ubm5GdgEADUbdKoBatmzZvn37+fPnv3r1ihCiVqvv3Llz9OjR0NDQN2swKipKJpNVVlZGRERs2LBB8w3bz8+vZ8+e0dHRCoVCrVbHx8d37dpV9xXZw8Pj8ePHr169omk6LS0tOjq6tLRUs/3p06cvXLiQablt27Zisfjbb7+labqwsPCzzz7TDcnIfo1Z39fXNygo6Ouvv1apVBRFLVu27IsvviCEiMXily9fGmjzDTRq1Gj8+PGxsbEURcnl8piYmPDwcL0nDy5fvqz7rvMGOnXq5Ovry3zJq7y8fO7cuTExMWyPeo+sQCDw8/M7cuQITdOPHz9eu3atVpsGjqbuoBkOwEg9evRYv359SUmJk5OTp6enSqVauXIlcyXLmEwwJqO0sDtSVfv+/v7t2rXbvn27Wq0uKChgckZLPc1SR0fHGTNmxMTEMPf3REZGrlixQmudgIAAT0/Pb775Rq1Wl5SUfPzxx2vWrDG+XgeABqNu/bfn8XiXLl3y8/MbPHiwnZ1d48aNN2/enJ6ebuDcu2EDBw709/dv3br10KFDZ8+erdVXYmKira1tkyZN3N3dr1y5cvHiRd1TGt26dVu2bJm/v7+7u3t8fHxCQsKtW7fYj49jxowpLi5mPtAzbSYnJ//222/29vYff/xxVFSUg4OD7j4a068x6/N4vISEhIcPH7q5ubVo0YLP5zNvLQsXLpw0aVJ0dPSbDVpVDhw4QAhp2rRps2bNGjduvGPHDmb+rFmzYmJi2NXS09PZG3RYH3744erVq2vUHY/Hu3r16oMHD9zc3Dp27Dh06NDY2Fh2aVVH9vz58/Hx8Y6OjosWLdqzZ49WmwaOpu6gGQ7ASM7Ozn5+fmPHjmX+nDp1aufOnV1cXIhxmWBMRmlhd6Sq9nk83oULF/7880+RSDRt2jTdEsHI2Ixc38JZunv3bubqW48ePT777LN+/fox89ks5fF4165dy8jIcHZ27tKlS1hY2Lx588wbAwDUCzzzfgKrO9gfU7HiL9odPXr0jz/+2L59u7UCqDsePXr0yy+/REREmN5UXTiy1oKMAgAwl7p1Bqi+Y74Ik5+fz0wvXbr0gw8+sHZQdcKxY8cmT55s7SjqH2QUAEAtQQFkTu7u7keOHBk9erStrW1wcPDmzZv1fseYgxYuXPjG1zG5DBkFAFBLGuwlMAAAAICq4AwQAAAAcA4KIAAAAOAcFEAAAADAOSiAAAAAgHNQAAEAAADnoACqRWq1ev369aa3s2DBAvbBkPfu3TO9QSPRNI0vCULdhOSEOgvJWV+gAKpFFEUdP37c9HbOnDlTVlbGPBjS39/f9AaNQdN0UVGR8Y/DBLCkV69eyWQya0cBoMfr168rKyutHQVUDwVQLQoNDU1JSRkwYABFUVFRUV5eXi4uLmFhYRRFEUJycnLYR2itXr06KytLbyNKpVImk9nZ2VkubgAAgIYOBVAtOn78eFBQUGJiolKpjIyMLCgoKCoqkkqlEomEEELTtEqlYtZUqVQ0TV+/fl2oYfjw4YSQ/Px8e3v7kJAQT0/PjRs34swqAACA6WytHUBDxuPxbGxsCCEODg40TR88eDA9Pf3SpUvLli3Tu36vXr0UCoXWzFatWjEFk1wunzVr1unTp4cNG1bbkQMAADRsOANkCWlpaRMmTHB1dZ01a9bYsWPZszjMtTBCSEVFBSFE7xkglp2d3bx581JTUy0cPAAAQMODAqgW8Xi80tJSmqbT0tKmTp06YsQIR0fHo0ePMqd5nJycLl68SFFUSUnJ4cOHyT9ngFinTp0ihCQnJ3/88ccURSkUii1btgQHB1t5rwAAAOo/FEC1SCAQeHt7d+zYceLEiYcPHxaJRGvXro2NjX3w4AEhxMvLKzg4mDktNHv27Koa6dOnj7+/v7e3d4sWLQYOHNi3b18L7gEAAEDDZM6nwUskki1btlAUFRkZ2alTJ62leXl527Zte/LkycSJE0eMGGGuTqGWMF+Dd3Jysre3t3YsANqKioocHR0dHBysHQiAtuLiYqFQKBKJrB0IVMNsZ4BkMtnmzZs3bty4bdu2uLg4rV9BUCgUy5Yt++yzzw4cOHD//v38/Hxz9QsAAABQU/zly5ebpaG//vrL1dU1MDBQIBDY2NhUVFS89dZb7NJ79+55e3t36dLFxsamT58+rq6uZukUapVUKhUKhba2+Kog1DlSqVQgEAgEAmsHAqBNJpPx+XyhUGjtQKAaZntvKyoq8vHxYabfeuutgoICzaX5+fkURX355Zc5OTmTJk3S+n4TQ6VSlZWVmSseMIvKykr83i7UQTRNy2Qy/FI51EFqtVoulyuVSmsHAv9HIBDovSJZKx/ueTyeWq3WnENR1ESKOPsAACAASURBVOXLl2NjYwUCwbZt2yQSSbt27XS3ssDJhkUHb9Z2Fw0D8zib9ZO68vl8a8cCoI2iKBsbGyQn1EEqlcrGxgbnzusO5gf5dJntCHl6emZnZzPThYWFnp6eWksHDx7M3LEYEhKSnZ2tWwDZ2Ng4OTmZK56qVDUQoIuiKDs7O9wEDXWQXC4XCoW4CRrqIKVSWdUpB6hTzFYNtG7d+uzZs1KpVCaTnTp1KiAgQHNpQEDA6dOnpVKpSqU6d+6cxZ7oCQAAAKDLbGeA7O3tIyIiIiMj5XJ5RESEs7MzISQ0NPTIkSO2trbOzs5z5syJjo5+9erVhAkT2rZta65+AQAAAGrKnL8DVC/M33vF2iHUGxRFbZneC5fAoA7C7wBBnYXfAaovcEMMAAAAcA4KIAAAAOAcFEAAAADAOSiAAAAAgHNQAAEAAADnoAACAAAAzkEBBAAAAJyDAggAAAA4BwUQAAAAcA4KIAAAAOAcFEAAAADAOSiAAAAAgHNQAAEAAADnoAACAAAAzkEBBAAAAJyDAggAAAA4BwUQAAAAcA4KIAAAAOAcFEAAAADAOSiAAAAAgHNQAAEAAADnoAACAAAAzkEBBAAAAJyDAggAAAA4BwUQAAAAcA4KIAAAAOAcFEAAAADAOSiAAAAAgHNQAAEAAADnoAACAAAAzkEBBAAAAJxja+0A/j+VSlVRUWGBXmq7i4ZEKpUqFAprRwGgjaZpuVyuVCqtHQiANrVarVAo8F5Td9ja2jo6OuqZb/lQqsLn811cXCzQS2130WBQFOXg4GBvb2/tQAC0FRUV2dnZOTg4WDsQAG3FxcVCoVAkElk7EKgGLoEBAAAA56AAAgAAAM5BAQQAAACcgwIIAAAAOAcFEAAAAHAOCiAAAADgHBRAAAAAwDkogAAAAIBzUAABAAAA56AAAgAAAM5BAQQAAACcgwIIAAAAOAcFEAAAAHAOCiAAAADgHBRAAAAAwDkogAAAAIBzUAABAAAA56AAAgAAAM5BAQQAAACcgwIIAAAAOAcFEAAAAHAOCiAAAADgHBRAAAAAwDkogAAAAIBzUAABAAAA56AAAgAAAM5BAQQAAACcgwIIAAAAOAcFEAAAAHAOCiAAAADgHBRAAAAAwDnmLIAkEkl4ePjMmTMzMjKqWuf48eOXL182Y6cAAAAANWW2Akgmk23evHnjxo3btm2Li4urrKzUXefhw4cnT56kadpcnQIAAAC8AbMVQNnZ2cHBwSKRyNHRcfjw4VlZWVorKBSKH374Yc6cOebqEQAAAODN2JqroaKiIh8fH2b6rbfeKigo0Fph165dERERf//9t0Kh0NuCSqWqqKgwVzxVUalUtd1FQyKVSqs6XgBWRNO0XC5XKpXWDgRAm1qtVigUeK+pO2xtbR0dHXXn18pN0DweT61Wa865evVq3759XVxcaqM7AAAAgBox2xkgT0/P7OxsZrqwsNDT01Nz6fHjx3NycpjCiKbp0tLS4cOHa7XA5/MtUCHx+fza7qLBoCjKwcHB3t7e2oEAaCsqKrKzs3NwcLB2IADaiouLhUKhSCSydiBQDbMVQK1bt96+fXtISAiPxzt16tSaNWs0l27YsIGZuHnzZmlpaf/+/c3VLwAAAEBNme0SmL29fURERGRk5OzZs6dNm+bs7EwICQ0NpShKczU+n29jgx8fAgAAAGvice1L6fP3XrF2CPUGRVFbpvfCJTCog4qKihwdHXEJDOogXAKrL3AyBgAAADgHBRAAAABwDgogAAAA4BwUQAAAAMA5KIAAAACAc1AAAQAAAOegAAIAAADOQQEEdYJarV6/fr3p7SxYsED4j3v37pneIHCWuXKSaSo4OJh9rjCyFExkruQ8dOhQ8+bN/fz8EhISmDlXr15t27ZtixYtLl26ZHr7dRwKIKgTKIo6fvy46e2cOXOmrKxMoVAoFAp/f3/TGwTOMldOlpSUvP/++0lJSewcZCmYyCzJmZeX9+OPP+bm5qanp4eHh5eXl5eXl0+bNi0lJeXOnTvz588vLS01S7R1lqECaPv27VpzaJpesmRJbcYDHBUaGpqSkjJgwABCCEVRUVFRXl5eLi4uYWFhFEXl5OTExMQwa65evTorK0tvI0qlUiaT2dnZWS5uaLjMkpOEkJ07d27durV9+/bMn8hSMJ1ZktPHx+fkyZNCoZCmaZFIJBAI0tLSPvroI7FY7OLiEhERcfnyZcvtkjXoKYDKy8tv3rx58+bN//mf/0lNTb35jz///PP8+fO7du2yfJTQ4B0/fjwoKCgxMZEQolQqIyMjCwoKioqKpFKpRCKhaVqlUjFrqlQqmqavX78u1DB8+HBCSH5+vr29fUhIiKen58aNG7n2mBcwL7PkJCHk888/b9myJdssshRMZ67kJITEx8c3bdp03LhxdnZ2jx8/Zit1Pz+//Px8y++aJel5Gry9vf3ixYtLS0vVavXcuXM1n10qFouPHj1qwfCAK3g8HptpDg4ONE0fPHgwPT390qVLy5Yt012/V69e7B0VrFatWkkkEkKIXC6fNWvW6dOnhw0bVtuRQ0NllpzUhSwF05kxOWfMmDFt2rQZM2Yw5RSPx2O7YKuohkrPGSBbW9uEhIQbN25MmTIlNTX1hoZz584FBwdbPkrglLS0tAkTJri6us6aNWvs2LHMR2SKopilFRUVhBADH2gIIXZ2dvPmzUtNTbV88NAgmZ6TupClYBamJ6eNjc2UKVNu3rzp6+ubnZ3NzMzJyfHx8bHsrliaoXuAvvvuO4vFARzH4/FKS0uZ/7ppaWlTp04dMWKEo6Pj0aNHFQqFk5PTxYsXKYoqKSk5fPgw+ecDDevUqVOEkOTk5I8//piiKIVCsWXLFhTrYAqz5KQuZCmYzizJmZqaOnfuXJVKJZfLN2zYMHjw4K5du+7evbusrKyiomL79u19+vSx8n7WMkMFkFKp3LBhw8iRIwf+N4sFB9whEAi8vb07duxICJk4ceLhw4dFItHatWtjY2MfPHjg5eUVHBzMfMSZPXt2VY306dPH39/f29u7RYsWAwcO7Nu3rwX3ABoas+SkLmQpmM4sydm9e3d/f/9mzZq1bdt22rRpXbp0cXJy2rt3b2BgoJ+f39q1a93d3S24T1bAM3AL3uzZs/Py8j755BMnJyfN+f369av9wGrL/L1XrB1CvUFR1Jbpvezt7a0dCIC2oqIiR0dHBwcHawcCoK24uFgoFIpEImsHAtXQcxM069ChQy9evMDXNQEAAKCBMXQJrH379uyNVAAAAAANhv4CqKKioqKiIjo6evLkyY8ePSovL6/QYOEQAQAAAMxL/yUwNzc3pVLJTJ88eVJrKX65izuE//mc2OB5KcaZtcHaEXCL3f4YJKexkJyW5fDdMiSnsayXnPqPUHl5ubxqFg4RAMzFXM9Q1Hq6J8EDPgGgvtFfAAkNsnCIAGAuZnmGou7TPQke8AkA9Y2hb4GFhISwF8JYDg4O/v7+kyZN6t69e20GBgDmxz5DMSEhYfHixQcPHqyoqHj//ff37dv38OHD+Pj41atXE0JWr14dGhrKPhVIC/N0z9GjR7Nz8IBPAKh3DF2knDZtWnp6+vjx4zdt2rRly5apU6f+9ddfAwcO7NGjx+TJk8+fP2+xKAHALNhnKBrzAEVSxS/oaz3dk+ABnwBQDxk6A/Tdd9/duHGjbdu2zJ+dO3cODg4ODw8/derUoEGDQkJChgwZYpEgAcA82GcoGvMARYIHfAJAw2XoDNDly5dbt26tOcfb2zshIYEQ4unpeefOndoNDQBqjTEPUCR4wCcANFyGCqDQ0NC4uDjNOQcOHHj33XcJIQUFBYGBgbUbGgCYG/sMRWMeoEjwgE8AaLgMXQLbsWNH//79V61aNXToUJqmExISHBwcrl+/Tghp06bNwYMHLRUkAJgH+wzF5OTkkSNHLlq0aNq0acwDFLt37848QHH48OE1eronIaRPnz7Xrl3z9vbm8/krV67EAz4BoO4z9DBUQghN0xkZGRkZGWq1ulu3bu3atWNuIHj+/Hnjxo0tFaQ54WGoxqMo6hvyiw1+zstI+K05CyoqKnI7shrJaSwkpwUVFxe7Ho5FchrLesmp/wxQRUWFSCRi7gNo3bo1eyeQVColhIhEonpa/QAAAAAQA4/CUCgUmg/E0ITvuAIAAEC9pr8AqqysZP+1GJVKZYEnrbK/dALG0PxtGDCsorTU2iFwCE3TSE7jITktSa1WIzmNZ4HktLW1dXR01DO/qrXZf9VqdWlpqVgsJoTQNM3j8WopRD6f7+LiUkuNa/ZS2100GBRFsT8bA9UyPXtxg5rxKIr6BslpNAu8tAKruLgYr5zGs2JyGjpCNE2vWbPG3t7ezc2NmdO9e/fXr19bJDAAAACA2mKoANq1a1dmZmZ+fj571iQ8PHzRokUWCQwAAACgthgqgL766qs9e/Y0adKEPZX34YcfHj161CKBAQAAANQWQwVQeXm51uOd2UckAgAAANRfhgqgmTNnbt++na14lErlokWLwsLCLBIYAAAAQG0xVACtWLHizJkzTZs2VSqVAwcOtLe3v3Llytq1ay0WHAAAAEBtMPQsMDs7u4SEhAcPHkgkEoqivvnmG39//9r7GjwAAACAZRgqgBitWrVq1aqVBUIBAAAAsAz9l8ACAgJWrlz5559/KhQKCwcEAAAAUNv0F0BxcXFKpXLSpEl2dnYhISH79+/Py8vD978AAACgYdBfAL399tuxsbH3798vKytbsWJFQUHBqFGjxGLxvHnzLly4YOEQAQAAAMyrmoeVODk59erV6/PPPz937tzmzZtPnToVHBxsmcgAAAAAaomhAqiysjIpKWnBggUeHh5dunS5d+/ewYMHLfyIeAAAAACz0/8tsL1798bHx9+4cWPUqFETJkxYvHhx06ZNLRwZAAAAQC3RXwDNnTu3R48e6enpHTt2xA//AAAAQAOj/xJYRkbG+PHjw8LCGjVqFBERcfHixfLycgtHBgAAAFBL9BdA/v7+n3zySXp6el5e3vvvv3/06NG33nrrX//619atWyUSiYVDBAAAADCvar4F5uzsPGjQoG+++aaoqGjx4sWbN28OCAiwTGQAAAAAtcTQozDkcnl2dnZycvJvv/129uzZoKCgqKioQYMGWSw4AAAAgNqgvwBat27dsWPH0tLSWrZsGRYWFhMTc/jwYQcHBwsHBwAAAFAb9BdAhYWFq1ev7tGjh1gstnBAAAAAALVNfwG0bds2C8cBAAAAYDHV3AQNAAAA0PCgAAIAAADOQQEEAAAAnIMCCAAAADgHBRAAAABwDgogAAAA4BwUQAAAAMA5KIAAAACAc1AAAQAAAOeYswCSSCTh4eEzZ87MyMjQXXr69OmPPvpo2rRpp0+fNmOnAAAAADVltgJIJpNt3rx548aN27Zti4uLq6ys1Fz66NEjiUQSFxe3d+/etLS03Nxcc/ULAAAAUFNmK4Cys7ODg4NFIpGjo+Pw4cOzsrI0l/r6+i5cuNDW1lYgELzzzjvPnj0zV78AAAAANaX/YahvoKioyMfHh5l+6623CgoK9K6mUql+/fXXlStX6i5Sq9Va541qg1qtru0uGgaappl/MWJGqiwvN7EFDHWNIDmNZ3pygvHUajWS03gWSE5bW1t7e3s982ujMx6Pp/fYUxS1bt262bNnOzo66i6laZqiqNqIR6uX2u6iIcFwGc/07MVo1xRGzEgWeGkFTchM41kxOc1WAHl6emZnZzPThYWFnp6eWitIpdI1a9aEh4d7e3vrbYHP54vFYnPFUxU+n1/bXTQYFEXZ2NjY2OCrgkYxPXuRnMajKIrH4yE5jWSBl1ZgFRcX45XTeFZMTrMdodatW589e1YqlcpkslOnTgUEBGguVSqVK1euXLRoUVXVDwAAAIDFmO0MkL29fURERGRkpFwuj4iIcHZ2JoSEhoYeOXLE1tb2woULd+/eDQsLY1aOjIzs37+/uboGAAAAqBFz3gPUoUOHPXv2aM75+eefmYl333333XffNWNfAAAAAG8MFykBAACAc1AAAQAAAOegAAIAAADOQQEEAAAAnIMCCAAAADgHBRAAAABwDgogAAAA4BwUQAAAAMA5KIAAAACAc1AAAQAAAOegAAIAAADOQQEEAAAAnIMCCAAAADgHBRAAAABwDgogAAAA4BwUQAAAAMA5KIAAAACAc1AAAQAAAOegAAIAAADOQQEEAAAAnIMCCAAArE+tVq9fv970dg4dOtS8eXM/P7+EhARmztWrV9u2bduiRYtLly6Z3j40GCiAAADA+iiKOn78uImN5OXl/fjjj7m5uenp6eHh4eXl5eXl5dOmTUtJSblz5878+fNLS0vNEi00ACiAAADA+kJDQ1NSUgYMGEBRVFRUlJeXl4uLS1hYGEVRhJCcnJyYmBhmzdWrV2dlZeltxMfH5+TJk0KhkKZpkUgkEAjS0tI++ugjsVjs4uISERFx+fJly+0S1G0ogAAAwPqOHz8eFBSUmJioVCojIyMLCgqKioqkUqlEIiGE0DStUqmYNVUqFU3T169fF2oYPnw421R8fHzTpk3HjRtnZ2f3+PHj9u3bM/P9/Pzy8/Mtv2tQN6EAAgAA6+PxeDY2NoQQBwcHmqYPHjy4ZMmSS5cuqdVqvev36tVLoeHUqVPsohkzZpSVleXk5CQmJjIts12wVRQACiAAAKhD0tLSJkyY4OrqOmvWrLFjx9I0zcxnroURQioqKgghBs4AEUJsbGymTJly8+ZNX1/f7OxsZmZOTo6Pj48FdwXqNBRAAABgfTwer7S0lKbptLS0qVOnjhgxwtHR8ejRowqFghDi5OR08eJFiqJKSkoOHz5MqjgDlJqaOnfuXJVKJZfLN2zYMHjw4K5du+7evbusrKyiomL79u19+vSx8n5CnYECCAAArE8gEHh7e3fs2HHixImHDx8WiURr166NjY198OABIcTLyys4OJg5LTR79uyqGunevbu/v3+zZs3atm07bdq0Ll26ODk57d27NzAw0M/Pb+3ate7u7hbcJ6jTeOzZRY6Yv/eKtUOoNyiK+ob8wlyVh+rN2mBiA0hO4yE5a8bk5ATjFRcXux6ORXIay3rJiSMEAAAAnIMCCAAAADjH1toB/H8qlYq5t7+2e6ntLhoSzd/eAMMqTP6FWQx1jSA5jWd6coLx1Go1ktN4FkhOW1tbR0dHPfNru2Pj8fl8FxcXC/RS2100GBRFsb/MAdUyPXuRnMZDctaI6cmJG9SMp1KpdiI5jWaB9/2q4AgBAAAA56AAAgAAAM5BAQQAAACcgwIIAAAAOAcFEAAAAHAOCiAAAADgHBRAAAAAwDkogAAAAIBzUAABAAAA56AAAgAAAM5BAQQAAACcgwIIAAAAOAcFEAAAAHAOCiAAAADgHBRAAAAAwDkogAAAAIBzUAABAAAA56AAAgAAAM5BAQQAAACcgwIIAAAAOAcFEAAAAHAOCiAAAADgHBRAAAAAwDkogAAAAIBzUAABAAAA56AAAgAAAM5BAQQAAACcgwIIAAAAOAcFEAAAAHAOCiAAAADgHBRAAAAAwDnmLIAkEkl4ePjMmTMzMjJquhQAAADAYsxWAMlkss2bN2/cuHHbtm1xcXGVlZXGLwUAAACwJLMVQNnZ2cHBwSKRyNHRcfjw4VlZWcYvBQAAALAkW3M1VFRU5OPjw0y/9dZbBQUFxi9lqNVqmUxmrniqolara7uLhoSmaYyYkWQmn9fEUNcIktN4SE5LomkayWk805OzWnw+387OTne+2QogTTwez8Cxr2opTdNSqbQ24tEUO6ZDbXfRYNA0XUw68ng8awdST5icvUhO49E0/ZrXydpR1B9ITst6TZCcRqv9932hUFi7BZCnp2d2djYzXVhY6OnpafxSBp/Pd3d3N1c8YCKapouKipycnOzt7a0dC4C2oqIiR0dHBwcHawcCoK24uFgoFIpEImsHAtUw2z1ArVu3Pnv2rFQqlclkp06dCggIMH4pAAAAgCWZ7QyQvb19REREZGSkXC6PiIhwdnYmhISGhh45csTW1lbvUgAAAACr4NE0be0YoC7CJTCoy3AJDOosXAKrL/BL0AAAAMA5KIAAAACAc1AAAQAAAOegAAIAAADOQQEEAAAAnIMCCAAAADgHX4OHKlEUxefz8SgMqINUKhWPx7OxwUc4qHOQnPUFCiAAAADgHJSoAAAAwDkogAAAAIBzUAABAAAA56AAAgAAAM5BAQQAAACcY2vtAMCcdu7ceeHCBc050dHRffr0qWk7NE0fP358zJgx1a75008/9e7du3nz5gaa+uKLL7788ktbWyQbp9W15Dx9+vSxY8coipowYcJ7771X0zCgIalryZmUlPSf//xHIBDMmTMnMDCwpmGAsWhocCorK+fMmWNKC0qlMioqypg1Dx069OjRo6qWVlRUxMbGhoaGKpVKU+KBBqOOJOfDhw83btyoVCoVCsWKFStycnJMCQkahjqSnM+fP4+NjVUqlVKp9OOPP5ZKpaaEBAbgQ3kDxOPxNH+98NmzZydPnszIyHjnnXfGjh178+bNvXv3ymSyKVOmDBw4UKVS7d+//48//pDJZL169frkk0/4fP6aNWvu378fExOzevVqrfWZNs+dO/fdd9916NDB2dnZQCS//fbbxx9/vHbt2trdYag/6khy+vr6Lly4kJl+5513nj171rp161rdcaj76khyenp6Ll26lBCiVCrt7Oz4fH5t7zh3WbsCA/OTSqVz585l/3zy5Mn06dPlcrlKpXrx4sWWLVsUCgVFUd9//312drZcLn/+/LlaraYoat26dQ8fPqRpWqFQLFiwgKZp3fVpmn748OGXX34pl8tfv34dFhZm4AwQIzIyEmeAgFHXkpOiqKioqIqKitrcaagf6lRyJiQkjB079scff6zlneY0nAHihKCgIKFQSAi5c+fOxYsXL126RAhRq9UCgaBNmzY0Tf/xxx8PHjzIyMiYMGECIYT9HXe962dmZoaGhgqFQqFQiJsnwERWTE7mrWv27NmOjo61vJdQL1kxOQcPHjxo0KCtW7dmZGR06tSplneUo1AAcYKDgwMzQVFUdHT0v//9b3ZRTk7O7t27x48fHxISIpfL6f9+NIru+lpwazOYyFrJKZVK16xZEx4e7u3tbdoeQINl3VdOHo/Xv3//3NxcFEC1BF+D55bOnTv/9NNPzF11e/fuzcjIyM7OHjBgQI8ePezs7JKTkymKIoTweLzKykqapnXXJ4R07Njx+PHjSqWysrLyzJkz1t4naCAsmZxKpXLlypWLFi1C9QPGsGRyZmdn79q1S61WK5XKn3/+uUuXLpbbT47Bx3duadq06YQJEyIjI8vLy0ePHt2x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NWbMmD179rDvTHFxcVOmTGGmlUplVFRUUlJSbm7upUuXNm3axMwfNWqUWCwuKCi4e/fujRs3TCw7TGFjY8NOjB8//o8//mD+/Omnn1q3bu3r6/vDDz8QQv7+++8lS5ZMmDDBw8ODfafUPN+j9VmfoqioqCgvLy8XF5ewsDCKokJDQ1NSUgYMGKB5skGrF6ajDz/8cNy4ca6urp9++qnW22dISEhZWRkhZM2aNTt37iSEPH/+/JNPPiGEnDt3LiAgoHnz5vv372dW1uxo3759TZo0effdd1esWJGamkoIefLkySeffOLq6rpo0SKmFzZCva3t2bPH09NzzJgx+fn55hl689E7aG82VroDRXTGyvBAkerGKioqatCgQcy07uZ79+5t0qTJqFGjYmNjmYzSTTPd7NJsf9SoUYsXLzbPyAIYBwUQcFSLFi28vLxSUlIIIeXl5Tdu3PjXv/7FLt2zZ49YLHZyctqxY0dMTAxN048ePUpNTf3000+FQqGTk9OmTZtiY2PNfkWgplQq1aFDh959911CyN27d3fv3n379m2JRHLs2LHU1FSapuPi4jZu3FhQUHD58uXr16+T/z43oPVZX6lURkZGFhQUFBUVSaVSiURy/PjxoKCgxMREdivdXpg2f/755507d758+fLPP//MycnRDPKDDz64desWIeTy5cu//PILISQ5OXnMmDGPHz/+8ccfb9269ffff+fm5qalpWmGl5WVdeTIkUePHn3//ffx8fFMU2fOnFmyZMnLly/T0tKYXtgIdVvLyMj4+eef8/Pzd+/e/dtvv9X2sagpvYP2BmOld6CIzlgZGChCiOGxKi8vd3R0tLW1JYTobp6ZmckEsGfPnm+++YbJKN00080uzS5EItH9+/fNdW4MwBgogIC7Fi5c+O233xJCrly5Eh4ernl638/Pj5nw8fFRKBTFxcUSiaSoqMjOzo65+cbLy0ulUpWUlFgl8qysLKFQaGtr6+rqev/+/aioKELI+fPnly5d6uTk5ODg8MUXX5w8eZIQMmvWrGbNmtnZ2S1ZsuTixYuGm3VwcKBp+uDBg0uWLLl06ZJarebxeOzZJobeXgghY8eObdy4sUAgYM9hsAYPHnzu3LmKioru3btXVFSoVKqffvqpR48ev//++4EDB5ydnR0dHVevXn3u3DnNrS5cuPDZZ5/Z29u7u7szO0gIGTdu3FtvvSUQCIYPH/769WtCCBuhbmtJSUlRUVH29vaenp5z5swxZcBNpHW1lK0MdAftDcZK70ARnbEyMFCEEMNj9eTJkw4dOjDTuptfuXIlOjra3t6+SZMmmpeVtehml9YKnTt3fvnyZQ2HFuDNoQAC7hozZsz+/fuVSuX+/fvDwsI0F7Hv+szHWRsbG5VK1bdvX/YeaoqiaJpu1KiRFeImpF27dkwM5eXle/bssbe3Z+azNzmx53UcHBzYrdidYq8+VFRUaDablpY2YcIEV1fXWbNmjR07tqqbZnR7IYS4uLgwE8x5guXLlzOV4r1797y9vRMTE2/fvj1kyJAxY8bcvn27tLTUwcFBqVQeOnSIGU+VSqV1I7ZKpdK80sdMODs7MxO6N6PotqYZnlAo1LsvFmBnZ1dYWMj+KZfLbW1tmfi1Bo0Q8gZjpXegSNVjpbcpw2NF0zR70HU312yfTUWik2bVZpfZbzACMAwFEHCXt7e3n5/fsWPHzp0716lTJ81F7DtWfn6+SCRydXVt06ZNcnKyXC63RqTatM7KMIYMGbJu3TqZTKZUKtetWzdw4EBCyN69e1+/fq1UKjds2BAcHEwIcXJyunjxIkVRJSUlhw8f1mwhLS1t6tSpI0aMcHR0PHr0qEKh4PF4paWlmu9VenvRtXz5cuY90t/fnxAyYMCAJUuWdOnSZciQITNmzPjggw8IIQMHDly9enVZWZlarV6wYEFiYqJmCyEhIZs3b1YqlWVlZdu3b69qKNgIdVvr37//119/LZfLS0tLd+3aZfzwmpetrW3v3r2PHTvGXBWKj4+fOHGigfVrOlamDxQhxPBYeXt73759m5nW3XzIkCHMtmVlZcx9S0Rfmulml1Yv6enpnp6eRo4qgOlQAAGnLVy4MCwsbPbs2VolRVRUlEwmq6ysjIiI2LBhA4/H8/Pz69mzZ3R0tEKhUKvV8fHxXbt2teIXi3R16NBh6tSp/v7+zZo1e/vtt5nSpEePHhMmTPDy8goODu7WrRshhJlmPojPnj1bs4WJEycePnxYJBKtXbs2Njb2wYMHAoHA29u7Y8eOhnup1vvvv//kyRNnZ2d/f//MzEzmdtpWrVotW7YsMDDQw8OjcePG/fv319ykffv2w4YN8/Lymjhx4jvvvFPVKRw2Qt3WOnbsOGHCBG9v79GjR48ePbpmo2lWJ06cOHnypFgs9vT0zMjIiIuLM7ByTcfK9IEihBgeK5FIVFFRwZQsupv7+vrOmTOnZcuWI0eO7NmzJ7OJbprpZpdmF6Wlpf7+/uyZMAAL4NWpV3CA2pOamhoSEvLq1SvNmc+fP2/SpElmZiZ7iwNFUQKBYNeuXWvXrmW+9z5v3jzm/L9UKo2JiWHuMx09evSGDRvc3Nyq6m7+3iumRLtj5r9N2Zzx4MGDnTt3bty40fSmrKiysvKdd95JSEgQi8W12M2eT03afNYGM8Xx5mp1oK5du/bq1athw4YZXm3lypVjxoxh/zcZ78CBA0FBQe3bt3/TAAFqDGeAgCu6d++uVf0QQuzt7Zs2bar7sjt58uRHjx49efJk/vz57N0PDg4OmzZtKi4uLi4u/vbbbw1UP2C6Fy9evP3220KhsFOnTitXrqzd6qc+s8xA9e7dOzEx8f+1b684EMJgFEYNsgmLZDvsrZpt/LZmRBPEOCYZ5nHPkShExZeb9k3PHscYx3GoH25mASLUPPn7vs+V/vw+F6CqOu+QvuYbFiAu+P0FCLjEAkSoqmqt9d63bfv0vwBwNzfOCLWu69Mj8GlZFrMowN+zAAEAcdwBAgDiWIAAgDgCCACII4AAgDgCCACII4AAgDgCCACII4AAgDgCCACII4AAgDgCCACII4AAgDgCCACII4AAgDgCCACII4AAgDgPnJlNxZr1odcAAAAASUVORK5CYII=" /><!-- --></p>
+</div>
+<div id="examining-the-synthetic-control-weights" class="section level1">
+<h1>Examining the Synthetic Control Weights</h1>
+<div class="sourceCode" id="cb8"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" tabindex="-1"></a><span class="co"># Get the omega weights from both estimates</span></span>
+<span id="cb8-2"><a href="#cb8-2" tabindex="-1"></a>omega_unweighted <span class="ot">&lt;-</span> <span class="fu">attr</span>(tau_sdid, <span class="st">&#39;weights&#39;</span>)<span class="sc">$</span>omega</span>
+<span id="cb8-3"><a href="#cb8-3" tabindex="-1"></a>omega_weighted <span class="ot">&lt;-</span> <span class="fu">attr</span>(tau_sdid_w, <span class="st">&#39;weights&#39;</span>)<span class="sc">$</span>omega</span>
+<span id="cb8-4"><a href="#cb8-4" tabindex="-1"></a></span>
+<span id="cb8-5"><a href="#cb8-5" tabindex="-1"></a><span class="co"># Top control units by weight</span></span>
+<span id="cb8-6"><a href="#cb8-6" tabindex="-1"></a>top_n <span class="ot">&lt;-</span> <span class="dv">10</span></span>
+<span id="cb8-7"><a href="#cb8-7" tabindex="-1"></a>top_unweighted <span class="ot">&lt;-</span> <span class="fu">head</span>(<span class="fu">sort</span>(omega_unweighted, <span class="at">decreasing =</span> <span class="cn">TRUE</span>), top_n)</span>
+<span id="cb8-8"><a href="#cb8-8" tabindex="-1"></a>top_weighted <span class="ot">&lt;-</span> <span class="fu">head</span>(<span class="fu">sort</span>(omega_weighted, <span class="at">decreasing =</span> <span class="cn">TRUE</span>), top_n)</span>
+<span id="cb8-9"><a href="#cb8-9" tabindex="-1"></a></span>
+<span id="cb8-10"><a href="#cb8-10" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;Top&quot;</span>, top_n, <span class="st">&quot;control unit weights (unweighted SDID):</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb8-11"><a href="#cb8-11" tabindex="-1"></a><span class="co">#&gt; Top 10 control unit weights (unweighted SDID):</span></span>
+<span id="cb8-12"><a href="#cb8-12" tabindex="-1"></a><span class="fu">print</span>(<span class="fu">round</span>(top_unweighted, <span class="dv">4</span>))</span>
+<span id="cb8-13"><a href="#cb8-13" tabindex="-1"></a><span class="co">#&gt;  [1] 0.0403 0.0402 0.0396 0.0380 0.0377 0.0354 0.0353 0.0350 0.0324 0.0322</span></span>
+<span id="cb8-14"><a href="#cb8-14" tabindex="-1"></a></span>
+<span id="cb8-15"><a href="#cb8-15" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">Top&quot;</span>, top_n, <span class="st">&quot;control unit weights (weighted SDID):</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb8-16"><a href="#cb8-16" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb8-17"><a href="#cb8-17" tabindex="-1"></a><span class="co">#&gt; Top 10 control unit weights (weighted SDID):</span></span>
+<span id="cb8-18"><a href="#cb8-18" tabindex="-1"></a><span class="fu">print</span>(<span class="fu">round</span>(top_weighted, <span class="dv">4</span>))</span>
+<span id="cb8-19"><a href="#cb8-19" tabindex="-1"></a><span class="co">#&gt;  [1] 0.0434 0.0396 0.0391 0.0390 0.0353 0.0342 0.0337 0.0330 0.0327 0.0321</span></span></code></pre></div>
+</div>
+<div id="standard-errors" class="section level1">
+<h1>Standard Errors</h1>
+<p>We can compute standard errors for the weighted estimates using
+bootstrap, jackknife, or placebo methods.</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" tabindex="-1"></a><span class="co"># Compute standard errors (using jackknife for speed)</span></span>
+<span id="cb9-2"><a href="#cb9-2" tabindex="-1"></a>se_sdid <span class="ot">&lt;-</span> <span class="fu">sqrt</span>(<span class="fu">vcov</span>(tau_sdid, <span class="at">method =</span> <span class="st">&quot;jackknife&quot;</span>))</span>
+<span id="cb9-3"><a href="#cb9-3" tabindex="-1"></a>se_sdid_w <span class="ot">&lt;-</span> <span class="fu">sqrt</span>(<span class="fu">vcov</span>(tau_sdid_w, <span class="at">method =</span> <span class="st">&quot;jackknife&quot;</span>))</span>
+<span id="cb9-4"><a href="#cb9-4" tabindex="-1"></a></span>
+<span id="cb9-5"><a href="#cb9-5" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;Standard Errors (jackknife):</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb9-6"><a href="#cb9-6" tabindex="-1"></a><span class="co">#&gt; Standard Errors (jackknife):</span></span>
+<span id="cb9-7"><a href="#cb9-7" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Unweighted SDID: %.2f (SE = %.2f)</span><span class="sc">\n</span><span class="st">&quot;</span>, tau_sdid, se_sdid))</span>
+<span id="cb9-8"><a href="#cb9-8" tabindex="-1"></a><span class="co">#&gt;   Unweighted SDID: 16.95 (SE = 9.05)</span></span>
+<span id="cb9-9"><a href="#cb9-9" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Weighted SDID:   %.2f (SE = %.2f)</span><span class="sc">\n</span><span class="st">&quot;</span>, tau_sdid_w, se_sdid_w))</span>
+<span id="cb9-10"><a href="#cb9-10" tabindex="-1"></a><span class="co">#&gt;   Weighted SDID:   10.66 (SE = 8.58)</span></span>
+<span id="cb9-11"><a href="#cb9-11" tabindex="-1"></a></span>
+<span id="cb9-12"><a href="#cb9-12" tabindex="-1"></a><span class="co"># 95% confidence intervals</span></span>
+<span id="cb9-13"><a href="#cb9-13" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">95% Confidence Intervals:</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb9-14"><a href="#cb9-14" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb9-15"><a href="#cb9-15" tabindex="-1"></a><span class="co">#&gt; 95% Confidence Intervals:</span></span>
+<span id="cb9-16"><a href="#cb9-16" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Unweighted: (%.2f, %.2f)</span><span class="sc">\n</span><span class="st">&quot;</span>,</span>
+<span id="cb9-17"><a href="#cb9-17" tabindex="-1"></a>            tau_sdid <span class="sc">-</span> <span class="fl">1.96</span><span class="sc">*</span>se_sdid, tau_sdid <span class="sc">+</span> <span class="fl">1.96</span><span class="sc">*</span>se_sdid))</span>
+<span id="cb9-18"><a href="#cb9-18" tabindex="-1"></a><span class="co">#&gt;   Unweighted: (-0.78, 34.67)</span></span>
+<span id="cb9-19"><a href="#cb9-19" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Weighted:   (%.2f, %.2f)</span><span class="sc">\n</span><span class="st">&quot;</span>,</span>
+<span id="cb9-20"><a href="#cb9-20" tabindex="-1"></a>            tau_sdid_w <span class="sc">-</span> <span class="fl">1.96</span><span class="sc">*</span>se_sdid_w, tau_sdid_w <span class="sc">+</span> <span class="fl">1.96</span><span class="sc">*</span>se_sdid_w))</span>
+<span id="cb9-21"><a href="#cb9-21" tabindex="-1"></a><span class="co">#&gt;   Weighted:   (-6.15, 27.48)</span></span></code></pre></div>
+</div>
+<div id="summary" class="section level1">
+<h1>Summary</h1>
+<div class="sourceCode" id="cb10"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;Summary of Weighted SDID Estimate:</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb10-2"><a href="#cb10-2" tabindex="-1"></a><span class="co">#&gt; Summary of Weighted SDID Estimate:</span></span>
+<span id="cb10-3"><a href="#cb10-3" tabindex="-1"></a></span>
+<span id="cb10-4"><a href="#cb10-4" tabindex="-1"></a><span class="co"># Extract components manually to avoid S4 dispatch issues</span></span>
+<span id="cb10-5"><a href="#cb10-5" tabindex="-1"></a>setup <span class="ot">=</span> <span class="fu">attr</span>(tau_sdid_w, <span class="st">&#39;setup&#39;</span>)</span>
+<span id="cb10-6"><a href="#cb10-6" tabindex="-1"></a>weights <span class="ot">=</span> <span class="fu">attr</span>(tau_sdid_w, <span class="st">&#39;weights&#39;</span>)</span>
+<span id="cb10-7"><a href="#cb10-7" tabindex="-1"></a>tw <span class="ot">=</span> <span class="fu">attr</span>(tau_sdid_w, <span class="st">&#39;treated.weights&#39;</span>)</span>
+<span id="cb10-8"><a href="#cb10-8" tabindex="-1"></a>pw <span class="ot">=</span> <span class="fu">attr</span>(tau_sdid_w, <span class="st">&#39;period.weights&#39;</span>)</span>
+<span id="cb10-9"><a href="#cb10-9" tabindex="-1"></a></span>
+<span id="cb10-10"><a href="#cb10-10" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Estimate: %.3f</span><span class="sc">\n</span><span class="st">&quot;</span>, <span class="fu">as.numeric</span>(tau_sdid_w)))</span>
+<span id="cb10-11"><a href="#cb10-11" tabindex="-1"></a><span class="co">#&gt;   Estimate: 10.663</span></span>
+<span id="cb10-12"><a href="#cb10-12" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  N0 = %d, N1 = %d, T0 = %d, T1 = %d</span><span class="sc">\n</span><span class="st">&quot;</span>,</span>
+<span id="cb10-13"><a href="#cb10-13" tabindex="-1"></a>            setup<span class="sc">$</span>N0, <span class="fu">nrow</span>(setup<span class="sc">$</span>Y) <span class="sc">-</span> setup<span class="sc">$</span>N0, setup<span class="sc">$</span>T0, <span class="fu">ncol</span>(setup<span class="sc">$</span>Y) <span class="sc">-</span> setup<span class="sc">$</span>T0))</span>
+<span id="cb10-14"><a href="#cb10-14" tabindex="-1"></a><span class="co">#&gt;   N0 = 40, N1 = 3, T0 = 20, T1 = 5</span></span>
+<span id="cb10-15"><a href="#cb10-15" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Effective N0: %.1f</span><span class="sc">\n</span><span class="st">&quot;</span>, <span class="dv">1</span><span class="sc">/</span><span class="fu">sum</span>(weights<span class="sc">$</span>omega<span class="sc">^</span><span class="dv">2</span>)))</span>
+<span id="cb10-16"><a href="#cb10-16" tabindex="-1"></a><span class="co">#&gt;   Effective N0: 35.1</span></span>
+<span id="cb10-17"><a href="#cb10-17" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">&quot;  Effective N1: %.1f</span><span class="sc">\n</span><span class="st">&quot;</span>, <span class="dv">1</span><span class="sc">/</span><span class="fu">sum</span>(tw<span class="sc">^</span><span class="dv">2</span>)))</span>
+<span id="cb10-18"><a href="#cb10-18" tabindex="-1"></a><span class="co">#&gt;   Effective N1: 2.2</span></span>
+<span id="cb10-19"><a href="#cb10-19" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">Treated unit weights:</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb10-20"><a href="#cb10-20" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb10-21"><a href="#cb10-21" tabindex="-1"></a><span class="co">#&gt; Treated unit weights:</span></span>
+<span id="cb10-22"><a href="#cb10-22" tabindex="-1"></a><span class="fu">print</span>(<span class="fu">round</span>(tw, <span class="dv">3</span>))</span>
+<span id="cb10-23"><a href="#cb10-23" tabindex="-1"></a><span class="co">#&gt; [1] 0.6 0.3 0.1</span></span>
+<span id="cb10-24"><a href="#cb10-24" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">Top 5 control unit weights (omega):</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
+<span id="cb10-25"><a href="#cb10-25" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb10-26"><a href="#cb10-26" tabindex="-1"></a><span class="co">#&gt; Top 5 control unit weights (omega):</span></span>
+<span id="cb10-27"><a href="#cb10-27" tabindex="-1"></a><span class="fu">print</span>(<span class="fu">round</span>(<span class="fu">head</span>(<span class="fu">sort</span>(weights<span class="sc">$</span>omega, <span class="at">decreasing =</span> <span class="cn">TRUE</span>), <span class="dv">5</span>), <span class="dv">3</span>))</span>
+<span id="cb10-28"><a href="#cb10-28" tabindex="-1"></a><span class="co">#&gt; [1] 0.043 0.040 0.039 0.039 0.035</span></span></code></pre></div>
+</div>
+<div id="when-to-use-weighted-vs-unweighted" class="section level1">
+<h1>When to Use Weighted vs Unweighted</h1>
+<table>
+<colgroup>
+<col width="32%" />
+<col width="67%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Scenario</th>
+<th>Recommended Approach</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Policy evaluation for population</td>
+<td>Use population weights</td>
+</tr>
+<tr class="even">
+<td>Effect on “typical” treated unit</td>
+<td>Use equal weights</td>
+</tr>
+<tr class="odd">
+<td>Treatment effects vary by unit size</td>
+<td>Consider both; report as robustness</td>
+</tr>
+<tr class="even">
+<td>Units represent different subgroups</td>
+<td>Weight by subgroup importance</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div id="conclusion" class="section level1">
+<h1>Conclusion</h1>
+<p>The weighted SDID estimator provides flexibility when treatment
+effects are heterogeneous across treated units. By allowing
+user-specified weights, researchers can:</p>
+<ol style="list-style-type: decimal">
+<li>Estimate population-weighted average treatment effects</li>
+<li>Up-weight policy-relevant units</li>
+<li>Account for differential sampling probabilities</li>
+</ol>
+<p>The choice between weighted and unweighted estimates should be guided
+by the research question: Are you interested in the average effect per
+treated unit, or the average effect per person/entity in the treated
+population?</p>
+</div>
+
+
+
+<!-- code folding -->
+
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>
