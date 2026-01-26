@@ -20,19 +20,11 @@ knitr::opts_chunk$set(
   fig.height = 4.5
 )
 
-library(dplyr)
-library(tidyr)
-library(purrr)
-library(ggplot2)
-library(readr)
-library(fixest)
+library(pacman)
+p_load(dplyr, tidyr, purr, ggplot2, readr, fixest, synthdid, 
+       hdm, # For double-lasso variable selection (Borgschulte-Vogler approach)
+       glmnet) # For regularized regression
 
-# SDID
-library(synthdid)
-
-# Double-lasso propensity score (Borgschulte-Vogler approach)
-library(hdm)    # For double-lasso variable selection
-library(glmnet) # For regularized regression
 
 # Source weighted SDID functions (Solution 3)
 # These extend the synthdid package to allow user-specified treated unit weights
@@ -56,13 +48,11 @@ ABSTRACT
 
 # 1. Introduction
 
-Empirical methods for evaluating the causal effects of policies without random assignment have played a critical role in economics for the last several decades. In particular, in the context of panel data, Difference-in-Difference (DID) has become the workhorse model in cases where multiple units are treated, and the Synthetic Control Method (SCM) dominates in cases with one treated unit. Arkhangelsky et al. (2021) combined elements of both methods to create the Synthetic Difference-in-Difference (SDID) approach. The authors borrow the re-weighting of control units based on pre-treatment trends and covariates from SCM in such a way to allow for a weaker parallel trend assumption, and allow level-shifts between treatment and control groups, like DID. This method also includes time-weights, allowing the method to find the pre-exposure periods that best reflect the post-exposure periods characteristics.
+Empirical methods for evaluating the causal effects of policies without random assignment have played a critical role in economics for several decades. In the context of panel data, Difference-in-Difference (DID) has become the workhorse approach in settings with multiple treated units, while and the Synthetic Control Method (SCM) is typically applied in cases with one treated unit. Arkhangelsky et al. (2021) combines elements of both methods to develop the Synthetic Difference-in-Differences (SDID) approach. SDID borrows the re-weighting of control units based on pre-treatment outcomes and covariates from SCM, thereby relaxing the parallel trend assumption, while allowing level differences between treatment and control groups, like DID. SDID also introduces time weights that select pre-treatment periods that best match post-treatment periods.
 
-In this paper we identify a key limitation of SDID that emerges when a procedure designed for a single treated unit is implemented in contexts with multiple treated units: namely, the inability to incorporate weights for treated units. In practice, the current implementation of SDID assumes that treated units are all equally weighted, which is unrealistic in many empirical panel-data settings. This is particularly an issue when the researcher is studying a setting where heterogeneous treatment effects are correlated with the weighting variable. In the simplest case, if a researcher wanted to weight by population size, and the treatment under investigation had a larger effect in smaller states, then the recovered average treatment effect (ATE) would be larger than the “true” weighted ATE.
+In this paper, we identify a limitation of SDID that emerges when a procedure originally designed for a single treated unit is applied in settings with multiple treated units: namely, the inability to incorporate weights for treated units. In its standard implementation, SDID applies equal weights for all treated units, an assumption that often inappropriate in many empirical panel-data applications. This limitation is particularly consequential when treatment effects are heterogeneous and correlated with the dimension along which weighting is relevant. For example, if treatment effects are larger in smaller states, an equally weighted SDID estimand will overstate the population-weighted average treatment effect when states differ substantially in size. 
 
-We propose two potential solutions:
-1. Construct a weighted-average treated unit and run a single SDID.
-2. Run a SDID for each treated unit and take a weighted average of the estimated effects.
+This paper extends synthetic difference-in-differences by allowing the treated group to be aggregated using a prespecified vector of weights. Standard SDID implicitly targets an equally weighted average treatment effect on the treated by collapsing treated units into a single representative unit prior to estimation. We generalize this construction by introducing treated-unit weights that define the target estimand directly, while leaving the SDID optimization problem unchanged. The resulting estimator nests standard SDID as a special case and permits estimation of population-weighted or otherwise policy-relevant treatment effects in settings where treated units differ in size or importance. We show that this modification is naturally interpreted through the collapsed-form representation of SDID and does not alter its identification logic or computational structure.
 
 ---
 
@@ -167,12 +157,36 @@ This is a double-difference: the difference between the treated average and synt
 
 ## 2.6 The Weighted SDID Estimator
 
-To allow for user-specified weights on treated units, we modify the estimator by replacing the uniform weights $1/N_{tr}$ with user-specified weights $\pi = (\pi_{N_{co}+1}, \ldots, \pi_N)$ where $\sum_{i>N_{co}} \pi_i = 1$.
+In many empirical applications, treated units differ systematically in size or importance. For example, when units represent geographic regions, researchers may be interested in population-weighted average treatment effects rather than the simple average across treated units. However, the standard SDID estimator implicitly assigns equal weight to all treated units, both when constructing the synthetic control and when aggregating post-treatment outcomes.
+
+To address this limitation, we extend SDID To allow for user-specified treated-unit weights. 
+
+Let $\pi = (\pi_{N_{co}+1}, \ldots, \pi_N)$ denote non-negative weights on treated units satisfying: $\sum_{i>N_{co}} \pi_i = 1$.
+
+These weights define the target estimand:
+
+
+This weighted estimator targets the $\pi$-weighted average treatment effect: #John, does this notation work?
+$$
+\tau{(\pi)} = \sum_{i>N_{co}}^{N} \pi_i\left( \frac{1}{T_{post}} \sum_{t>T_{pre}}^{T} \tau_{it} \right)
+$$
+which corresponds to a weighted average treatment effect on the treated. When $\pi = 1/N_{tr}$, this reduces to the standard SDID estimand.
+
+```
+Old notation:
+
+This weighted estimator targets the $\pi$-weighted average treatment effect:
+$$
+\tau^{(\pi)} = \sum_{i=N_{co}+1}^{N} \pi_i \cdot \frac{1}{T_{post}} \sum_{t=T_{pre}+1}^{T} \tau_{it}
+$$
+```
 
 **Modified collapsed form:**
 
+We modify the collapsed outcome matrix by replacing the uniform treated-unit averages with weighted averages. Define:
+
 $$
-\tilde{Y}^{(\pi,\rho)} = \begin{pmatrix}
+\tilde{Y}{(\pi,\rho)} = \begin{pmatrix}
 Y_{1,1} & \cdots & Y_{1,T_{pre}} & \sum_{t>T_{pre}} \rho_t Y_{1,t} \\
 \vdots & \ddots & \vdots & \vdots \\
 Y_{N_{co},1} & \cdots & Y_{N_{co},T_{pre}} & \sum_{t>T_{pre}} \rho_t Y_{N_{co},t} \\
@@ -184,23 +198,25 @@ where $\rho = (\rho_{T_{pre}+1}, \ldots, \rho_T)$ are optional post-period weigh
 
 **Modified control weight optimization:**
 
+Control unit weights are estimated by matching the weighted average of treated units in the pre-treatment period: 
+
 $$
 ( \hat{\omega}_0, \hat{\omega}^{w}  ) =
 \underset{\omega_0 \in \mathbb{R}, \omega \in \Omega } {\text{argmin}}
-\sum_{t=1}^{T_{pre}} \left (\omega_0 + \sum_{i=1}^{N_{co}} \omega_i Y_{it} - \underbrace{\sum_{i=N_{co}+1}^{N} \pi_i Y_{it}}_{\text{user-weighted treated avg}} \right )^2
+\sum_{t=1}^{T_{pre}} \left (\omega_0 + \sum_{i=1}^{N_{co}} \omega_i Y_{it} - \underbrace{\sum_{i>N_{co}}^{N} \pi_i Y_{it}}_{\text{user-weighted treated avg}} \right )^2
 + \zeta^2 T_{pre} || \omega ||_2^2
 $$
 
+This generalizes the standard SDID estimator, which implicitly sets $\pi_i = 1/N_{tr}$.
+
 **Modified treatment effect:**
+
+The weighted SDID treatment effect is then computed as:
 
 $$
 \hat{\tau}^{sdid,w} = \begin{pmatrix} -\hat{\omega}^w \\ \pi \end{pmatrix}^\top Y \begin{pmatrix} -\hat{\lambda}^w \\ \rho \end{pmatrix}
 $$
-
-This weighted estimator targets the $\pi$-weighted average treatment effect:
-$$
-\tau^{(\pi)} = \sum_{i=N_{co}+1}^{N} \pi_i \cdot \frac{1}{T_{post}} \sum_{t=T_{pre}+1}^{T} \tau_{it}
-$$
+where $\hat{\lambda}^w$ are the corresponding time weights. Under standard SDID assumptions, this estimator is consistent for $\tau(\pi)$. 
 
 When $\pi_i$ reflects population shares, $\tau^{(\pi)}$ is the population-weighted ATT.
 
