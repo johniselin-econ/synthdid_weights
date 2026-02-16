@@ -142,7 +142,7 @@ $$
 Y_{1,1} & \cdots & Y_{1,T_{pre}} & \bar{Y}_{1,post} \\
 \vdots & \ddots & \vdots & \vdots \\
 Y_{N_{co},1} & \cdots & Y_{N_{co},T_{pre}} & \bar{Y}_{N_{co},post} \\
-\frac{1}{N_{tr}}\sum_{i>N_{co}} Y_{i,1} & \cdots & \frac{1}{N_{tr}}\sum_{i>N_{co}} Y_{i,T_{pre}} & \frac{1}{N_{tr}}\sum_{i>N_{co}} \bar{Y}_{i,post}
+\frac{1}{N_{tr}}\sum_{i=N_{co}+1} Y_{i,1} & \cdots & \frac{1}{N_{tr}}\sum_{i=N_{co}+1} Y_{i,T_{pre}} & \frac{1}{N_{tr}}\sum_{i=N_{co}+1} \bar{Y}_{i,post}
 \end{pmatrix}
 $$
 
@@ -161,16 +161,13 @@ In many empirical applications, treated units differ systematically in size or i
 
 To address this limitation, we extend SDID To allow for user-specified treated-unit weights. 
 
-Let $\pi = (\pi_{N_{co}+1}, \ldots, \pi_N)$ denote non-negative weights on treated units satisfying: $\sum_{i>N_{co}} \pi_i = 1$.
+Let $\pi = (\pi_{N_{co}+1}, \ldots, \pi_N)$ denote non-negative weights on treated units satisfying: $\sum_{i>N_{co}} \pi_i = 1$.We treat the treated-unit weights $\pi$ as fixed and prespecified by the researcher. These weights define the target estimand and are not estimated from outcome data.
 
-These weights define the target estimand:
-
-
-This weighted estimator targets the $\pi$-weighted average treatment effect: #John, does this notation work?
+This weighted estimator targets the $\pi$-weighted average treatment effect:
 $$
-\tau{(\pi)} = \sum_{i>N_{co}}^{N} \pi_i\left( \frac{1}{T_{post}} \sum_{t>T_{pre}}^{T} \tau_{it} \right)
+\tau^{(\pi)} = \sum_{i=N_{co}+1}^{N} \pi_i\left( \frac{1}{T_{post}} \sum_{t=T_{pre}+1}^{T} \tau_{it} \right)
 $$
-which corresponds to a weighted average treatment effect on the treated. When $\pi = 1/N_{tr}$, this reduces to the standard SDID estimand.
+which corresponds to a weighted average treatment effect on the treated. When $\pi = 1/N_{tr}$ and $\rho_t = 1/T_{post}$, this reduces to the standard SDID estimator.
 
 ```
 Old notation:
@@ -186,11 +183,11 @@ $$
 We modify the collapsed outcome matrix by replacing the uniform treated-unit averages with weighted averages. Define:
 
 $$
-\tilde{Y}{(\pi,\rho)} = \begin{pmatrix}
-Y_{1,1} & \cdots & Y_{1,T_{pre}} & \sum_{t>T_{pre}} \rho_t Y_{1,t} \\
+\tilde{Y}^{(\pi,\rho)} = \begin{pmatrix}
+Y_{1,1} & \cdots & Y_{1,T_{pre}} & \sum_{t=T_{pre}+1} \rho_t Y_{1,t} \\
 \vdots & \ddots & \vdots & \vdots \\
-Y_{N_{co},1} & \cdots & Y_{N_{co},T_{pre}} & \sum_{t>T_{pre}} \rho_t Y_{N_{co},t} \\
-\sum_{i>N_{co}} \pi_i Y_{i,1} & \cdots & \sum_{i>N_{co}} \pi_i Y_{i,T_{pre}} & \sum_{i>N_{co}} \sum_{t>T_{pre}} \pi_i \rho_t Y_{i,t}
+Y_{N_{co},1} & \cdots & Y_{N_{co},T_{pre}} & \sum_{t=T_{pre}+1} \rho_t Y_{N_{co},t} \\
+\sum_{i=N_{co}+1} \pi_i Y_{i,1} & \cdots & \sum_{i=N_{co}+1} \pi_i Y_{i,T_{pre}} & \sum_{i=N_{co}+1} \sum_{t=T_{pre}+1} \pi_i \rho_t Y_{i,t}
 \end{pmatrix}
 $$
 
@@ -201,9 +198,9 @@ where $\rho = (\rho_{T_{pre}+1}, \ldots, \rho_T)$ are optional post-period weigh
 Control unit weights are estimated by matching the weighted average of treated units in the pre-treatment period: 
 
 $$
-( \hat{\omega}_0, \hat{\omega}^{w}  ) =
+( \hat{\omega}_0, \hat{\omega}^{(w)}  ) =
 \underset{\omega_0 \in \mathbb{R}, \omega \in \Omega } {\text{argmin}}
-\sum_{t=1}^{T_{pre}} \left (\omega_0 + \sum_{i=1}^{N_{co}} \omega_i Y_{it} - \underbrace{\sum_{i>N_{co}}^{N} \pi_i Y_{it}}_{\text{user-weighted treated avg}} \right )^2
+\sum_{t=1}^{T_{pre}} \left (\omega_0 + \sum_{i=1}^{N_{co}} \omega_i Y_{it} - \underbrace{\sum_{i=N_{co}+1}^{N} \pi_i Y_{it}}_{\text{user-weighted treated avg}} \right )^2
 + \zeta^2 T_{pre} || \omega ||_2^2
 $$
 
@@ -214,13 +211,39 @@ This generalizes the standard SDID estimator, which implicitly sets $\pi_i = 1/N
 The weighted SDID treatment effect is then computed as:
 
 $$
-\hat{\tau}^{sdid,w} = \begin{pmatrix} -\hat{\omega}^w \\ \pi \end{pmatrix}^\top Y \begin{pmatrix} -\hat{\lambda}^w \\ \rho \end{pmatrix}
+\hat{\tau}^{sdid,(w)} = \begin{pmatrix} -\hat{\omega}^{(w)} \\ 1 \end{pmatrix}^\top \tilde{Y}^{(\pi, \rho)} \begin{pmatrix} -\hat{\lambda}^{(w)} \\ 1 \end{pmatrix}
 $$
-where $\hat{\lambda}^w$ are the corresponding time weights. Under standard SDID assumptions, this estimator is consistent for $\tau(\pi)$. 
+where $\hat{\lambda}^w$ are the corresponding time weights. Under standard SDID assumptions, this estimator is consistent for $\tau(\pi)$. When $\pi_i$ reflects population shares, $\tau^{(\pi)}$ is the population-weighted ATT.
 
-When $\pi_i$ reflects population shares, $\tau^{(\pi)}$ is the population-weighted ATT.
 
-The authors show that the estimator is asymptotically normal and propose inference using block bootstrap, jackknife, or permutation approaches. For the weighted estimator, we adapt these procedures to properly handle weight renormalization during resampling.
+## 2.7 Inference
+
+Under the same identification assumptions as standard synthetic difference-in-differences, the weighted estimator defined in Section 2.6 inherits the same asymptotic properties. The treated-unit weights $\pi$ define the target estimand and are treated as fixed and prespecified. Because the weighted estimator differs from standard SDID only through the construction of the collapsed outcome matrix $\tilde{Y}(\pi, \rho)$, the estimator remains a linear functional of the collapsed outcomes with estimated unit and time weights.
+
+Formally, under regularity conditions and as the number of control units $N_{co} \rightarrow \infty$,
+
+$$
+\sqrt{N_{co}}(\hat{\tau}^{(w)}-\tau^{(w)})\xrightarrow{d} \mathcal{N}(0, V^{(\pi)})
+$$
+where $V^{(\pi)}$ is the asymptotic variance, which depends on the outcome variance, the estimated unit weights $\hat{\omega}^w$, and the time weights $\hat{\lambda}^w$. The convergence rate is governed by the number of control units, reflecting that uncertainty arises from estimating the synthetic control.
+
+Because the asymptotic variance does not generally admit a simple closed form, inference is conducted using resampling procedures, as in Arkhangelsky et al. (2021). In particular, bootstrap methods provide consistent variance estimates when properly accounting for dependence within units over time.
+
+A valid bootstrap procedure proceeds as follows:
+
+\begin{enumerate}
+\item Resample units with replacement from the set of control units, preserving their full time series.
+\item Construct the weighted collapsed outcome matrix $\tilde{Y}^{(\pi,\rho)}$ using the resampled control units and the fixed treated-unit weights $\pi$.
+\item Re-estimate the unit weights $\hat{\omega}^w$ and time weights $\hat{\lambda}^w$ using the resampled data.
+\item Compute the bootstrap estimate $\hat{\tau}^{w*}$
+\item Repeat this procedure across bootstrap replications and estimate variance using the empirical variance of the bootstrap estimates.
+\end{enumerate}
+
+This procedure remains valid because the treated-unit weights $\pi$ are fixed and do not introduce additional sampling variability. The bootstrap therefore captures the full uncertainty arising from estimation of the synthetic control.
+
+Inference becomes more complex in settings where treated-unit weights are themselves estimated from data, or where the number of treated units receiving substantial weight is small. In such cases, additional sources of variability must be accounted for, and standard bootstrap procedures may understate uncertainty. In the applications considered in this paper, where $\pi$ is fixed and defined independently of the outcome data, standard bootstrap inference is appropriate.
+
+The asymptotic variance of the SDID estimator, $V^{(\pi)}$, is primarily driven by the number of control units, $N_{co}$, rather than the number of treated units or post-treatment periods. This occurs because uncertainty arises from estimating the synthetic control—i.e., constructing a weighted combination of control units that closely tracks the pre-treatment trajectory of the treated group. Once the synthetic control is estimated, the treated-unit outcomes are effectively aggregated using fixed weights ($\pi$), so their sampling variability contributes minimally to the overall variance. In practical terms, adding more treated units with known weights does not materially reduce estimator variance; improving precision relies on having more and better-matched control units.
 
 ---
 
