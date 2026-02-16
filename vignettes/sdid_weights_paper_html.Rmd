@@ -231,19 +231,19 @@ Because the asymptotic variance does not generally admit a simple closed form, i
 
 A valid bootstrap procedure proceeds as follows:
 
-\begin{enumerate}
-\item Resample units with replacement from the set of control units, preserving their full time series.
-\item Construct the weighted collapsed outcome matrix $\tilde{Y}^{(\pi,\rho)}$ using the resampled control units and the fixed treated-unit weights $\pi$.
-\item Re-estimate the unit weights $\hat{\omega}^w$ and time weights $\hat{\lambda}^w$ using the resampled data.
-\item Compute the bootstrap estimate $\hat{\tau}^{w*}$
-\item Repeat this procedure across bootstrap replications and estimate variance using the empirical variance of the bootstrap estimates.
-\end{enumerate}
+1. Resample units with replacement from the set of control units, preserving their full time series.
+2. Construct the weighted collapsed outcome matrix $\tilde{Y}^{(\pi,\rho)}$ using the resampled control units and the fixed treated-unit weights $\pi$.
+3. Re-estimate the unit weights $\hat{\omega}^w$ and time weights $\hat{\lambda}^w$ using the resampled data.
+4. Compute the bootstrap estimate $\hat{\tau}^{w*}$
+5. Repeat this procedure across bootstrap replications and estimate variance using the empirical variance of the bootstrap estimates.
 
 This procedure remains valid because the treated-unit weights $\pi$ are fixed and do not introduce additional sampling variability. The bootstrap therefore captures the full uncertainty arising from estimation of the synthetic control.
 
 Inference becomes more complex in settings where treated-unit weights are themselves estimated from data, or where the number of treated units receiving substantial weight is small. In such cases, additional sources of variability must be accounted for, and standard bootstrap procedures may understate uncertainty. In the applications considered in this paper, where $\pi$ is fixed and defined independently of the outcome data, standard bootstrap inference is appropriate.
 
 The asymptotic variance of the SDID estimator, $V^{(\pi)}$, is primarily driven by the number of control units, $N_{co}$, rather than the number of treated units or post-treatment periods. This occurs because uncertainty arises from estimating the synthetic control—i.e., constructing a weighted combination of control units that closely tracks the pre-treatment trajectory of the treated group. Once the synthetic control is estimated, the treated-unit outcomes are effectively aggregated using fixed weights ($\pi$), so their sampling variability contributes minimally to the overall variance. In practical terms, adding more treated units with known weights does not materially reduce estimator variance; improving precision relies on having more and better-matched control units.
+
+In practice, to account for finite-sample uncertainty, one can implement a block bootstrap that resamples control units with replacement while keeping treated-unit weights fixed. For each bootstrap draw, the SDID estimator is recomputed, and standard errors and confidence intervals are obtained from the empirical distribution of bootstrap estimates. This procedure directly reflects the dominant source of variability—control-unit outcomes—while maintaining the weighted treated-unit construction.
 
 ---
 
@@ -1165,7 +1165,7 @@ p_heterogeneous
 
 # 6. Replication (Draft)
 
-We apply our discussion of treated-unit weighting to Borgschulte and Vogler (2020), who study whether the Affordable Care Act (ACA) Medicaid expansion reduced mortality. Their core estimand is the change in county-level mortality in expansion states relative to non-expansion states in the years following the policy change, with a particular focus on working-age adults (ages 20–64).
+We apply weighted SDID to Borgschulte and Vogler (2020)'s analysis of ACA Medicaid expansion effects on mortality. This setting is ideal because: (1) treated units (expansion counties) vary enormously in population, (2) the policy-relevant estimand is population-weighted mortality reductions, not equal-weighted county averages, and (3) standard SDID would implicitly target the wrong parameter. We show that accounting for treated-unit weights substantively affects the estimated mortality reduction.
 
 ## 6.1 Summary of Borgschulte and Vogler (2020)
 
@@ -1199,15 +1199,17 @@ where observations are weighted by county population multiplied by propensity sc
 
 ## 6.2 Relevance to Weighted SDID
 
-This setting is useful for our purposes for two reasons. First, it naturally features many treated units (counties in expansion states) and many control units (counties in non-expansion states), which makes the treated-unit aggregation problem salient whenever one wants an estimand that reflects population exposure rather than an equal-weighted county average. Second, Borgschulte and Vogler motivate their reweighting strategy precisely because DID is complicated by systematic pre-expansion level differences in mortality rates between treatment and control areas; in such environments, methods that reweight units to improve pre-treatment balance—whether via propensity-score weights or SDID's synthetic weighting—are especially relevant to assess side-by-side.
+This setting is ideal for demonstrating the importance of treated-unit weights in SDID for three reasons. First, treated units (counties in expansion states) vary enormously in population, ranging from small rural counties to large urban centers. The policy-relevant estimand—the effect on population mortality—differs substantially from an equal-weighted county average. Second, treatment effects are plausibly heterogeneous across counties, as the uninsured population and healthcare access gaps varied widely before expansion. Third, Borgschulte and Vogler document substantial pre-expansion differences in mortality levels between expansion and non-expansion areas, making this precisely the type of setting where SDID's reweighting of control units offers advantages over standard DID.
 
-In our partial replication, we implement three classes of estimators on a common analysis sample:
+In our replication, we implement five estimators on a common analysis sample:
 
-1. **Conventional DID regression** (both unweighted and population-weighted)
-2. **SDID estimators** (unweighted SDID and all three population-weighted variants discussed in this paper)
-3. **Double-lasso propensity score weighted DID** (replicating the Borgschulte-Vogler approach)
+1. **Unweighted SDID** – the standard estimator, which implicitly targets an equal-weighted average treatment effect across counties
+2. **Weighted SDID** – our proposed estimator, which targets the population-weighted average treatment effect
+3. **Unweighted DID ** – a baseline comparison that also targets equal-weighted effects
+4. **Population-weighted DID** – targets the same estimand as weighted SDID but relies on stronger parallel trends assumptions
+5. **Double-lasso propensity score weighted DID** – replicating the Borgschulte-Vogler approach
 
-The objective is not to reproduce every modeling choice in Borgschulte and Vogler (2020), but to use their empirical context to illustrate how the choice of treated-unit weights can change the estimand and, in finite samples, the behavior of SDID relative to DID in the presence of meaningful baseline differences.
+Our objective is to demonstrate that the choice of treated-unit weights is not merely a technical detail—it defines the estimand and can meaningfully affect the estimated effect in finite samples. When counties differ substantially in size and treatment effects are heterogeneous, unweighted SDID answers a different policy question than weighted SDID. We show this distinction matters empirically in the ACA Medicaid expansion context.
 
 ## 6.3 Data Limitations
 
