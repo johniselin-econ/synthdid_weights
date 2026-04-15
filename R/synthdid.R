@@ -209,6 +209,9 @@ synthdid_effect_curve = function(estimate) {
 #'        initialized at sparsify( the solution to the first round ).
 #' @param max.iter.pre.sparsify Analogous to max.iter, but for the pre-sparsification first-round of optimization.
 #'        Not used if sparsify=NULL.
+#' @param effective.sample.size If TRUE, use Kish's effective sample size (1/sum(w^2)) instead of raw N1 and T1
+#'        when computing the default eta.omega regularization parameter. This reduces regularization when weights
+#'        are concentrated, which may be appropriate for highly skewed weight distributions. Default FALSE.
 #' @return An average treatment effect estimate with 'weights', 'setup', and 'treated.weights' attached as attributes.
 #'         'weights' contains the estimated weights lambda and omega and corresponding intercepts,
 #'         as well as regression coefficients beta if X is passed.
@@ -228,11 +231,31 @@ synthdid_estimate_weighted <- function(Y, N0, T0,
                                        update.omega = is.null(weights$omega), update.lambda = is.null(weights$lambda),
                                        min.decrease = NULL, max.iter = 1e4,
                                        sparsify = sparsify_function,
-                                       max.iter.pre.sparsify = 100) {
+                                       max.iter.pre.sparsify = 100,
+                                       effective.sample.size = FALSE) {
 
   # Handle default X
- if (is.null(X)) {
+  if (is.null(X)) {
     X = array(dim = c(dim(Y), 0))
+  }
+
+  N1 = nrow(Y) - N0
+  T1 = ncol(Y) - T0
+
+  # Process treated unit weights (before eta.omega so effective sample size is available)
+  if (is.null(treated.weights)) {
+    treated.weights = rep(1 / N1, N1)
+  } else {
+    stopifnot(length(treated.weights) == N1, all(treated.weights >= 0), sum(treated.weights) > 0)
+    treated.weights = treated.weights / sum(treated.weights)  # Normalize to sum to 1
+  }
+
+  # Process period weights
+  if (is.null(period.weights)) {
+    period.weights = rep(1 / T1, T1)
+  } else {
+    stopifnot(length(period.weights) == T1, all(period.weights >= 0), sum(period.weights) > 0)
+    period.weights = period.weights / sum(period.weights)  # Normalize to sum to 1
   }
 
   # Handle other defaults that depend on data
@@ -240,7 +263,10 @@ synthdid_estimate_weighted <- function(Y, N0, T0,
     noise.level = sd(apply(Y[1:N0, 1:T0], 1, diff))
   }
   if (is.null(eta.omega)) {
-    eta.omega = ((nrow(Y) - N0) * (ncol(Y) - T0))^(1/4)
+    # Use Kish's effective sample size if requested: N_eff = 1/sum(w^2)
+    N1.use = if (effective.sample.size) 1 / sum(treated.weights^2) else N1
+    T1.use = if (effective.sample.size) 1 / sum(period.weights^2)  else T1
+    eta.omega = (N1.use * T1.use)^(1/4)
   }
   if (is.null(zeta.omega)) {
     zeta.omega = eta.omega * noise.level
@@ -259,25 +285,6 @@ synthdid_estimate_weighted <- function(Y, N0, T0,
 
   if (length(dim(X)) == 2) { dim(X) = c(dim(X), 1) }
   if (is.null(sparsify)) { max.iter.pre.sparsify = max.iter }
-
-  N1 = nrow(Y) - N0
-  T1 = ncol(Y) - T0
-
-  # Process treated unit weights
-  if (is.null(treated.weights)) {
-    treated.weights = rep(1 / N1, N1)
-  } else {
-    stopifnot(length(treated.weights) == N1, all(treated.weights >= 0), sum(treated.weights) > 0)
-    treated.weights = treated.weights / sum(treated.weights)  # Normalize to sum to 1
-  }
-
-  # Process period weights
-  if (is.null(period.weights)) {
-    period.weights = rep(1 / T1, T1)
-  } else {
-    stopifnot(length(period.weights) == T1, all(period.weights >= 0), sum(period.weights) > 0)
-    period.weights = period.weights / sum(period.weights)  # Normalize to sum to 1
-  }
 
   # Estimate control weights (omega) and time weights (lambda)
   if (dim(X)[3] == 0) {
@@ -389,9 +396,7 @@ did_estimate_weighted = function(Y, N0, T0, treated.weights = NULL, period.weigh
 synthdid_placebo_weighted = function(estimate, treated.fraction = NULL) {
   setup = attr(estimate, 'setup')
   opts = attr(estimate, 'opts')
-  weights = attr(estimate, 'weights')
   treated.weights = attr(estimate, 'treated.weights')
-  X.beta = contract3(setup$X, weights$beta)
 
   if (is.null(treated.fraction)) { treated.fraction = 1 - setup$T0 / ncol(setup$Y) }
   placebo.T0 = floor(setup$T0 * (1 - treated.fraction))
@@ -400,13 +405,11 @@ synthdid_placebo_weighted = function(estimate, treated.fraction = NULL) {
   # For placebo, use uniform period weights for the placebo post-period
   placebo.period.weights = rep(1 / placebo.T1, placebo.T1)
 
-  synthdid_estimate_weighted(Y = setup$Y[, 1:setup$T0], N0 = setup$N0, T0 = placebo.T0,
-                             X = setup$X[, 1:setup$T0, , drop = FALSE],
-                             treated.weights = treated.weights,
-                             period.weights = placebo.period.weights,
-                             zeta.omega = opts$zeta.omega, zeta.lambda = opts$zeta.lambda,
-                             omega.intercept = opts$omega.intercept, lambda.intercept = opts$lambda.intercept,
-                             min.decrease = opts$min.decrease, max.iter = opts$max.iter)
+  do.call(synthdid_estimate_weighted,
+          c(list(Y = setup$Y[, 1:setup$T0], N0 = setup$N0, T0 = placebo.T0,
+                 X = setup$X[, 1:setup$T0, , drop = FALSE],
+                 treated.weights = treated.weights,
+                 period.weights = placebo.period.weights), opts))
 }
 
 #' Outputs the effect curve that was averaged to produce the weighted estimate
@@ -564,7 +567,11 @@ synthdid_event_study = function(estimate, se.method = NULL, replications = 200, 
   if (method == "bootstrap") {
     curves = matrix(NA, replications, T)
     count = 0
-    while (count < replications) {
+    max_attempts = replications * 10
+    attempts = 0
+    failures = 0
+    while (count < replications && attempts < max_attempts) {
+      attempts = attempts + 1
       ind = sample(1:N, replace = TRUE)
       control.ind = sort(ind[ind <= N0])
       treated.ind = sort(ind[ind > N0])
@@ -594,13 +601,20 @@ synthdid_event_study = function(estimate, se.method = NULL, replications = 200, 
         }
         curves[count + 1, ] = curve_from_estimate(est.boot)
         count = count + 1
-      }, error = function(e) {})
+      }, error = function(e) { failures <<- failures + 1 })
     }
-    curves
+    if (failures > 0) {
+      warning(sprintf("Event study bootstrap: %d of %d attempts failed", failures, attempts))
+    }
+    if (count < replications) {
+      warning(sprintf("Event study bootstrap: only %d of %d replicates completed", count, replications))
+    }
+    curves[1:count, , drop = FALSE]
 
   } else if (method == "placebo") {
     if (N0 <= N1) stop('must have more controls than treated units to use the placebo se')
     curves = matrix(NA, replications, T)
+    failures = 0
     for (r in 1:replications) {
       ind = sample(1:N0)
       weights.boot = weights
@@ -622,9 +636,17 @@ synthdid_event_study = function(estimate, se.method = NULL, replications = 200, 
                    weights = weights.boot), opts))
         }
         curves[r, ] = curve_from_estimate(est.placebo)
-      }, error = function(e) {})
+      }, error = function(e) { failures <<- failures + 1 })
     }
-    curves[complete.cases(curves), , drop = FALSE]
+    if (failures > 0) {
+      warning(sprintf("Event study placebo: %d of %d replicates failed", failures, replications))
+    }
+    result = curves[complete.cases(curves), , drop = FALSE]
+    if (nrow(result) < replications * 0.5) {
+      warning(sprintf("Event study placebo: only %d of %d replicates succeeded; SEs may be unreliable",
+                       nrow(result), replications))
+    }
+    result
   }
 }
 

@@ -15,9 +15,13 @@ collapsed.form_weighted = function(Y, N0, T0, treated.weights = NULL, period.wei
   # Default to uniform weights if not specified
   if (is.null(treated.weights)) {
     treated.weights = rep(1 / N1, N1)
+  } else {
+    stopifnot(length(treated.weights) == N1, all(treated.weights >= 0), sum(treated.weights) > 0)
   }
   if (is.null(period.weights)) {
     period.weights = rep(1 / T1, T1)
+  } else {
+    stopifnot(length(period.weights) == T1, all(period.weights >= 0), sum(period.weights) > 0)
   }
 
   # Extract submatrices

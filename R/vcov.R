@@ -140,20 +140,25 @@ sum_normalize = function(x) {
 #' @param object A synthdid_estimate_weighted model
 #' @param method, the CI method. The default is bootstrap.
 #' @param replications, the number of bootstrap replications
+#' @param placebo.weights For the placebo method, how to weight pseudo-treated units:
+#'        "uniform" (default, 1/N1 for each), "size_match" (weight by pre-treatment outcome levels),
+#'        or "permute" (randomly assign the original treated.weights vector).
 #' @param ... Additional arguments (currently ignored).
 #'
 #' @method vcov synthdid_estimate_weighted
 #' @export
 vcov.synthdid_estimate_weighted = function(object,
   method = c("bootstrap", "jackknife", "placebo"),
-  replications = 200, ...) {
+  replications = 200,
+  placebo.weights = c("uniform", "size_match", "permute"), ...) {
     method = match.arg(method)
+    placebo.weights = match.arg(placebo.weights)
     if(method == 'bootstrap') {
       se = bootstrap_se_weighted(object, replications)
     } else if(method == 'jackknife') {
       se = jackknife_se_weighted(object)
     } else if(method == 'placebo') {
-      se = placebo_se_weighted(object, replications)
+      se = placebo_se_weighted(object, replications, placebo.weights)
     }
     matrix(se^2)
 }
@@ -191,10 +196,8 @@ bootstrap_sample_weighted = function(estimate, replications) {
       weights.boot = weights
       weights.boot$omega = sum_normalize(weights$omega[control.ind])
 
-      # Renormalize treated weights for resampled treated units
-      # Count how many times each treated unit appears
-      treated.counts = tabulate(treated.ind.local, nbins = N1)
-      treated.weights.boot = treated.weights * treated.counts
+      # Assign weights to each resampled treated row (one weight per row, matching Y.boot)
+      treated.weights.boot = treated.weights[treated.ind.local]
       treated.weights.boot = sum_normalize(treated.weights.boot)
 
       # Reconstruct Y matrix with resampled units
@@ -211,11 +214,18 @@ bootstrap_sample_weighted = function(estimate, replications) {
 
     bootstrap.estimates = rep(NA, replications)
     count = 0
-    while(count < replications) {
+    max_attempts = replications * 10
+    attempts = 0
+    while(count < replications && attempts < max_attempts) {
+      attempts = attempts + 1
       bootstrap.estimates[count+1] = theta(sample(1:nrow(setup$Y), replace=TRUE))
       if(!is.na(bootstrap.estimates[count+1])) { count = count+1 }
     }
-    bootstrap.estimates
+    if (count < replications) {
+      warning(sprintf("Weighted bootstrap: only %d of %d replicates completed after %d attempts",
+                       count, replications, attempts))
+    }
+    bootstrap.estimates[1:count]
 }
 
 
@@ -264,7 +274,11 @@ jackknife_se_weighted = function(estimate, weights = attr(estimate, 'weights')) 
 # The placebo se for weighted estimates: modified Algorithm 4
 # For placebo, we reassign N1 control units as "treated" and estimate effect
 # Key change: need to assign weights to the placebo treated units
-placebo_se_weighted = function(estimate, replications) {
+# placebo.weights controls how pseudo-treated units are weighted:
+#   "uniform"    - equal weights 1/N1 (default, tests sharp null under uniform weighting)
+#   "size_match" - weight by pre-treatment outcome levels (mimics size-based weighting)
+#   "permute"    - randomly permute the original treated.weights (preserves weight concentration)
+placebo_se_weighted = function(estimate, replications, placebo.weights = "uniform") {
     setup = attr(estimate, 'setup')
     opts = attr(estimate, 'opts')
     weights = attr(estimate, 'weights')
@@ -278,19 +292,29 @@ placebo_se_weighted = function(estimate, replications) {
 
     theta = function(ind) {
       N0.placebo = length(ind) - N1
+      placebo.treated.ind = ind[(N0.placebo + 1):length(ind)]
 
       # Renormalize control weights for remaining controls
       weights.boot = weights
       weights.boot$omega = sum_normalize(weights$omega[ind[1:N0.placebo]])
 
-      # For placebo treated units, use uniform weights
-      # (original treated.weights don't apply to control units acting as placebo treated)
-      treated.weights.placebo = rep(1/N1, N1)
+      # Determine placebo treated weights based on method
+      if (placebo.weights == "uniform") {
+        tw.placebo = rep(1 / N1, N1)
+      } else if (placebo.weights == "permute") {
+        tw.placebo = treated.weights.orig[sample.int(N1)]
+      } else if (placebo.weights == "size_match") {
+        # Weight pseudo-treated units by their pre-treatment outcome levels
+        Y.pre = setup$Y[placebo.treated.ind, 1:setup$T0, drop = FALSE]
+        w = abs(rowMeans(Y.pre))
+        if (sum(w) == 0) w = rep(1, N1)
+        tw.placebo = w / sum(w)
+      }
 
       do.call(synthdid_estimate_weighted,
               c(list(Y = setup$Y[ind, ], N0 = N0.placebo, T0 = setup$T0,
                      X = setup$X[ind, , ],
-                     treated.weights = treated.weights.placebo,
+                     treated.weights = tw.placebo,
                      period.weights = period.weights,
                      weights = weights.boot), opts))
     }

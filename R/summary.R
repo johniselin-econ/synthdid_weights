@@ -7,7 +7,7 @@
 #' @param weight.type, 'omega' for units, 'lambda' for time periods
 #' @export synthdid_controls
 synthdid_controls = function(estimates, sort.by = 1, mass = .9, weight.type = 'omega') {
-  if (class(estimates) == 'synthdid_estimate') { estimates = list(estimates) }
+  if (inherits(estimates, 'synthdid_estimate')) { estimates = list(estimates) }
   if (is.null(names(estimates))) { names(estimates) = sprintf('estimate %d', 1:length(estimates)) }
   if (!weight.type %in% c('omega', 'lambda')) { stop('weight.type must be "omega" or "lambda"') } 
   weights = do.call(cbind, lapply(estimates, function(est) { attr(est, 'weights')[[weight.type]] }))
@@ -52,7 +52,7 @@ summary.synthdid_estimate = function(object, weight.digits=3, fast=FALSE, ...) {
 #' @param weight.type, 'omega' for units, 'lambda' for time periods, 'treated' for treated unit weights
 #' @export synthdid_controls_weighted
 synthdid_controls_weighted = function(estimates, sort.by = 1, mass = .9, weight.type = 'omega') {
-  if (class(estimates) == 'synthdid_estimate_weighted') { estimates = list(estimates) }
+  if (inherits(estimates, 'synthdid_estimate_weighted')) { estimates = list(estimates) }
   if (is.null(names(estimates))) { names(estimates) = sprintf('estimate %d', 1:length(estimates)) }
   if (!weight.type %in% c('omega', 'lambda', 'treated', 'period')) {
     stop('weight.type must be "omega", "lambda", "treated", or "period"')

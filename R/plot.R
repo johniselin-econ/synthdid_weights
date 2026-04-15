@@ -64,7 +64,7 @@ synthdid_plot = function(estimates, treated.name = 'treated', control.name = 'sy
   } else {
     stop("Plotting requires the package `ggplot2`. Install it to use this function.")
   }
-  if (class(estimates) == 'synthdid_estimate') { estimates = list(estimates) }
+  if (inherits(estimates, 'synthdid_estimate')) { estimates = list(estimates) }
   if (is.null(names(estimates))) { names(estimates) = sprintf('estimate %d', 1:length(estimates)) }
   if (is.null(alpha.multiplier)) { alpha.multiplier = rep(1, length(estimates)) }
   if (!is.null(spaghetti.matrices) && length(spaghetti.matrices) != length(estimates)) { stop('spaghetti.matrices must be the same length as estimates') }
@@ -305,7 +305,7 @@ synthdid_units_plot = function(estimates, negligible.threshold = .001, negligibl
   } else {
     stop("Plotting requires the package `ggplot2`. Install it to use this function.")
   }
-  if (class(estimates) == 'synthdid_estimate') { estimates = list(estimates) }
+  if (inherits(estimates, 'synthdid_estimate')) { estimates = list(estimates) }
   if (is.null(names(estimates))) { names(estimates) = sprintf('estimate %d', 1:length(estimates)) }
   plot.data = do.call(rbind, lapply(1:length(estimates), function(ee) {
     estimate = estimates[[ee]]
@@ -349,7 +349,7 @@ synthdid_rmse_plot = function(estimates) { # pass an estimate or list of estimat
   } else {
     stop("Plotting requires the package `ggplot2`. Install it to use this function.")
   }
-  if (class(estimates) == 'synthdid_estimate') { estimates = list(estimates) }
+  if (inherits(estimates, 'synthdid_estimate')) { estimates = list(estimates) }
   if (is.null(names(estimates))) { names(estimates) = sprintf('estimate %d', 1:length(estimates)) }
   rmse = lapply(estimates, function(est) { sqrt(attr(est, 'weights')$vals) })
   plot.data = data.frame(rmse = unlist(rmse),
@@ -390,7 +390,7 @@ synthdid_plot_weighted = function(estimates, treated.name = 'treated (weighted)'
   } else {
     stop("Plotting requires the package `ggplot2`. Install it to use this function.")
   }
-  if (class(estimates) == 'synthdid_estimate_weighted') { estimates = list(estimates) }
+  if (inherits(estimates, 'synthdid_estimate_weighted')) { estimates = list(estimates) }
   if (is.null(names(estimates))) { names(estimates) = sprintf('estimate %d', 1:length(estimates)) }
 
   # For weighted estimates, we modify the treatment weights internally
