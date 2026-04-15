@@ -250,3 +250,57 @@ test_that("covariate path works for weighted estimator", {
   expect_true(!is.null(attr(tau.cov, 'weights')$beta))
   expect_true(length(attr(tau.cov, 'weights')$beta) == 1)
 })
+
+# =============================================================================
+# Cluster-robust standard errors
+# =============================================================================
+
+test_that("cluster bootstrap returns finite positive SE", {
+  setup = random.low.rank()
+  N = nrow(setup$Y)
+  N1 = N - setup$N0
+  tw = runif(N1); tw = tw / sum(tw)
+  # Create 10 clusters
+  cluster = rep(1:10, length.out = N)
+
+  tau = synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
+          treated.weights = tw, cluster = cluster)
+  se = suppressWarnings(sqrt(vcov(tau, method = 'bootstrap', replications = 20)))
+  expect_true(is.finite(se) && se > 0)
+})
+
+test_that("cluster jackknife returns finite positive SE", {
+  setup = random.low.rank()
+  N = nrow(setup$Y)
+  N1 = N - setup$N0
+  tw = runif(N1); tw = tw / sum(tw)
+  cluster = rep(1:10, length.out = N)
+
+  tau = synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
+          treated.weights = tw, cluster = cluster)
+  se = sqrt(vcov(tau, method = 'jackknife'))
+  expect_true(is.finite(se) && se > 0)
+})
+
+test_that("cluster parameter is stored and auto-detected", {
+  setup = random.low.rank()
+  N = nrow(setup$Y)
+  N1 = N - setup$N0
+  tw = runif(N1); tw = tw / sum(tw)
+  cluster = rep(1:10, length.out = N)
+
+  tau = synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
+          treated.weights = tw, cluster = cluster)
+  expect_equal(attr(tau, 'cluster'), cluster)
+})
+
+test_that("NULL cluster preserves existing unit-level behavior", {
+  setup = random.low.rank()
+  N1 = nrow(setup$Y) - setup$N0
+  tw = runif(N1); tw = tw / sum(tw)
+
+  tau = synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = tw)
+  expect_null(attr(tau, 'cluster'))
+  se = sqrt(vcov(tau, method = 'jackknife'))
+  expect_true(is.finite(se) && se > 0)
+})

@@ -212,6 +212,9 @@ synthdid_effect_curve = function(estimate) {
 #' @param effective.sample.size If TRUE, use Kish's effective sample size (1/sum(w^2)) instead of raw N1 and T1
 #'        when computing the default eta.omega regularization parameter. This reduces regularization when weights
 #'        are concentrated, which may be appropriate for highly skewed weight distributions. Default FALSE.
+#' @param cluster An optional integer or factor vector of length N giving the cluster membership of each unit
+#'        (e.g., state FIPS for county-level data). When provided, variance estimators accessed via vcov()
+#'        will resample clusters rather than individual units. Default NULL (unit-level resampling).
 #' @return An average treatment effect estimate with 'weights', 'setup', and 'treated.weights' attached as attributes.
 #'         'weights' contains the estimated weights lambda and omega and corresponding intercepts,
 #'         as well as regression coefficients beta if X is passed.
@@ -232,7 +235,8 @@ synthdid_estimate_weighted <- function(Y, N0, T0,
                                        min.decrease = NULL, max.iter = 1e4,
                                        sparsify = sparsify_function,
                                        max.iter.pre.sparsify = 100,
-                                       effective.sample.size = FALSE) {
+                                       effective.sample.size = FALSE,
+                                       cluster = NULL) {
 
   # Handle default X
   if (is.null(X)) {
@@ -335,8 +339,14 @@ synthdid_estimate_weighted <- function(Y, N0, T0,
   class(estimate) = 'synthdid_estimate_weighted'
   attr(estimate, 'estimator') = "synthdid_estimate_weighted"
   attr(estimate, 'weights') = weights
+  # Validate cluster if provided
+  if (!is.null(cluster)) {
+    stopifnot(length(cluster) == nrow(Y))
+  }
+
   attr(estimate, 'treated.weights') = treated.weights
   attr(estimate, 'period.weights') = period.weights
+  attr(estimate, 'cluster') = cluster
   attr(estimate, 'setup') = list(Y = Y, X = X, N0 = N0, T0 = T0)
   attr(estimate, 'opts') = list(zeta.omega = zeta.omega, zeta.lambda = zeta.lambda,
                                 omega.intercept = omega.intercept, lambda.intercept = lambda.intercept,

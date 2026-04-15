@@ -143,6 +143,9 @@ sum_normalize = function(x) {
 #' @param placebo.weights For the placebo method, how to weight pseudo-treated units:
 #'        "uniform" (default, 1/N1 for each), "size_match" (weight by pre-treatment outcome levels),
 #'        or "permute" (randomly assign the original treated.weights vector).
+#' @param cluster An optional vector of cluster IDs for cluster-robust inference. If NULL (default),
+#'        uses the cluster stored in the estimate object (if any). When non-NULL, resamples clusters
+#'        rather than individual units.
 #' @param ... Additional arguments (currently ignored).
 #'
 #' @method vcov synthdid_estimate_weighted
@@ -150,15 +153,30 @@ sum_normalize = function(x) {
 vcov.synthdid_estimate_weighted = function(object,
   method = c("bootstrap", "jackknife", "placebo"),
   replications = 200,
-  placebo.weights = c("uniform", "size_match", "permute"), ...) {
+  placebo.weights = c("uniform", "size_match", "permute"),
+  cluster = attr(object, 'cluster'), ...) {
     method = match.arg(method)
     placebo.weights = match.arg(placebo.weights)
-    if(method == 'bootstrap') {
-      se = bootstrap_se_weighted(object, replications)
-    } else if(method == 'jackknife') {
-      se = jackknife_se_weighted(object)
-    } else if(method == 'placebo') {
-      se = placebo_se_weighted(object, replications, placebo.weights)
+
+    if (!is.null(cluster)) {
+      # Cluster-robust inference
+      if(method == 'bootstrap') {
+        se = cluster_bootstrap_se_weighted(object, replications, cluster)
+      } else if(method == 'jackknife') {
+        se = cluster_jackknife_se_weighted(object, cluster)
+      } else if(method == 'placebo') {
+        se = placebo_se_weighted(object, replications, placebo.weights)
+        warning("Placebo SE does not currently support clustering; using unit-level placebo.")
+      }
+    } else {
+      # Unit-level inference (existing behavior)
+      if(method == 'bootstrap') {
+        se = bootstrap_se_weighted(object, replications)
+      } else if(method == 'jackknife') {
+        se = jackknife_se_weighted(object)
+      } else if(method == 'placebo') {
+        se = placebo_se_weighted(object, replications, placebo.weights)
+      }
     }
     matrix(se^2)
 }
@@ -320,4 +338,107 @@ placebo_se_weighted = function(estimate, replications, placebo.weights = "unifor
     }
 
     sqrt((replications-1)/replications) * sd(replicate(replications, theta(sample(1:setup$N0))))
+}
+
+
+# =============================================================================
+# CLUSTER-ROBUST VARIANCE ESTIMATION
+# Following the fixed-weight cluster bootstrap of Clarke et al. (2023)
+# as implemented in the Stata sdid package (Daniel-Pailanir)
+# =============================================================================
+
+# Cluster bootstrap SE: resample clusters with replacement, subset fixed weights
+cluster_bootstrap_se_weighted = function(estimate, replications, cluster) {
+    setup = attr(estimate, 'setup')
+    opts = attr(estimate, 'opts')
+    weights = attr(estimate, 'weights')
+    treated.weights = attr(estimate, 'treated.weights')
+    period.weights = attr(estimate, 'period.weights')
+    N0 = setup$N0
+    N = nrow(setup$Y)
+
+    cluster_control = cluster[1:N0]
+    cluster_treated = cluster[(N0+1):N]
+    unique_clusters = unique(cluster)
+
+    theta = function() {
+      drawn = sample(unique_clusters, replace = TRUE)
+      control.ind = unlist(lapply(drawn, function(cl) which(cluster_control == cl)))
+      treated.ind.local = unlist(lapply(drawn, function(cl) which(cluster_treated == cl)))
+      if (length(control.ind) == 0 || length(treated.ind.local) == 0) return(NA)
+
+      weights.boot = weights
+      weights.boot$omega = sum_normalize(weights$omega[control.ind])
+      tw.boot = sum_normalize(treated.weights[treated.ind.local])
+
+      all.ind = c(control.ind, N0 + treated.ind.local)
+      Y.boot = setup$Y[all.ind, , drop = FALSE]
+      X.boot = setup$X[all.ind, , , drop = FALSE]
+      N0.boot = length(control.ind)
+
+      c(do.call(synthdid_estimate_weighted,
+                c(list(Y = Y.boot, N0 = N0.boot, T0 = setup$T0, X = X.boot,
+                       treated.weights = tw.boot, period.weights = period.weights,
+                       weights = weights.boot), opts)))
+    }
+
+    estimates = rep(NA, replications)
+    count = 0; max_attempts = replications * 10; attempts = 0; failures = 0
+    while (count < replications && attempts < max_attempts) {
+      attempts = attempts + 1
+      tryCatch({
+        est = theta()
+        if (!is.na(est)) { count = count + 1; estimates[count] = est }
+      }, error = function(e) { failures <<- failures + 1 })
+    }
+    if (failures > 0) warning(sprintf("Cluster bootstrap: %d of %d attempts failed", failures, attempts))
+    if (count < replications) warning(sprintf("Cluster bootstrap: only %d of %d replicates completed", count, replications))
+    sqrt((replications-1)/replications) * sd(estimates[1:count])
+}
+
+# Cluster jackknife SE: leave out one cluster at a time
+cluster_jackknife_se_weighted = function(estimate, cluster) {
+    setup = attr(estimate, 'setup')
+    opts = attr(estimate, 'opts')
+    weights = attr(estimate, 'weights')
+    treated.weights.orig = attr(estimate, 'treated.weights')
+    period.weights = attr(estimate, 'period.weights')
+    N0 = setup$N0
+    N = nrow(setup$Y)
+
+    opts$update.omega = FALSE
+    opts$update.lambda = FALSE
+
+    cluster_control = cluster[1:N0]
+    cluster_treated = cluster[(N0+1):N]
+    unique_clusters = unique(cluster)
+    K = length(unique_clusters)
+    if (K <= 1) return(NA)
+
+    theta_k = rep(NA, K)
+    for (k in 1:K) {
+      cl = unique_clusters[k]
+      keep_control = which(cluster_control != cl)
+      keep_treated = which(cluster_treated != cl)
+      if (length(keep_control) == 0 || length(keep_treated) == 0) { next }
+
+      weights.jk = weights
+      weights.jk$omega = sum_normalize(weights$omega[keep_control])
+      tw.jk = sum_normalize(treated.weights.orig[keep_treated])
+
+      keep.ind = c(keep_control, N0 + keep_treated)
+      theta_k[k] = tryCatch(
+        c(do.call(synthdid_estimate_weighted,
+                  c(list(Y = setup$Y[keep.ind, , drop = FALSE],
+                         N0 = length(keep_control), T0 = setup$T0,
+                         X = setup$X[keep.ind, , , drop = FALSE],
+                         treated.weights = tw.jk, period.weights = period.weights,
+                         weights = weights.jk), opts))),
+        error = function(e) NA)
+    }
+
+    valid = !is.na(theta_k)
+    if (sum(valid) < 2) return(NA)
+    K.valid = sum(valid)
+    sqrt(((K.valid - 1) / K.valid) * (K.valid - 1) * var(theta_k[valid]))
 }
