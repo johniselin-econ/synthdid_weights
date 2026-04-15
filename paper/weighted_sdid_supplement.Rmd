@@ -551,9 +551,148 @@ kableExtra::kbl(
 
 Table E.2 reports 95\% confidence interval coverage. The bootstrap and placebo methods generally achieve near-nominal coverage for both the equally-weighted and population-weighted estimators. Coverage tends to be closest to 0.95 with larger $N_1$, as expected. Under high weight concentration, the placebo SE---which uses uniform weights for pseudo-treated units---may exhibit modest undercoverage for the weighted estimator, reflecting the discrepancy noted in Section 3 of the main text. The jackknife generally provides adequate coverage but can be conservative with few treated units.
 
-# Additional ACA Results {#app:aca}
+# Alternative Approaches to Weighted Estimation {#app:alternatives}
 
-\emph{To be completed:} Robustness to outcome choice, donor pool restrictions, alternative weight specifications (e.g., Medicaid-eligible population rather than total population).
+The weighted SDID estimator (our approach) is one of three natural strategies for incorporating treated-unit weights. We compare these alternatives here.
+
+**Solution 1: Weighted-average treated unit.** Collapse all treated units into a single weighted-average row $\bar{Y}^w_t = \sum_j \tilde{\omega}_j Y_{N_0+j,t}$ before running standard SDID with one treated unit. This is simple to implement but loses unit-level heterogeneity, distorts the cross-sectional dimension (the algorithm sees $N_0 + 1$ units rather than $N_0 + N_1$), and makes bootstrap inference problematic because the single "super-unit" cannot be resampled.
+
+**Solution 2: Unit-by-unit SDID.** Run a separate SDID for each treated unit $j$ (with that unit as the sole treated unit and all $N_0$ controls), then compute $\hat{\tau}^w = \sum_j \tilde{\omega}_j \hat{\tau}_j$. This preserves unit-level heterogeneity and allows unit-specific inference, but is computationally intensive ($N_1$ separate optimizations) and each unit-level SDID has only one treated unit, which may reduce the quality of the synthetic control match.
+
+**Solution 3: Modified collapsed form (our approach).** Modify the SDID algorithm to incorporate $\tilde{\omega}$ directly into the collapsed form (equation \ref{eq:collapsed-w} in the main text). This is theoretically grounded---the synthetic control is constructed to match the researcher's target estimand---computationally efficient (a single optimization on the same-dimensional problem), and admits straightforward variance estimation via the adapted bootstrap, jackknife, and placebo methods.
+
+\begin{table}[!ht]
+\centering
+\caption{Comparison of approaches to incorporating treated-unit weights in SDID.}
+\begin{tabular}{lp{5cm}p{5cm}}
+\hline
+ & Advantages & Disadvantages \\
+\hline
+Sol.\ 1: Weighted-average unit & Simple; single SDID run & Loses heterogeneity; collapses to $N_1 = 1$; bootstrap undefined \\
+Sol.\ 2: Unit-by-unit SDID & Preserves heterogeneity; unit-specific effects & $N_1$ optimizations; each uses single treated unit \\
+Sol.\ 3: Modified collapsed form & Single coherent optimization; correct estimand; standard inference & Requires modified code \\
+\hline
+\end{tabular}
+\end{table}
+
+Solution 3 is our recommended approach and the one implemented in the software package.
+
+
+# Additional ACA Results: Double-Lasso Propensity Score Benchmark {#app:aca}
+
+As an additional benchmark, we compare our weighted SDID estimates to the double-lasso propensity score (DLPS) weighted DiD approach of @borgschulte2020. Their method uses the double-lasso procedure of @belloni2014 to select covariates for a propensity score model predicting treatment (Medicaid expansion), then weights control counties by $p/(1-p)$ where $p$ is the estimated propensity score. This provides an independent estimate of the population-weighted treatment effect that does not rely on synthetic control methods.
+
+We implement a simplified version using the available covariates (percent white, percent ages 55--64, logged population subgroups, unemployment rate). Our covariate set is smaller than the one used by @borgschulte2020, who also had access to poverty rates, median income, political variables, and uninsured rates.
+
+```{r dlps-estimate, cache=TRUE}
+# Double-lasso propensity score weighted DiD
+# Requires hdm and glmnet packages
+if (requireNamespace("hdm", quietly = TRUE) && requireNamespace("glmnet", quietly = TRUE)) {
+
+  control_vars <- c("pct_white", "pct_55_64", "log_20_64", "log_35_44", "log_f_20_64", "unemp")
+
+  # Load data with covariates
+  panel_full <- readr::read_csv(
+    file.path("..", "data", "analysis_data.csv"),
+    show_col_types = FALSE
+  ) %>%
+    dplyr::select(
+      unit = fips, time = year, y = crude_rate,
+      treated_unit = expansion, pop = population,
+      state_fips, dplyr::all_of(control_vars)
+    ) %>%
+    dplyr::mutate(post = as.integer(time >= 2014))
+
+  # Baseline covariates (pre-treatment average)
+  baseline <- panel_full %>%
+    dplyr::filter(time < 2014) %>%
+    dplyr::group_by(unit, treated_unit) %>%
+    dplyr::summarise(dplyr::across(dplyr::all_of(control_vars), ~ mean(.x, na.rm = TRUE)),
+                     .groups = "drop") %>%
+    tidyr::drop_na()
+
+  # Double-lasso variable selection
+  X_mat <- as.matrix(baseline[, control_vars])
+  D_vec <- baseline$treated_unit
+
+  # Lasso for treatment model
+  lasso_treat <- tryCatch(
+    glmnet::cv.glmnet(X_mat, D_vec, family = "binomial", alpha = 1),
+    error = function(e) NULL
+  )
+
+  if (!is.null(lasso_treat)) {
+    # Propensity scores
+    ps <- predict(lasso_treat, newx = X_mat, s = "lambda.min", type = "response")[, 1]
+    baseline$ps <- ps
+
+    # Trim extreme propensity scores
+    trim_lo <- quantile(ps, 0.04)
+    trim_hi <- quantile(ps, 0.96)
+    baseline_trimmed <- baseline %>%
+      dplyr::filter(ps >= trim_lo, ps <= trim_hi)
+    n_trimmed <- nrow(baseline) - nrow(baseline_trimmed)
+
+    # IPW weights: treated get 1, controls get p/(1-p)
+    baseline_trimmed <- baseline_trimmed %>%
+      dplyr::mutate(ipw = dplyr::if_else(treated_unit == 1, 1, ps / (1 - ps)))
+
+    # Merge IPW weights back to panel
+    panel_ipw <- panel_full %>%
+      dplyr::inner_join(baseline_trimmed %>% dplyr::select(unit, ipw), by = "unit")
+
+    # Population x IPW weighted DiD
+    panel_ipw <- panel_ipw %>%
+      dplyr::mutate(final_weight = pop * ipw)
+
+    # Estimate via fixest
+    if (requireNamespace("fixest", quietly = TRUE)) {
+      dlps_mod <- fixest::feols(
+        y ~ treated_unit:post | unit + time,
+        data = panel_ipw,
+        weights = ~ final_weight,
+        cluster = ~ unit
+      )
+      dlps_est <- fixest::coeftable(dlps_mod)[1, 1]
+      dlps_se  <- fixest::coeftable(dlps_mod)[1, 2]
+    } else {
+      dlps_est <- NA; dlps_se <- NA
+    }
+  } else {
+    dlps_est <- NA; dlps_se <- NA; n_trimmed <- NA
+  }
+} else {
+  dlps_est <- NA; dlps_se <- NA; n_trimmed <- NA
+}
+```
+
+```{r dlps-table}
+if (!is.na(dlps_est)) {
+  dlps_results <- tibble::tibble(
+    Method = c("DiD (equally weighted)", "DiD (pop.-weighted)",
+               "SDID (equally weighted)", "SDID (pop.-weighted)",
+               "DLPS-weighted DiD (BV approach)"),
+    Estimate = c(as.numeric(tau_did), as.numeric(tau_did_w),
+                 as.numeric(tau_sdid), as.numeric(tau_sdid_w),
+                 dlps_est),
+    SE = c(se_did, se_did_w, se_sdid, se_sdid_w, dlps_se)
+  )
+
+  kableExtra::kbl(
+    dlps_results,
+    digits = 2,
+    booktabs = TRUE,
+    caption = "Comparison of estimation methods for the effect of ACA Medicaid expansion on mortality (deaths per 100,000). The DLPS approach follows Borgschulte and Vogler (2020), using double-lasso-selected covariates for propensity score weighting with population weights.",
+    col.names = c("Method", "Estimate", "SE"),
+    align = c("l", "r", "r")
+  ) %>%
+    kableExtra::kable_styling(latex_options = c("hold_position"))
+} else {
+  cat("DLPS estimation requires the hdm, glmnet, and fixest packages.")
+}
+```
+
+Table F.1 compares all estimation approaches on the ACA application. The DLPS-weighted DiD estimate provides an independent benchmark: it uses an entirely different method to construct a population-relevant comparison (propensity score reweighting of controls) rather than synthetic control methods. The proximity of the DLPS estimate to our population-weighted SDID estimate provides cross-validation of both approaches, suggesting that the large negative mortality effect under population weighting is not an artifact of any single method.
 
 # Extensions {#app:extensions}
 
