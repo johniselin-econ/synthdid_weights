@@ -214,3 +214,39 @@ test_that("input validation rejects bad weights", {
   expect_error(synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
     treated.weights = rep(0, N1)))
 })
+
+test_that("synthdid_placebo_weighted runs and returns valid estimate", {
+  setup = random.low.rank()
+  N1 = nrow(setup$Y) - setup$N0
+  tw = runif(N1); tw = tw / sum(tw)
+
+  tau = synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = tw)
+  placebo = synthdid_placebo_weighted(tau)
+
+  expect_true(is.finite(c(placebo)))
+  expect_true(inherits(placebo, 'synthdid_estimate_weighted'))
+  # Placebo should use pre-treatment data only: fewer columns
+  placebo.setup = attr(placebo, 'setup')
+  expect_equal(ncol(placebo.setup$Y), setup$T0)
+  # Placebo should pass through opts (zeta.omega should match)
+  expect_equal(attr(placebo, 'opts')$zeta.omega, attr(tau, 'opts')$zeta.omega)
+})
+
+test_that("covariate path works for weighted estimator", {
+  setup = random.low.rank()
+  N1 = nrow(setup$Y) - setup$N0
+  tw = runif(N1); tw = tw / sum(tw)
+
+  # Create a covariate array: random noise
+  X = array(rnorm(prod(dim(setup$Y))), dim = c(dim(setup$Y), 1))
+
+  tau.nocov = synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = tw)
+  tau.cov   = synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = tw, X = X)
+
+  expect_true(is.finite(c(tau.cov)))
+  # Covariate adjustment should change the estimate
+  expect_false(isTRUE(all.equal(c(tau.nocov), c(tau.cov))))
+  # Beta should be non-null
+  expect_true(!is.null(attr(tau.cov, 'weights')$beta))
+  expect_true(length(attr(tau.cov, 'weights')$beta) == 1)
+})

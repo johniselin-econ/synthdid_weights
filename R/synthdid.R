@@ -419,13 +419,7 @@ synthdid_effect_curve_weighted = function(estimate) {
   weights = attr(estimate, 'weights')
   treated.weights = attr(estimate, 'treated.weights')
   X.beta = contract3(setup$X, weights$beta)
-  N1 = nrow(setup$Y) - setup$N0
   T1 = ncol(setup$Y) - setup$T0
-
-  # Use treated.weights instead of uniform weights
-  if (is.null(treated.weights)) {
-    treated.weights = rep(1 / N1, N1)
-  }
 
   tau.sc = t(c(-weights$omega, treated.weights)) %*% (setup$Y - X.beta)
   tau.curve = tau.sc[setup$T0 + (1:T1)] - c(tau.sc[1:setup$T0] %*% weights$lambda)
@@ -525,12 +519,7 @@ synthdid_event_study = function(estimate, se.method = NULL, replications = 200, 
   weights = attr(estimate, 'weights')
   treated.weights = attr(estimate, 'treated.weights')
   X.beta = contract3(setup$X, weights$beta)
-  N1 = nrow(setup$Y) - setup$N0
   T0 = setup$T0
-
-  if (is.null(treated.weights)) {
-    treated.weights = rep(1 / N1, N1)
-  }
 
   tau.sc = t(c(-weights$omega, treated.weights)) %*% (setup$Y - X.beta)
   intercept = c(tau.sc[1:T0] %*% weights$lambda)
@@ -582,8 +571,7 @@ synthdid_event_study = function(estimate, se.method = NULL, replications = 200, 
       tryCatch({
         if (is.weighted) {
           treated.ind.local = treated.ind - N0
-          treated.counts = tabulate(treated.ind.local, nbins = N1)
-          tw.boot = sum_normalize(treated.weights.orig * treated.counts)
+          tw.boot = sum_normalize(treated.weights.orig[treated.ind.local])
           est.boot = do.call(synthdid_estimate_weighted,
             c(list(Y = setup$Y[c(control.ind, treated.ind), ],
                    N0 = length(control.ind), T0 = setup$T0,
