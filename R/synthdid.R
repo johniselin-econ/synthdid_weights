@@ -291,10 +291,9 @@ synthdid_estimate_weighted <- function(Y, N0, T0,
     weights$vals = NULL
     weights$lambda.vals = NULL
     weights$omega.vals = NULL
+    Yc = collapsed.form_weighted(Y, N0, T0, treated.weights, period.weights)
 
     if (update.lambda) {
-      # Use weighted collapsed form for treated units
-      Yc = collapsed.form_weighted(Y, N0, T0, treated.weights, period.weights)
       lambda.opt = sc.weight.fw(Yc[1:N0, ], zeta = zeta.lambda, intercept = lambda.intercept, lambda=weights$lambda,
                                 min.decrease = min.decrease, max.iter = max.iter.pre.sparsify)
       if(!is.null(sparsify)) {
@@ -307,7 +306,6 @@ synthdid_estimate_weighted <- function(Y, N0, T0,
     }
 
     if (update.omega) {
-      Yc = collapsed.form_weighted(Y, N0, T0, treated.weights, period.weights)
       omega.opt = sc.weight.fw(t(Yc[, 1:T0]), zeta = zeta.omega, intercept = omega.intercept, lambda=weights$omega,
                                min.decrease = min.decrease, max.iter = max.iter.pre.sparsify)
       if(!is.null(sparsify)) {
@@ -343,7 +341,8 @@ synthdid_estimate_weighted <- function(Y, N0, T0,
   attr(estimate, 'opts') = list(zeta.omega = zeta.omega, zeta.lambda = zeta.lambda,
                                 omega.intercept = omega.intercept, lambda.intercept = lambda.intercept,
                                 update.omega = update.omega, update.lambda = update.lambda,
-                                min.decrease = min.decrease, max.iter=max.iter)
+                                min.decrease = min.decrease, max.iter=max.iter,
+                                effective.sample.size = effective.sample.size)
   return(estimate)
 }
 

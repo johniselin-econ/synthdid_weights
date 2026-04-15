@@ -67,7 +67,8 @@ synthdid_controls_weighted = function(estimates, sort.by = 1, mass = .9, weight.
     tab = weights[o, , drop = FALSE]
     rownames(tab) = rownames(Y)[(N0+1):nrow(Y)][o]
     colnames(tab) = names(estimates)
-    return(tab)
+    tab.len = max(apply(tab, 2, function(col) { Position(function(x) { x >= mass }, cumsum(col), nomatch=nrow(tab)) }))
+    return(tab[1:tab.len, , drop=FALSE])
   }
 
   if (weight.type == 'period') {
@@ -79,7 +80,8 @@ synthdid_controls_weighted = function(estimates, sort.by = 1, mass = .9, weight.
     tab = weights[o, , drop = FALSE]
     rownames(tab) = colnames(Y)[(T0+1):ncol(Y)][o]
     colnames(tab) = names(estimates)
-    return(tab)
+    tab.len = max(apply(tab, 2, function(col) { Position(function(x) { x >= mass }, cumsum(col), nomatch=nrow(tab)) }))
+    return(tab[1:tab.len, , drop=FALSE])
   }
 
   # omega and lambda weights - same as original
