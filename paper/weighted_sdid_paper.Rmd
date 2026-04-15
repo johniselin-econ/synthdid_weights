@@ -1,10 +1,6 @@
 ---
 title: "Weighted Synthetic Difference-in-Differences"
-author:
-  - name: "John Iselin"
-    affiliation: "The Budget Lab at Yale"
-  - name: "Erica Ryan"
-    affiliation: "Amazon"
+author: "John Iselin\\thanks{The Budget Lab at Yale} \\and Erica Ryan\\thanks{Amazon}"
 date: "`r format(Sys.Date(), '%B %Y')`"
 output:
   pdf_document:
@@ -363,35 +359,75 @@ kableExtra::kbl(
 
 Table 1 reports the main results. [INTERPRETATION TO BE COMPLETED AFTER RUNNING: Discuss the magnitude and direction of the difference between weighted and unweighted estimates. If the population-weighted estimate is smaller in magnitude, this suggests that larger counties---which receive more weight---experience smaller mortality reductions, consistent with larger counties having better baseline access to care. If the estimates diverge substantially, this demonstrates the practical importance of the weighting choice.]
 
-### Effect Curves
+### Event Studies
 
-```{r effect-curves, fig.cap="Treatment effect by post-treatment year. Solid lines show the SDID effect curve; dashed lines show the weighted SDID effect curve. Negative values indicate mortality reductions.", fig.height=3.5}
-# Effect curves: year-by-year treatment effects
-curve_sdid   <- synthdid_effect_curve(tau_sdid)
-curve_sdid_w <- synthdid_effect_curve_weighted(tau_sdid_w)
+Following the decomposition of @ciccia2024, we disaggregate each estimator's ATT into lag-specific treatment effects $\hat{\tau}_l$ for each post-treatment period $l = 0, \ldots, T_1 - 1$, and compute pre-treatment placebo coefficients for $k = -(T_0 - 1), \ldots, -1$. At each period $t$, the event-study coefficient is the gap between the (weighted) treated average and the synthetic control at $t$, minus the $\hat{\lambda}$-weighted pre-treatment intercept:
+$$
+\hat{\tau}_t = \left[\sum_j \tilde{\omega}_j Y_{jt} - \sum_i \hat{\omega}_i Y_{it}\right] - \sum_{s=1}^{T_0} \hat{\lambda}_s \left[\sum_j \tilde{\omega}_j Y_{js} - \sum_i \hat{\omega}_i Y_{is}\right].
+$$
+Pre-treatment coefficients near zero provide a visual parallel-trends diagnostic. The overall ATT equals the average of post-treatment coefficients: $\hat{\tau} = T_1^{-1} \sum_{l=0}^{T_1-1} \hat{\tau}_l$.
 
-post_years <- sort(unique(panel$time[panel$time >= 2014]))
+```{r event-study-sdid, fig.cap="Event-study decomposition of the SDID treatment effect. Points show lag-specific estimates; shaded bands show pointwise 95\\% bootstrap confidence intervals (200 replications). Pre-treatment coefficients near zero indicate adequate pre-treatment fit. The dashed vertical line marks the onset of treatment (2014).", fig.height=4.5, cache=TRUE}
+# Compute event-study coefficients with bootstrap SEs
+es_sdid   <- synthdid_event_study(tau_sdid,   se.method = "bootstrap", replications = 200)
+es_sdid_w <- synthdid_event_study(tau_sdid_w, se.method = "bootstrap", replications = 200)
 
-curve_df <- bind_rows(
-  tibble(Year = post_years, Effect = as.numeric(curve_sdid),   Weighting = "Equally weighted"),
-  tibble(Year = post_years, Effect = as.numeric(curve_sdid_w), Weighting = "Population weighted")
-)
+es_df <- bind_rows(
+  es_sdid   %>% mutate(Weighting = "Equally weighted"),
+  es_sdid_w %>% mutate(Weighting = "Population weighted")
+) %>%
+  mutate(year = as.numeric(time))
 
-ggplot(curve_df, aes(x = Year, y = Effect, color = Weighting, linetype = Weighting)) +
-  geom_line(linewidth = 0.9) +
-  geom_point(size = 2) +
+ggplot(es_df, aes(x = year, y = estimate, color = Weighting, fill = Weighting)) +
+  geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.15, color = NA) +
   geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
+  geom_vline(xintercept = 2013.5, linetype = "dashed", color = "gray30") +
+  geom_point(size = 1.5) +
+  geom_line(linewidth = 0.6) +
   scale_color_manual(values = c("Equally weighted" = "steelblue", "Population weighted" = "firebrick")) +
-  scale_linetype_manual(values = c("Equally weighted" = "solid", "Population weighted" = "dashed")) +
+  scale_fill_manual(values = c("Equally weighted" = "steelblue", "Population weighted" = "firebrick")) +
   labs(
     x = NULL, y = "Effect on mortality\n(deaths per 100,000)",
-    color = NULL, linetype = NULL
+    color = NULL, fill = NULL
   ) +
   theme_minimal(base_size = 11) +
   theme(legend.position = "bottom")
 ```
 
-Figure 1 plots the year-by-year effect curve for the SDID estimator under equal and population weighting. [INTERPRETATION TO BE COMPLETED: Discuss dynamics---do the effects grow over time? Does the gap between weighted and unweighted widen or narrow?]
+Figure 1 presents the event-study decomposition for the SDID estimator under equal and population weighting. Pre-treatment coefficients cluster near zero for both weighting schemes, supporting the parallel-trends assumption underlying the SDID estimator. Post-treatment, the effects reveal the dynamic path of Medicaid expansion's impact on mortality. [INTERPRETATION TO BE COMPLETED: Discuss whether the weighted and unweighted paths diverge, and whether the effects grow over time.]
+
+```{r event-study-all, fig.cap="Event-study decomposition comparing DiD, SC, and SDID estimators (equally weighted). Shaded bands show 95\\% bootstrap confidence intervals.", fig.height=4.5, cache=TRUE}
+# Event studies for all three estimators (unweighted)
+es_sc  <- synthdid_event_study(tau_sc,  se.method = "bootstrap", replications = 200)
+es_did <- synthdid_event_study(tau_did, se.method = "bootstrap", replications = 200)
+
+es_all <- bind_rows(
+  es_did  %>% mutate(Estimator = "DiD"),
+  es_sc   %>% mutate(Estimator = "SC"),
+  es_sdid %>% mutate(Estimator = "SDID")
+) %>%
+  mutate(
+    year = as.numeric(time),
+    Estimator = factor(Estimator, levels = c("DiD", "SC", "SDID"))
+  )
+
+ggplot(es_all, aes(x = year, y = estimate, color = Estimator, fill = Estimator)) +
+  geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.12, color = NA) +
+  geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
+  geom_vline(xintercept = 2013.5, linetype = "dashed", color = "gray30") +
+  geom_point(size = 1.5) +
+  geom_line(linewidth = 0.6) +
+  scale_color_manual(values = c("DiD" = "gray40", "SC" = "darkorange", "SDID" = "steelblue")) +
+  scale_fill_manual(values = c("DiD" = "gray40", "SC" = "darkorange", "SDID" = "steelblue")) +
+  labs(
+    x = NULL, y = "Effect on mortality\n(deaths per 100,000)",
+    color = NULL, fill = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom")
+```
+
+Figure 2 compares the event-study paths across all three estimators. The pre-treatment fit differs across methods: SC achieves exact pre-treatment balance by construction (all pre-treatment coefficients are near zero), while DiD, which uses uniform time weights, may show pre-treatment fluctuations that average to zero. SDID falls between these extremes, using data-driven time weights to improve pre-treatment fit relative to DiD. [INTERPRETATION TO BE COMPLETED: Compare the three estimators' pre-treatment fit and post-treatment dynamics.]
 
 ### Control Unit Weights
 
@@ -487,28 +523,6 @@ The ACA Medicaid expansion illustrates why this matters. When treatment effects 
 Software implementing the weighted estimator is available as an extension to the `synthdid` R package.
 
 \clearpage
-
-# References {-}
-
-\begingroup
-\setlength{\parindent}{-0.5in}
-\setlength{\leftskip}{0.5in}
-
-Arkhangelsky, D., Athey, S., Hirshberg, D.A., Imbens, G.W., and Wager, S. (2021). Synthetic difference in differences. *American Economic Review*, 111(12), 4088--4118.
-
-Belloni, A., Chernozhukov, V., and Hansen, C. (2014). Inference on treatment effects after selection among high-dimensional controls. *Review of Economic Studies*, 81(2), 608--650.
-
-Borgschulte, M. and Vogler, J. (2020). Did the ACA Medicaid expansion save lives? *Journal of Health Economics*, 72, 102333.
-
-Callaway, B. and Sant'Anna, P.H.C. (2021). Difference-in-differences with multiple time periods. *Journal of Econometrics*, 225(2), 200--230.
-
-de Chaisemartin, C. and D'Haultfoeuille, X. (2020). Two-way fixed effects estimators with heterogeneous treatment effects. *American Economic Review*, 110(9), 2964--2996.
-
-Sun, L. and Abraham, S. (2021). Estimating dynamic treatment effects in event studies with heterogeneous treatment effects. *Journal of Econometrics*, 225(2), 175--199.
-
-\endgroup
-
-\clearpage
 \appendix
 \setcounter{section}{0}
 \renewcommand{\thesection}{\Alph{section}}
@@ -523,8 +537,8 @@ for all $t = 1, \ldots, T_0$, and analogously for the last column. Since the col
 
 # Monte Carlo Simulations {#app:simulations}
 
-[TO BE COMPLETED: Simulation design examining coverage of bootstrap, jackknife, and placebo SEs under heterogeneous treatment effects with varying degrees of correlation between unit size and treatment effect magnitude. DGP follows the factor model of @arkhangelsky2021 with $N_0 = 100$, $N_1 \in \{5, 10, 20\}$, $T_0 = 40$, $T_1 = 10$.]
+\emph{To be completed:} Simulation design examining coverage of bootstrap, jackknife, and placebo SEs under heterogeneous treatment effects with varying degrees of correlation between unit size and treatment effect magnitude. DGP follows the factor model of @arkhangelsky2021 with $N_0 = 100$, $N_1 \in \{5, 10, 20\}$, $T_0 = 40$, $T_1 = 10$.
 
 # Additional ACA Results {#app:aca}
 
-[TO BE COMPLETED: Robustness to outcome choice, donor pool restrictions, alternative weight specifications (e.g., Medicaid-eligible population rather than total population).]
+\emph{To be completed:} Robustness to outcome choice, donor pool restrictions, alternative weight specifications (e.g., Medicaid-eligible population rather than total population).

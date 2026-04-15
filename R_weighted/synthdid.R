@@ -430,3 +430,242 @@ synthdid_effect_curve_weighted = function(estimate) {
   tau.curve = tau.sc[setup$T0 + (1:T1)] - c(tau.sc[1:setup$T0] %*% weights$lambda)
   tau.curve
 }
+
+
+# =============================================================================
+# EVENT-STUDY DECOMPOSITION
+# Following Ciccia (2024), "A Short Note on Event-Study SDID Estimators"
+# =============================================================================
+
+#' Compute event-study coefficients for an SDID estimate.
+#'
+#' Decomposes the SDID estimate into lag-specific treatment effects for each
+#' post-treatment period, and computes pre-treatment placebo coefficients that
+#' should be near zero if the synthetic control is well-matched.
+#'
+#' For post-treatment lag l: tau_l = gap(T0+l) - lambda-weighted pre-treatment gap
+#' For pre-treatment relative time k: tau_k = gap(T0+k) - lambda-weighted pre-treatment gap
+#' where gap(t) = (weighted) treated mean at t - synthetic control at t.
+#'
+#' @param estimate An estimate object from synthdid_estimate, sc_estimate, did_estimate,
+#'   or their weighted counterparts.
+#' @param se.method Method for computing standard errors: "bootstrap", "placebo", or NULL (no SEs).
+#' @param replications Number of bootstrap/placebo replications for SEs.
+#' @param alpha Significance level for confidence intervals. Default 0.05 (95% CI).
+#' @return A data.frame with columns: relative_time, estimate, se, ci_lower, ci_upper.
+#'   relative_time is centered so that -1 is the last pre-treatment period and 0 is the
+#'   first post-treatment period.
+#' @export synthdid_event_study
+synthdid_event_study = function(estimate, se.method = NULL, replications = 200, alpha = 0.05) {
+  is.weighted = inherits(estimate, 'synthdid_estimate_weighted')
+
+  # Compute the full event-study curve (pre + post)
+  if (is.weighted) {
+    curve.all = .event_study_curve_weighted(estimate)
+  } else {
+    curve.all = .event_study_curve(estimate)
+  }
+
+  setup = attr(estimate, 'setup')
+  T0 = setup$T0
+  T  = ncol(setup$Y)
+  T1 = T - T0
+
+  # Relative time: -T0, ..., -1 for pre-treatment; 0, ..., T1-1 for post-treatment
+  relative_time = (1:T) - T0 - 1
+
+  result = data.frame(
+    relative_time = relative_time,
+    estimate = as.numeric(curve.all),
+    stringsAsFactors = FALSE
+  )
+
+  # Add time labels if available
+  if (!is.null(colnames(setup$Y))) {
+    result$time = colnames(setup$Y)
+  }
+
+  # Compute standard errors if requested
+  if (!is.null(se.method)) {
+    se.method = match.arg(se.method, c("bootstrap", "placebo"))
+    curves.rep = .event_study_replications(estimate, se.method, replications)
+    result$se = apply(curves.rep, 2, sd)
+    z = qnorm(1 - alpha / 2)
+    result$ci_lower = result$estimate - z * result$se
+    result$ci_upper = result$estimate + z * result$se
+  }
+
+  class(result) = c('synthdid_event_study', 'data.frame')
+  attr(result, 'T0') = T0
+  attr(result, 'estimator') = attr(estimate, 'estimator')
+  result
+}
+
+
+# Internal: compute event-study curve for all periods (unweighted)
+.event_study_curve = function(estimate) {
+  setup = attr(estimate, 'setup')
+  weights = attr(estimate, 'weights')
+  X.beta = contract3(setup$X, weights$beta)
+  N1 = nrow(setup$Y) - setup$N0
+  T0 = setup$T0
+
+  # Gap between (uniform) treated average and synthetic control at each period
+  tau.sc = t(c(-weights$omega, rep(1 / N1, N1))) %*% (setup$Y - X.beta)
+  # SDID intercept correction: lambda-weighted pre-treatment gap
+  intercept = c(tau.sc[1:T0] %*% weights$lambda)
+  # Event-study coefficients for all periods
+  as.numeric(tau.sc) - intercept
+}
+
+# Internal: compute event-study curve for all periods (weighted)
+.event_study_curve_weighted = function(estimate) {
+  setup = attr(estimate, 'setup')
+  weights = attr(estimate, 'weights')
+  treated.weights = attr(estimate, 'treated.weights')
+  X.beta = contract3(setup$X, weights$beta)
+  N1 = nrow(setup$Y) - setup$N0
+  T0 = setup$T0
+
+  if (is.null(treated.weights)) {
+    treated.weights = rep(1 / N1, N1)
+  }
+
+  tau.sc = t(c(-weights$omega, treated.weights)) %*% (setup$Y - X.beta)
+  intercept = c(tau.sc[1:T0] %*% weights$lambda)
+  as.numeric(tau.sc) - intercept
+}
+
+# Internal: generate replicated event-study curves for SE estimation
+.event_study_replications = function(estimate, method, replications) {
+  setup = attr(estimate, 'setup')
+  opts  = attr(estimate, 'opts')
+  weights = attr(estimate, 'weights')
+  is.weighted = inherits(estimate, 'synthdid_estimate_weighted')
+  estimator = attr(estimate, 'estimator')
+  N0 = setup$N0
+  N  = nrow(setup$Y)
+  N1 = N - N0
+  T  = ncol(setup$Y)
+
+  if (is.weighted) {
+    treated.weights.orig = attr(estimate, 'treated.weights')
+    period.weights.orig  = attr(estimate, 'period.weights')
+  }
+
+  # Function to compute event-study curve from a re-estimated model
+  curve_from_estimate = function(est) {
+    if (inherits(est, 'synthdid_estimate_weighted')) {
+      .event_study_curve_weighted(est)
+    } else {
+      .event_study_curve(est)
+    }
+  }
+
+  if (method == "bootstrap") {
+    curves = matrix(NA, replications, T)
+    count = 0
+    while (count < replications) {
+      ind = sample(1:N, replace = TRUE)
+      control.ind = sort(ind[ind <= N0])
+      treated.ind = sort(ind[ind > N0])
+      if (length(control.ind) == 0 || length(treated.ind) == 0) next
+
+      weights.boot = weights
+      weights.boot$omega = sum_normalize(weights$omega[control.ind])
+
+      tryCatch({
+        if (is.weighted) {
+          treated.ind.local = treated.ind - N0
+          treated.counts = tabulate(treated.ind.local, nbins = N1)
+          tw.boot = sum_normalize(treated.weights.orig * treated.counts)
+          est.boot = do.call(synthdid_estimate_weighted,
+            c(list(Y = setup$Y[c(control.ind, treated.ind), ],
+                   N0 = length(control.ind), T0 = setup$T0,
+                   X = setup$X[c(control.ind, treated.ind), , ],
+                   treated.weights = tw.boot,
+                   period.weights = period.weights.orig,
+                   weights = weights.boot), opts))
+        } else {
+          est.boot = do.call(synthdid_estimate,
+            c(list(Y = setup$Y[c(control.ind, treated.ind), ],
+                   N0 = length(control.ind), T0 = setup$T0,
+                   X = setup$X[c(control.ind, treated.ind), , ],
+                   weights = weights.boot), opts))
+        }
+        curves[count + 1, ] = curve_from_estimate(est.boot)
+        count = count + 1
+      }, error = function(e) {})
+    }
+    curves
+
+  } else if (method == "placebo") {
+    if (N0 <= N1) stop('must have more controls than treated units to use the placebo se')
+    curves = matrix(NA, replications, T)
+    for (r in 1:replications) {
+      ind = sample(1:N0)
+      weights.boot = weights
+      weights.boot$omega = sum_normalize(weights$omega[ind[1:(length(ind) - N1)]])
+
+      tryCatch({
+        if (is.weighted) {
+          tw.placebo = rep(1 / N1, N1)
+          est.placebo = do.call(synthdid_estimate_weighted,
+            c(list(Y = setup$Y[ind, ], N0 = length(ind) - N1, T0 = setup$T0,
+                   X = setup$X[ind, , ],
+                   treated.weights = tw.placebo,
+                   period.weights = period.weights.orig,
+                   weights = weights.boot), opts))
+        } else {
+          est.placebo = do.call(synthdid_estimate,
+            c(list(Y = setup$Y[ind, ], N0 = length(ind) - N1, T0 = setup$T0,
+                   X = setup$X[ind, , ],
+                   weights = weights.boot), opts))
+        }
+        curves[r, ] = curve_from_estimate(est.placebo)
+      }, error = function(e) {})
+    }
+    curves[complete.cases(curves), , drop = FALSE]
+  }
+}
+
+
+#' Plot event-study coefficients.
+#'
+#' Creates a standard event-study figure with point estimates and optional
+#' confidence intervals. Pre-treatment coefficients serve as a visual
+#' parallel-trends test.
+#'
+#' @param es A synthdid_event_study object (from synthdid_event_study()).
+#' @param ci Logical. Plot confidence intervals if available. Default TRUE.
+#' @param post.only Logical. If TRUE, plot only post-treatment periods. Default FALSE.
+#' @param ... Additional arguments passed to plot().
+#' @export plot_event_study
+plot_event_study = function(es, ci = TRUE, post.only = FALSE, ...) {
+  if (!inherits(es, 'synthdid_event_study')) {
+    stop("Input must be a synthdid_event_study object")
+  }
+
+  if (post.only) {
+    es = es[es$relative_time >= 0, ]
+  }
+
+  has.ci = "ci_lower" %in% names(es)
+
+  # Base plot
+  plot(es$relative_time, es$estimate, type = "b", pch = 19, cex = 0.8,
+       xlab = "Relative time", ylab = "Effect estimate",
+       ylim = if (has.ci && ci) range(c(es$ci_lower, es$ci_upper), na.rm = TRUE)
+              else range(es$estimate, na.rm = TRUE),
+       ...)
+
+  # Reference lines
+  abline(h = 0, lty = 2, col = "gray50")
+  abline(v = -0.5, lty = 3, col = "gray30")
+
+  # Confidence intervals
+  if (has.ci && ci) {
+    arrows(es$relative_time, es$ci_lower, es$relative_time, es$ci_upper,
+           length = 0.03, angle = 90, code = 3, col = "steelblue")
+  }
+}

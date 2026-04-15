@@ -15,4 +15,13 @@
 !old_files/*.pdf
 .Rproj.user
 docs
-.Rhistorytmpclaude-*
+.Rhistory
+tmpclaude-*
+
+# LaTeX/knitr build artifacts
+*.bbl
+*.knit.md
+*.tex
+!paper/header.tex
+*_cache/
+*_files/
