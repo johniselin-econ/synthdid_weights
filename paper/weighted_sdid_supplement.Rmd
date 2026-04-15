@@ -1,0 +1,369 @@
+---
+title: "Supplementary Appendix: Weighted Synthetic Difference-in-Differences"
+author: "John Iselin\\thanks{The Budget Lab at Yale} \\and Erica Ryan\\thanks{Amazon}"
+date: "`r format(Sys.Date(), '%B %Y')`"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    number_sections: true
+    keep_tex: true
+    fig_caption: true
+    citation_package: natbib
+    includes:
+      in_header: header.tex
+bibliography: references.bib
+biblio-style: elsarticle-harv
+fontsize: 12pt
+geometry: margin=1in
+linestretch: 1.5
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 6.5,
+  fig.height = 4,
+  fig.align = "center",
+  out.width = "90%",
+  cache = TRUE
+)
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(kableExtra)
+library(synthdid)
+
+# Source weighted SDID functions
+source("../R/utils.R")
+source("../R/solver.R")
+source("../R/synthdid.R")
+source("../R/vcov.R")
+source("../R/summary.R")
+source("../R/print.R")
+
+# Reproducibility
+set.seed(20240101)
+```
+
+\renewcommand{\thesection}{\Alph{section}}
+\setcounter{section}{0}
+
+This supplement accompanies "Weighted Synthetic Difference-in-Differences" and contains technical details, proofs, and additional results referenced in the main text.
+
+# Setup and the Standard SDID Estimator {#app:setup}
+
+This appendix reviews the standard SDID estimator of @arkhangelsky2021 and establishes the notation used throughout the main text and subsequent appendices.
+
+## Model and Notation
+
+Consider a balanced panel with $N$ units observed over $T$ periods. The first $N_0$ units are untreated controls; the remaining $N_1 = N - N_0$ are treated beginning at period $T_0 + 1$. Let $T_1 = T - T_0$ denote the number of post-treatment periods. Define the treatment indicator
+$$
+W_{it} = \mathbf{1}\{i > N_0\} \cdot \mathbf{1}\{t > T_0\}.
+$$
+
+The observed outcome is
+$$
+Y_{it} = Y_{it}(0) + \tau_{it} \cdot W_{it},
+$$
+where $Y_{it}(0)$ is the potential outcome absent treatment and $\tau_{it}$ is the unit-time treatment effect. The object of interest is an average treatment effect on the treated (ATT), though the precise weighted average depends on how treated units are aggregated.
+
+## The SDID Estimator
+
+Following @arkhangelsky2021, the SDID estimator solves
+\begin{equation} \label{eq:sdid-regression}
+(\hat{\tau}^{\text{sdid}}, \hat{\mu}, \hat{\alpha}, \hat{\beta}) = \underset{\tau, \mu, \alpha_i, \beta_t}{\arg\min} \sum_{i=1}^{N} \sum_{t=1}^{T} \left( Y_{it} - \mu - \alpha_i - \beta_t - \tau \cdot W_{it} \right)^2 \hat{\omega}_i \hat{\lambda}_t,
+\end{equation}
+where $\hat{\omega}_i$ are unit weights and $\hat{\lambda}_t$ are time weights.
+
+This admits a closed-form solution. Define the *collapsed form* $\tilde{Y}$, an $(N_0 + 1) \times (T_0 + 1)$ matrix in which the last row averages treated units and the last column averages post-treatment periods:
+\begin{equation} \label{eq:collapsed}
+\tilde{Y}_{N_0+1, t} = \frac{1}{N_1} \sum_{i=N_0+1}^{N} Y_{it}, \quad
+\tilde{Y}_{i, T_0+1} = \frac{1}{T_1} \sum_{t=T_0+1}^{T} Y_{it}.
+\end{equation}
+
+The treatment effect estimate is then
+\begin{equation} \label{eq:tau-sdid}
+\hat{\tau}^{\text{sdid}} = \begin{pmatrix} -\hat{\omega} \\ \frac{1}{N_1}\mathbf{1}_{N_1} \end{pmatrix}^\top Y \begin{pmatrix} -\hat{\lambda} \\ \frac{1}{T_1}\mathbf{1}_{T_1} \end{pmatrix},
+\end{equation}
+a double-difference comparing the weighted treated-vs-control gap in the post-period to the same gap in the $\hat{\lambda}$-weighted pre-period.
+
+## Weight Estimation
+
+Control unit weights $\hat{\omega} \in \Delta^{N_0}$ (the unit simplex) are estimated by matching the weighted control average to the treated average in pre-treatment periods:
+\begin{equation} \label{eq:omega}
+(\hat{\omega}_0, \hat{\omega}) = \underset{\omega_0 \in \mathbb{R},\; \omega \in \Delta^{N_0}}{\arg\min} \sum_{t=1}^{T_0} \left( \omega_0 + \sum_{i=1}^{N_0} \omega_i Y_{it} - \frac{1}{N_1} \sum_{i=N_0+1}^{N} Y_{it} \right)^2 + \zeta_\omega^2 T_0 \|\omega\|_2^2.
+\end{equation}
+
+Time weights $\hat{\lambda} \in \Delta^{T_0}$ are estimated analogously, matching the $\hat{\lambda}$-weighted pre-treatment average of control units to their post-treatment average:
+\begin{equation} \label{eq:lambda}
+(\hat{\lambda}_0, \hat{\lambda}) = \underset{\lambda_0 \in \mathbb{R},\; \lambda \in \Delta^{T_0}}{\arg\min} \sum_{i=1}^{N_0} \left( \lambda_0 + \sum_{t=1}^{T_0} \lambda_t Y_{it} - \frac{1}{T_1} \sum_{t=T_0+1}^{T} Y_{it} \right)^2 + \zeta_\lambda^2 N_0 \|\lambda\|_2^2.
+\end{equation}
+
+Both optimization problems are solved via Frank-Wolfe on the simplex with exact line search, with regularization parameters $\zeta_\omega = \eta_\omega \cdot \hat{\sigma}$ and $\zeta_\lambda = \eta_\lambda \cdot \hat{\sigma}$, where $\hat{\sigma}$ is the noise level estimated from first differences of the control block.
+
+**The key observation** is that the target on the right-hand side of \eqref{eq:omega}---the average treated outcome---uses equal weights $1/N_1$. This determines which synthetic control group is constructed. If the researcher's estimand places different weights on treated units, the control weights $\hat{\omega}$ should be re-estimated against the appropriately weighted treated average.
+
+
+# Inference for the Weighted Estimator {#app:inference}
+
+As described in the main text, @arkhangelsky2021 propose three approaches to variance estimation: bootstrap (Algorithm 2), jackknife (Algorithm 3), and placebo (Algorithm 4). Each involves resampling units in some fashion. With user-specified treated-unit weights, a complication arises: when a resampling scheme drops or duplicates treated units, the weights $\tilde{\omega}$ must be renormalized to maintain their interpretation.
+
+## Bootstrap
+
+The bootstrap resamples units with replacement. In a given bootstrap draw $b$, let $n_j^{(b)}$ denote the number of times treated unit $j$ appears. The bootstrap-adjusted weights are
+\begin{equation} \label{eq:boot-weights}
+\tilde{\omega}_j^{(b)} = \frac{\tilde{\omega}_j \cdot n_j^{(b)}}{\sum_{k=1}^{N_1} \tilde{\omega}_k \cdot n_k^{(b)}},
+\end{equation}
+with the convention that if no treated units are drawn (probability exponentially small in $N_1$), the draw is discarded. Control weights $\hat{\omega}$ are similarly renormalized. The bootstrap variance is
+$$
+\widehat{\text{Var}}^{\text{boot}} = \frac{B-1}{B} \cdot \frac{1}{B} \sum_{b=1}^{B} \left( \hat{\tau}^{w,(b)} - \bar{\tau}^w \right)^2.
+$$
+
+## Jackknife
+
+The leave-one-out jackknife drops unit $i$ in turn. When unit $i$ is a treated unit $j$, the remaining treated weights are renormalized:
+\begin{equation} \label{eq:jk-weights}
+\tilde{\omega}_k^{(-j)} = \frac{\tilde{\omega}_k}{\sum_{\ell \neq j} \tilde{\omega}_\ell}, \quad k \neq j.
+\end{equation}
+
+As in the standard case, we use the *fixed-weight* jackknife, holding $\hat{\omega}^w$ and $\hat{\lambda}^w$ at their full-sample values while renormalizing the control weight vector when a control unit is dropped. The jackknife variance is
+$$
+\widehat{\text{Var}}^{\text{jk}} = \frac{N-1}{N} \sum_{i=1}^{N} \left( \hat{\tau}^{w,(-i)} - \bar{\tau}^{w,(\cdot)} \right)^2.
+$$
+
+Following @arkhangelsky2021, the jackknife is not recommended for the SC variant due to the non-differentiability of the SC weights at the boundary of the simplex.
+
+## Placebo
+
+The placebo method randomly assigns $N_1$ control units as "placebo treated" and estimates the treatment effect on them, repeating $B$ times. Since the original treated-unit weights $\tilde{\omega}$ do not naturally map to control units serving as placebo treated, we use uniform weights $1/N_1$ for the placebo-treated group by default. This approach tests the sharp null of no treatment effect and requires $N_0 > N_1$.\footnote{The placebo variance estimator tests the sharp null under uniform weighting of pseudo-treated units, which may not fully capture the variance contribution of the weight structure when treatment effects are heterogeneous and correlated with unit size. Our software implementation provides two alternative placebo weighting schemes: \texttt{placebo.weights = "size\_match"} weights pseudo-treated units by their pre-treatment outcome levels (as a proxy for unit size), and \texttt{placebo.weights = "permute"} randomly permutes the original $\tilde{\omega}$ vector. The latter preserves the weight concentration (HHI) of the original specification and may provide a more conservative variance estimate when weights are highly skewed.}
+
+
+# Proof of Proposition 1 {#app:proof}
+
+As stated in the main text:
+
+\medskip
+\noindent\textbf{Proposition 1.} *When $\tilde{\omega}_j = 1/N_1$ for all $j$ and $\tilde{\pi}_s = 1/T_1$ for all $s$, the weighted estimator $\hat{\tau}^w$ reduces to the standard SDID estimator $\hat{\tau}^{\text{sdid}}$.*
+
+\medskip
+\noindent\textit{Proof.} When $\tilde{\omega}_j = 1/N_1$ for all $j$ and $\tilde{\pi}_s = 1/T_1$ for all $s$, the weighted collapsed form \eqref{eq:weighted-collapsed} reduces to
+$$
+\tilde{Y}^w_{N_0+1, t} = \frac{1}{N_1} \sum_{j=1}^{N_1} Y_{N_0+j,t} = \tilde{Y}_{N_0+1, t}
+$$
+for all $t = 1, \ldots, T_0$, and analogously for the last column. Since the collapsed forms are identical, the Frank-Wolfe solutions $(\hat{\omega}^w, \hat{\lambda}^w)$ equal $(\hat{\omega}, \hat{\lambda})$. The estimate \eqref{eq:tau-weighted} then equals \eqref{eq:tau-sdid}. $\square$
+
+
+# Event Study Decomposition and Additional Figures {#app:event-study}
+
+This appendix provides event-study decompositions and diagnostics for the control unit weights that supplement the main results reported in the text.
+
+## Event Study Decomposition
+
+Following the decomposition of @ciccia2024, we disaggregate each estimator's ATT into lag-specific treatment effects $\hat{\tau}_l$ for each post-treatment period $l = 0, \ldots, T_1 - 1$, and compute pre-treatment placebo coefficients for $k = -(T_0 - 1), \ldots, -1$. At each period $t$, the event-study coefficient is the gap between the (weighted) treated average and the synthetic control at $t$, minus the $\hat{\lambda}$-weighted pre-treatment intercept:
+$$
+\hat{\tau}_t = \left[\sum_j \tilde{\omega}_j Y_{jt} - \sum_i \hat{\omega}_i Y_{it}\right] - \sum_{s=1}^{T_0} \hat{\lambda}_s \left[\sum_j \tilde{\omega}_j Y_{js} - \sum_i \hat{\omega}_i Y_{is}\right].
+$$
+Pre-treatment coefficients near zero provide a visual parallel-trends diagnostic. The overall ATT equals the average of post-treatment coefficients: $\hat{\tau} = T_1^{-1} \sum_{l=0}^{T_1-1} \hat{\tau}_l$.
+
+## All-Estimator Event Study Comparison
+
+```{r load-data}
+# Load county-year panel
+panel <- readr::read_csv(
+  file.path("..", "data", "analysis_data.csv"),
+  show_col_types = FALSE
+) %>%
+  select(
+    unit = fips,
+    time = year,
+    y = crude_rate,
+    treated_unit = expansion,
+    pop = population,
+    state_fips,
+    pct_white, pop_20_64, pct_55_64,
+    log_20_64, log_35_44, log_f_20_64, unemp
+  ) %>%
+  mutate(post = as.integer(time >= 2014))
+
+# Panel dimensions
+n_counties <- n_distinct(panel$unit)
+n_treated <- n_distinct(panel$unit[panel$treated_unit == 1])
+n_control <- n_distinct(panel$unit[panel$treated_unit == 0])
+year_range <- range(panel$time)
+n_years <- n_distinct(panel$time)
+T0 <- sum(sort(unique(panel$time)) < 2014)
+T1 <- n_years - T0
+```
+
+```{r prepare-sdid-panel}
+# Prepare the balanced panel in matrix form for synthdid
+panel_sdid <- panel %>%
+  arrange(unit, time) %>%
+  select(unit, time, y, treated_unit, pop) %>%
+  mutate(
+    .unit = as.factor(unit),
+    .time = time,
+    .W = as.integer(treated_unit == 1 & time >= 2014)
+  )
+
+dfp <- panel_sdid %>%
+  select(.unit, .time, y, .W) %>%
+  as.data.frame()
+
+setup <- synthdid::panel.matrices(dfp)
+
+# Compute population weights for treated counties
+pop_2013 <- panel %>%
+  filter(treated_unit == 1, time == 2013) %>%
+  select(unit, pop)
+
+# Get treated unit order from setup$Y
+treated_names <- rownames(setup$Y)[(setup$N0 + 1):nrow(setup$Y)]
+pop_ordered <- pop_2013 %>%
+  mutate(unit_char = as.character(unit))
+weight_order <- match(treated_names, pop_ordered$unit_char)
+treated_weights <- pop_ordered$pop[weight_order]
+treated_weights <- treated_weights / sum(treated_weights, na.rm = TRUE)
+```
+
+```{r run-estimates-supp, cache=TRUE}
+# Unweighted estimates
+tau_sdid   <- synthdid_estimate(setup$Y, setup$N0, setup$T0)
+tau_sc     <- sc_estimate(setup$Y, setup$N0, setup$T0)
+tau_did    <- did_estimate(setup$Y, setup$N0, setup$T0)
+
+# Population-weighted estimates
+tau_sdid_w <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
+                                          treated.weights = treated_weights)
+tau_sc_w   <- sc_estimate_weighted(setup$Y, setup$N0, setup$T0,
+                                    treated.weights = treated_weights)
+tau_did_w  <- did_estimate_weighted(setup$Y, setup$N0, setup$T0,
+                                     treated.weights = treated_weights)
+```
+
+```{r event-study-all, fig.cap="Event-study decomposition comparing DiD, SC, and SDID estimators (equally weighted). Shaded bands show 95\\% bootstrap confidence intervals.", fig.height=4.5, cache=TRUE}
+# Compute event-study coefficients with bootstrap SEs
+es_sdid <- synthdid_event_study(tau_sdid, se.method = "bootstrap", replications = 200)
+es_sc   <- synthdid_event_study(tau_sc,   se.method = "bootstrap", replications = 200)
+es_did  <- synthdid_event_study(tau_did,  se.method = "bootstrap", replications = 200)
+
+es_all <- bind_rows(
+  es_did  %>% mutate(Estimator = "DiD"),
+  es_sc   %>% mutate(Estimator = "SC"),
+  es_sdid %>% mutate(Estimator = "SDID")
+) %>%
+  mutate(
+    year = as.numeric(time),
+    Estimator = factor(Estimator, levels = c("DiD", "SC", "SDID"))
+  )
+
+ggplot(es_all, aes(x = year, y = estimate, color = Estimator, fill = Estimator)) +
+  geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.12, color = NA) +
+  geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
+  geom_vline(xintercept = 2013.5, linetype = "dashed", color = "gray30") +
+  geom_point(size = 1.5) +
+  geom_line(linewidth = 0.6) +
+  scale_color_manual(values = c("DiD" = "gray40", "SC" = "darkorange", "SDID" = "steelblue")) +
+  scale_fill_manual(values = c("DiD" = "gray40", "SC" = "darkorange", "SDID" = "steelblue")) +
+  labs(
+    x = NULL, y = "Effect on mortality\n(deaths per 100,000)",
+    color = NULL, fill = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom")
+```
+
+Figure D.1 compares the event-study paths across all three estimators (equally weighted). As described in the main text, the pre-treatment fit differs across methods: SC achieves the tightest pre-treatment balance by construction (all pre-treatment coefficients are near zero), while DiD, which uses uniform time weights, may show pre-treatment fluctuations that average to zero. SDID falls between these extremes, using data-driven time weights to improve pre-treatment fit relative to DiD. Post-treatment, the three estimators tell broadly similar stories under equal weighting, with all estimates fluctuating near zero. The DiD and SDID confidence intervals overlap substantially, while the SC intervals are wider, reflecting the greater estimation uncertainty from relying entirely on a small number of control weights. The similarity of post-treatment paths across estimators under equal weighting---contrasted with the dramatic divergence when population weights are introduced (see Figure 1 in the main text)---underscores that the weighting choice, not the estimator choice, drives the main results in this application.
+
+## Control Unit Weights
+
+```{r omega-weights, fig.cap="Distribution of SDID control unit weights ($\\hat{\\omega}$) under equal vs.\\ population weighting. Counties with zero weight are excluded. The x-axis is on a log scale.", fig.height=3.5}
+omega_unwt <- attr(tau_sdid, 'weights')$omega
+omega_wt   <- attr(tau_sdid_w, 'weights')$omega
+
+# Combine nonzero weights
+omega_df <- bind_rows(
+  tibble(omega = omega_unwt[omega_unwt > 0], Weighting = "Equally weighted"),
+  tibble(omega = omega_wt[omega_wt > 0],     Weighting = "Population weighted")
+)
+
+ggplot(omega_df, aes(x = omega, fill = Weighting)) +
+  geom_histogram(alpha = 0.6, position = "identity", bins = 40) +
+  scale_x_log10() +
+  scale_fill_manual(values = c("Equally weighted" = "steelblue", "Population weighted" = "firebrick")) +
+  labs(
+    x = expression(hat(omega)[i] ~ "(log scale)"),
+    y = "Number of control counties",
+    fill = NULL
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom")
+```
+
+```{r effective-units}
+eff_N0_unwt <- 1 / sum(omega_unwt^2)
+eff_N0_wt   <- 1 / sum(omega_wt^2)
+n_nonzero_unwt <- sum(omega_unwt > 1e-6)
+n_nonzero_wt   <- sum(omega_wt > 1e-6)
+```
+
+Figure D.2 shows the distribution of control unit weights under both specifications. The unweighted SDID places nonzero weight on `r n_nonzero_unwt` control counties (effective $N_0$ = `r round(eff_N0_unwt, 1)`), while the population-weighted SDID uses `r n_nonzero_wt` counties (effective $N_0$ = `r round(eff_N0_wt, 1)`). Both specifications spread weight broadly across the control pool, with similar effective sample sizes, reflecting the regularization built into the SDID algorithm. However, the *identity* of which control counties receive the most weight shifts: under population weighting, the Frank-Wolfe algorithm must match the pre-treatment trajectory of the population-weighted treated average, which is dominated by large urban counties. This pulls the synthetic control toward control counties with similar urban characteristics, subtly altering the comparison group even though the number of contributing counties is similar.
+
+
+# Monte Carlo Simulations {#app:simulations}
+
+\emph{To be completed:} Simulation design examining coverage of bootstrap, jackknife, and placebo SEs under heterogeneous treatment effects with varying degrees of correlation between unit size and treatment effect magnitude. DGP follows the factor model of @arkhangelsky2021 with $N_0 = 100$, $N_1 \in \{5, 10, 20\}$, $T_0 = 40$, $T_1 = 10$.
+
+# Additional ACA Results {#app:aca}
+
+\emph{To be completed:} Robustness to outcome choice, donor pool restrictions, alternative weight specifications (e.g., Medicaid-eligible population rather than total population).
+
+# Extensions {#app:extensions}
+
+This appendix discusses several extensions to the weighted SDID framework presented in the main text.
+
+## Staggered Treatment Adoption
+
+Our baseline framework assumes simultaneous treatment adoption. Many important applications---including the ACA, where additional states expanded Medicaid after 2014---feature staggered adoption. Recent extensions of SDID to staggered settings decompose the problem into cohort-specific estimates [see, e.g., @arkhangelsky2021, Section 6]. The weighted SDID estimator can be applied within each adoption cohort; aggregation across cohorts introduces an additional layer of weighting that interacts with the treated-unit weights $\tilde{\omega}$.
+
+This connects to a large recent literature on aggregation in staggered DiD designs. @callaway2021 and @sun2021 propose group-time-specific ATTs that are then aggregated with researcher-chosen weights. @dechaisemartin2020 emphasize that conventional TWFE can produce negative weights on some group-time cells. Our weighted SDID can be viewed as providing an analogous flexibility for the synthetic control component: the researcher chooses how to weight treated units within each cohort, and the synthetic control is constructed to match that weighted target.
+
+A full treatment of weighted SDID under staggered adoption---including formal results on the interaction between cohort weights, within-cohort treated-unit weights, and the properties of the resulting estimator---is left to future work.
+
+## Time-Varying Period Weights
+
+The standard SDID estimator averages post-treatment periods uniformly. Our framework generalizes this to researcher-specified period weights $\tilde{\pi}_s$, which may be useful when:
+
+- **Short-run vs. long-run effects** differ, and the researcher wishes to focus on a specific horizon;
+- **Exposure varies** across post-treatment periods (e.g., partial implementation in the first year);
+- **Discounting** is appropriate for welfare calculations.
+
+Period weights enter the collapsed form through the last column of $\tilde{Y}^w$ (equation \ref{eq:weighted-collapsed}) and also affect time weight estimation (equation \ref{eq:lambda-w}), since $\hat{\lambda}^w$ is chosen to match pre-treatment periods to the $\tilde{\pi}$-weighted post-treatment average.
+
+For inference, the placebo method requires choosing period weights for the placebo post-period. Our implementation defaults to uniform weights for the placebo post-period, regardless of the original $\tilde{\pi}$, since the placebo post-period length may differ from $T_1$.
+
+## Clustered Standard Errors
+
+In many applications of SDID---including our ACA application---the unit of observation differs from the level of treatment assignment. Counties are the units in the panel, but Medicaid expansion is a state-level policy. Errors are likely correlated within states, violating the implicit assumption of unit-level independence in the bootstrap, jackknife, and placebo variance estimators.
+
+The standard SDID variance estimators resample individual units (counties). When treatment is assigned at the state level, this fails to account for the common state-level shocks that drive within-state correlation. The natural analog is a *cluster bootstrap* that resamples entire states (clusters of counties) rather than individual counties. For the weighted estimator, this requires:
+
+\begin{enumerate}
+  \item Drawing states with replacement rather than counties;
+  \item Including all counties within each drawn state;
+  \item Renormalizing both control weights $\hat{\omega}$ (across the resampled control counties) and treated-unit weights $\tilde{\omega}$ (across the resampled treated counties, with multiplicity from with-replacement sampling); and
+  \item Re-estimating $\hat{\tau}^w$ on each bootstrap sample.
+\end{enumerate}
+
+The cluster jackknife proceeds analogously, leaving out one state at a time and renormalizing the remaining county-level weights.
+
+A formal treatment of cluster-robust inference for weighted SDID---including conditions under which the cluster bootstrap is valid and finite-sample coverage properties---is an important direction for future work. In the interim, researchers facing this mismatch between unit and treatment level should report both unit-level and cluster-level standard errors as a sensitivity check.
+
+## Limitations
+
+Several additional limitations merit discussion. First, our treated-unit weights $\tilde{\omega}$ are fixed by the researcher, not estimated from the data. We do not claim optimality in any formal sense; rather, the weights encode the researcher's definition of the estimand. Second, while we adapt the variance estimators of @arkhangelsky2021, we do not provide new asymptotic results. The properties of the original estimators---including the recommendation against the jackknife for SC---carry over to the weighted case, but a formal treatment of the weighted estimator's asymptotic distribution under a factor model is left to future work. Third, the placebo variance estimator uses uniform weights for placebo-treated units, which introduces a discrepancy with the original weight structure. The implications for coverage in finite samples are examined via simulation in Appendix \ref{app:simulations}.
+
+\clearpage

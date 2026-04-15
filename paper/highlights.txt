@@ -1,0 +1,7 @@
+Highlights
+
+- Weighted SDID allows population-weighted treatment effects
+- Simple modification: change collapsed form of outcome matrix
+- ACA application: estimates flip sign with population weighting
+- Larger counties drive mortality reduction from Medicaid expansion
+- R package extending synthdid is freely available
