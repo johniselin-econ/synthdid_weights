@@ -146,14 +146,14 @@ The placebo method randomly assigns $N_1$ control units as "placebo treated" and
 As stated in the main text:
 
 \medskip
-\noindent\textbf{Proposition 1.} *When $\tilde{\omega}_j = 1/N_1$ for all $j$ and $\tilde{\pi}_s = 1/T_1$ for all $s$, the weighted estimator $\hat{\tau}^w$ reduces to the standard SDID estimator $\hat{\tau}^{\text{sdid}}$.*
+\noindent\textbf{Proposition 1.} *When $\tilde{\omega}_j = 1/N_1$ for all $j$, the weighted estimator $\hat{\tau}^w$ reduces to the standard SDID estimator $\hat{\tau}^{\text{sdid}}$.*
 
 \medskip
-\noindent\textit{Proof.} When $\tilde{\omega}_j = 1/N_1$ for all $j$ and $\tilde{\pi}_s = 1/T_1$ for all $s$, the weighted collapsed form \eqref{eq:weighted-collapsed} reduces to
+\noindent\textit{Proof.} When $\tilde{\omega}_j = 1/N_1$ for all $j$, the weighted collapsed form (equation 3 of the main text) reduces to
 $$
 \tilde{Y}^w_{N_0+1, t} = \frac{1}{N_1} \sum_{j=1}^{N_1} Y_{N_0+j,t} = \tilde{Y}_{N_0+1, t}
 $$
-for all $t = 1, \ldots, T_0$, and analogously for the last column. Since the collapsed forms are identical, the Frank-Wolfe solutions $(\hat{\omega}^w, \hat{\lambda}^w)$ equal $(\hat{\omega}, \hat{\lambda})$. The estimate \eqref{eq:tau-weighted} then equals \eqref{eq:tau-sdid}. $\square$
+for all $t = 1, \ldots, T_0$, and analogously for the last column. Since the collapsed forms are identical, the Frank-Wolfe solutions $(\hat{\omega}^w, \hat{\lambda}^w)$ equal $(\hat{\omega}, \hat{\lambda})$. The estimate (equation 4 of the main text) then equals the standard SDID estimate (equation 2). $\square$
 
 
 # Event Study Decomposition and Additional Figures {#app:event-study}

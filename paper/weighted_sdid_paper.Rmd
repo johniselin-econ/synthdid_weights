@@ -178,8 +178,8 @@ se_did_w  <- tryCatch(sqrt(vcov(tau_did_w,  method = "jackknife")), error = func
 ```{r results-table}
 results <- tibble::tibble(
   Estimator = c("DiD", "SDID"),
-  Unweighted = c(as.numeric(tau_did), as.numeric(tau_sdid)),
-  `SE (unwt.)` = c(se_did, se_sdid),
+  `Equally wtd.` = c(as.numeric(tau_did), as.numeric(tau_sdid)),
+  `SE (eq.)` = c(se_did, se_sdid),
   `Pop.-weighted` = c(as.numeric(tau_did_w), as.numeric(tau_sdid_w)),
   `SE (wt.)` = c(se_did_w, se_sdid_w)
 )
@@ -196,7 +196,7 @@ kableExtra::kbl(
   kableExtra::kable_styling(latex_options = c("hold_position"))
 ```
 
-Table 1 reports the main results. The equally-weighted and population-weighted estimates diverge dramatically---indeed, they differ in sign. The unweighted SDID estimate is near zero, indicating no detectable mortality effect when all treated counties receive equal weight. The population-weighted SDID estimate is approximately $-13.5$ deaths per 100,000, indicating a substantial mortality reduction when the estimand weights counties by population. The DiD estimates show a similar pattern: a near-zero unweighted estimate and a large negative population-weighted estimate. This divergence arises because treatment effects are heterogeneous and correlated with county size: larger counties experience larger mortality reductions from Medicaid expansion, consistent with greater baseline uninsurance rates and more scope for coverage gains in urban areas.
+Table 1 reports the main results. The equally-weighted and population-weighted estimates diverge dramatically---indeed, they differ in sign. The equally-weighted (i.e., standard) SDID estimate is near zero, indicating no detectable mortality effect when all treated counties receive equal weight. The population-weighted SDID estimate is approximately $-13.5$ deaths per 100,000, indicating a substantial mortality reduction when the estimand weights counties by population. The DiD estimates show a similar pattern: a near-zero equally-weighted estimate and a large negative population-weighted estimate. This divergence arises because treatment effects are heterogeneous and correlated with county size: larger counties experience larger mortality reductions from Medicaid expansion, which may reflect greater baseline uninsurance rates and more scope for coverage gains in urban areas \citep{sommers2016, miller2021}.
 
 ```{r event-study-both, fig.cap="Event-study decomposition under equal and population weighting. Left panel: DiD. Right panel: SDID. Shaded bands show 95\\% bootstrap confidence intervals (200 replications). The dashed vertical line marks treatment onset (2014).", fig.height=4, fig.width=8, cache=TRUE}
 es_sdid   <- synthdid_event_study(tau_sdid,   se.method = "bootstrap", replications = 200)
@@ -237,14 +237,14 @@ n1_eff <- 1 / hhi
 top10_share <- sum(sort(treated_weights, decreasing = TRUE)[1:10])
 ```
 
-The weight concentration statistics illuminate why the estimates diverge so dramatically. The population weights have a Herfindahl index of `r round(hhi, 4)`, implying an effective number of treated units $N_1^{\text{eff}} = `r round(n1_eff, 0)`$ compared to the raw $N_1 = `r nrow(setup$Y) - setup$N0`$. The ten largest counties account for `r round(top10_share * 100, 0)`\% of total treated-county weight. Standard errors are modestly larger under population weighting (approximately 2.4 vs. 2.0 for SDID), reflecting greater heterogeneity in the reweighted sample. The consistency of results across DiD and SDID confirms that the finding is robust to the choice of estimator. As a further check, Supplementary Appendix F compares our population-weighted SDID to the double-lasso propensity score weighted DiD of @borgschulte2020, an entirely independent approach to constructing a population-relevant comparison group.
+The weight concentration statistics illuminate why the estimates diverge so dramatically. The population weights have a Herfindahl index of `r round(hhi, 4)`, implying an effective number of treated units $N_1^{\text{eff}} = `r round(n1_eff, 0)`$ compared to the raw $N_1 = `r nrow(setup$Y) - setup$N0`$. The ten largest counties account for `r round(top10_share * 100, 0)`\% of total treated-county weight. Standard errors are modestly larger under population weighting (`r round(se_sdid_w, 1)` vs. `r round(se_sdid, 1)` for SDID), reflecting greater heterogeneity in the reweighted sample. The consistency of results across DiD and SDID confirms that the finding is robust to the choice of estimator. As a further check, Supplementary Appendix F compares our population-weighted SDID to the double-lasso propensity score weighted DiD of @borgschulte2020, an entirely independent approach to constructing a population-relevant comparison group.
 
 A limitation of this application is that treatment is assigned at the state level while the unit of observation is the county. The current variance estimators resample at the county level, which does not account for within-state error correlation. A cluster bootstrap resampling entire states would be more appropriate; we discuss this extension in Supplementary Appendix G.
 
 
 # Conclusion
 
-We have proposed a simple but consequential extension to the SDID estimator: replacing uniform treated-unit averaging with researcher-chosen weights. The modification requires changing only the collapsed form of the outcome matrix; the optimization algorithm proceeds identically. The ACA application demonstrates that the weighting choice can determine not just the magnitude but the sign of the estimated treatment effect---a finding that generalizes to any setting where treatment effects are heterogeneous and correlated with unit size. Important extensions include staggered treatment adoption, where the weighted estimator can be applied within each adoption cohort, and cluster-robust inference for settings where treatment assignment occurs at a higher level than the unit of observation (Supplementary Appendix G). Monte Carlo simulations examining the finite-sample coverage properties of the adapted variance estimators are reported in Supplementary Appendix E.
+We have proposed a simple but consequential extension to the SDID estimator: replacing uniform treated-unit averaging with researcher-chosen weights. The modification requires changing only the collapsed form of the outcome matrix; the optimization algorithm proceeds identically. The ACA application demonstrates that the weighting choice can determine not just the magnitude but the sign of the estimated treatment effect---an issue likely to arise in any setting where treatment effects are heterogeneous and correlated with unit size. Important extensions include staggered treatment adoption, where the weighted estimator can be applied within each adoption cohort, and cluster-robust inference for settings where treatment assignment occurs at a higher level than the unit of observation (Supplementary Appendix G). Monte Carlo simulations examining the finite-sample coverage properties of the adapted variance estimators are reported in Supplementary Appendix E.
 
 \section*{Declaration of generative AI and AI-assisted technologies in the manuscript preparation process}
 
