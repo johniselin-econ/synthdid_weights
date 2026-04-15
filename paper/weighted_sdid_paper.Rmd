@@ -143,19 +143,28 @@ We use a balanced county-year panel covering `r year_range[1]`--`r year_range[2]
 ```{r prepare-sdid-panel}
 panel_sdid <- panel %>%
   arrange(unit, time) %>%
-  select(unit, time, y, treated_unit, pop) %>%
+  select(unit, time, y, treated_unit, pop, state_fips) %>%
   mutate(.unit = as.factor(unit), .time = time,
          .W = as.integer(treated_unit == 1 & time >= 2014))
 
 dfp <- panel_sdid %>% select(.unit, .time, y, .W) %>% as.data.frame()
 setup <- synthdid::panel.matrices(dfp)
 
+# Build population weights for treated counties, ordered to match setup$Y
 pop_2013 <- panel %>% filter(treated_unit == 1, time == 2013) %>% select(unit, pop)
 treated_names <- rownames(setup$Y)[(setup$N0 + 1):nrow(setup$Y)]
 pop_ordered <- pop_2013 %>% mutate(unit_char = as.character(unit))
 weight_order <- match(treated_names, pop_ordered$unit_char)
 treated_weights <- pop_ordered$pop[weight_order]
 treated_weights <- treated_weights / sum(treated_weights, na.rm = TRUE)
+
+# Build state cluster vector matching setup$Y row order
+unit_state <- panel_sdid %>%
+  distinct(unit, state_fips) %>%
+  mutate(unit_char = as.character(unit))
+all_names <- rownames(setup$Y)
+cluster_vec <- unit_state$state_fips[match(all_names, unit_state$unit_char)]
+n_states <- n_distinct(cluster_vec)
 ```
 
 ```{r run-estimates, cache=TRUE}
@@ -163,16 +172,21 @@ tau_sdid   <- synthdid_estimate(setup$Y, setup$N0, setup$T0)
 tau_did    <- did_estimate(setup$Y, setup$N0, setup$T0)
 
 tau_sdid_w <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
-                                          treated.weights = treated_weights)
+                                          treated.weights = treated_weights,
+                                          cluster = cluster_vec)
 tau_did_w  <- did_estimate_weighted(setup$Y, setup$N0, setup$T0,
-                                     treated.weights = treated_weights)
+                                     treated.weights = treated_weights,
+                                     cluster = cluster_vec)
 ```
 
 ```{r compute-ses, cache=TRUE}
+# State-clustered bootstrap SEs (treatment assigned at state level)
 se_sdid   <- tryCatch(sqrt(vcov(tau_sdid,   method = "jackknife")), error = function(e) NA)
 se_did    <- tryCatch(sqrt(vcov(tau_did,    method = "jackknife")), error = function(e) NA)
-se_sdid_w <- tryCatch(sqrt(vcov(tau_sdid_w, method = "jackknife")), error = function(e) NA)
-se_did_w  <- tryCatch(sqrt(vcov(tau_did_w,  method = "jackknife")), error = function(e) NA)
+se_sdid_w <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_w, method = "bootstrap", replications = 200))),
+                       error = function(e) NA)
+se_did_w  <- tryCatch(suppressWarnings(sqrt(vcov(tau_did_w,  method = "bootstrap", replications = 200))),
+                       error = function(e) NA)
 ```
 
 ```{r results-table}
@@ -188,7 +202,7 @@ kableExtra::kbl(
   results,
   digits = 2,
   booktabs = TRUE,
-  caption = "Effect of ACA Medicaid expansion on mortality (deaths per 100,000, ages 20--64). Jackknife standard errors.",
+  caption = "Effect of ACA Medicaid expansion on mortality (deaths per 100,000, ages 20--64). Equally-weighted SEs: county-level jackknife. Population-weighted SEs: state-clustered bootstrap (200 replications).",
   col.names = c("Estimator", "Estimate", "SE", "Estimate", "SE"),
   align = c("l", "r", "r", "r", "r")
 ) %>%
@@ -239,7 +253,7 @@ top10_share <- sum(sort(treated_weights, decreasing = TRUE)[1:10])
 
 The weight concentration statistics illuminate why the estimates diverge so dramatically. The population weights have a Herfindahl index of `r round(hhi, 4)`, implying an effective number of treated units $N_1^{\text{eff}} = `r round(n1_eff, 0)`$ compared to the raw $N_1 = `r nrow(setup$Y) - setup$N0`$. The ten largest counties account for `r round(top10_share * 100, 0)`\% of total treated-county weight. Standard errors are modestly larger under population weighting (`r round(se_sdid_w, 1)` vs. `r round(se_sdid, 1)` for SDID), reflecting greater heterogeneity in the reweighted sample. The consistency of results across DiD and SDID confirms that the finding is robust to the choice of estimator. As a further check, Supplementary Appendix F compares our population-weighted SDID to the double-lasso propensity score weighted DiD of @borgschulte2020, an entirely independent approach to constructing a population-relevant comparison group.
 
-A limitation of this application is that treatment is assigned at the state level while the unit of observation is the county. The current variance estimators resample at the county level, which does not account for within-state error correlation. A cluster bootstrap resampling entire states would be more appropriate; we discuss this extension in Supplementary Appendix G.
+Because treatment is assigned at the state level while the unit of observation is the county, we report state-clustered bootstrap standard errors for the population-weighted estimates, resampling entire states with replacement following @clarke2023. The equally-weighted estimates use county-level jackknife SEs. Further discussion of clustered inference for SDID is in Supplementary Appendix G.
 
 
 # Conclusion
