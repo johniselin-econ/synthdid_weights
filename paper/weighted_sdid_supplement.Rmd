@@ -668,6 +668,12 @@ if (requireNamespace("hdm", quietly = TRUE) && requireNamespace("glmnet", quietl
 
 ```{r dlps-table}
 if (!is.na(dlps_est)) {
+  # Compute jackknife SEs for the supplement's own estimates
+  se_did_supp    <- tryCatch(sqrt(vcov(tau_did,    method = "jackknife")), error = function(e) NA)
+  se_did_w_supp  <- tryCatch(sqrt(vcov(tau_did_w,  method = "jackknife")), error = function(e) NA)
+  se_sdid_supp   <- tryCatch(sqrt(vcov(tau_sdid,   method = "jackknife")), error = function(e) NA)
+  se_sdid_w_supp <- tryCatch(sqrt(vcov(tau_sdid_w, method = "jackknife")), error = function(e) NA)
+
   dlps_results <- tibble::tibble(
     Method = c("DiD (equally weighted)", "DiD (pop.-weighted)",
                "SDID (equally weighted)", "SDID (pop.-weighted)",
@@ -675,7 +681,7 @@ if (!is.na(dlps_est)) {
     Estimate = c(as.numeric(tau_did), as.numeric(tau_did_w),
                  as.numeric(tau_sdid), as.numeric(tau_sdid_w),
                  dlps_est),
-    SE = c(se_did, se_did_w, se_sdid, se_sdid_w, dlps_se)
+    SE = c(se_did_supp, se_did_w_supp, se_sdid_supp, se_sdid_w_supp, dlps_se)
   )
 
   kableExtra::kbl(
