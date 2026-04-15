@@ -67,19 +67,39 @@ We apply the method to the county-level mortality effects of the ACA's 2014 Medi
 
 # The Weighted Estimator
 
-Consider a balanced panel with $N$ units over $T$ periods, where the first $N_0$ are untreated controls and the remaining $N_1 = N - N_0$ begin treatment at $T_0 + 1$. Let $\tilde{\omega} = (\tilde{\omega}_1, \ldots, \tilde{\omega}_{N_1})$ be researcher-specified weights on treated units, normalized so $\sum_j \tilde{\omega}_j = 1$. The target estimand is $\tau^{(\tilde{\omega})} = \sum_j \tilde{\omega}_j \bar{\tau}_j$, where $\bar{\tau}_j$ is the average treatment effect for unit $j$ across post-treatment periods.
+## Setup and standard SDID
 
-The SDID estimator operates on a *collapsed form* $\tilde{Y}$, an $(N_0+1) \times (T_0+1)$ matrix averaging treated units and post-treatment periods. Our modification replaces the uniform averages with weighted averages:
+Consider a balanced panel with $N$ units over $T$ periods, where the first $N_0$ are untreated controls and the remaining $N_1 = N - N_0$ begin treatment at $T_0 + 1$. The SDID estimator of @arkhangelsky2021 operates on a *collapsed form* $\tilde{Y}$, an $(N_0+1) \times (T_0+1)$ matrix in which the last row averages treated units and the last column averages post-treatment periods:
+\begin{equation} \label{eq:collapsed}
+\tilde{Y}_{N_0+1, t} = \frac{1}{N_1} \sum_{j=1}^{N_1} Y_{N_0+j,t}, \quad
+\tilde{Y}_{i, T_0+1} = \frac{1}{T_1} \sum_{t=T_0+1}^{T} Y_{it}.
+\end{equation}
+Control unit weights $\hat{\omega} \in \Delta^{N_0}$ and time weights $\hat{\lambda} \in \Delta^{T_0}$ are estimated from $\tilde{Y}$ via regularized Frank-Wolfe optimization on the simplex, and the treatment effect estimate is
+\begin{equation} \label{eq:tau-sdid}
+\hat{\tau}^{\text{sdid}} = \begin{pmatrix} -\hat{\omega} \\ \frac{1}{N_1}\mathbf{1}_{N_1} \end{pmatrix}^\top Y \begin{pmatrix} -\hat{\lambda} \\ \frac{1}{T_1}\mathbf{1}_{T_1} \end{pmatrix}.
+\end{equation}
+The key observation is that the target on the right-hand side of the weight estimation problem---the average treated outcome in \eqref{eq:collapsed}---uses equal weights $1/N_1$. This determines which synthetic control group is constructed.
+
+## Weighted modification
+
+Let $\tilde{\omega} = (\tilde{\omega}_1, \ldots, \tilde{\omega}_{N_1})$ be researcher-specified weights on treated units, normalized so $\sum_j \tilde{\omega}_j = 1$. The target estimand is $\tau^{(\tilde{\omega})} = \sum_j \tilde{\omega}_j \bar{\tau}_j$, where $\bar{\tau}_j$ is the average treatment effect for unit $j$. Our modification replaces the uniform averages in \eqref{eq:collapsed} with weighted averages:
 \begin{equation} \label{eq:collapsed-w}
 \tilde{Y}^w_{N_0+1, t} = \sum_{j=1}^{N_1} \tilde{\omega}_j Y_{N_0+j,t}, \quad
 \tilde{Y}^w_{i, T_0+1} = \frac{1}{T_1} \sum_{t=T_0+1}^{T} Y_{it}.
 \end{equation}
-Control unit weights $\hat{\omega}^w$ and time weights $\hat{\lambda}^w$ are then estimated from $\tilde{Y}^w$ via the same Frank-Wolfe algorithm, and the treatment effect is
+Control weights $\hat{\omega}^w$ and time weights $\hat{\lambda}^w$ are estimated from $\tilde{Y}^w$ via the same algorithm---no modification to the solver is needed---and the treatment effect is
 \begin{equation} \label{eq:tau-w}
 \hat{\tau}^{w} = \begin{pmatrix} -\hat{\omega}^w \\ \tilde{\omega} \end{pmatrix}^\top Y \begin{pmatrix} -\hat{\lambda}^w \\ \frac{1}{T_1}\mathbf{1}_{T_1} \end{pmatrix}.
 \end{equation}
+Comparing \eqref{eq:tau-sdid} and \eqref{eq:tau-w}, the modification is concentrated in two places: the collapsed form that feeds the weight solver, and the treated-unit block of the final bilinear form. When $\tilde{\omega}_j = 1/N_1$ for all $j$, the weighted estimator reduces to the standard SDID (proof in Supplementary Appendix C). Weighted SC ($\hat{\lambda} = 0$) and weighted DiD ($\hat{\omega} = 1/N_0$, $\hat{\lambda} = 1/T_0$) emerge as special cases.
 
-When $\tilde{\omega}_j = 1/N_1$ for all $j$, the weighted estimator reduces to the standard SDID estimator (proof in Supplementary Appendix C). Weighted SC and weighted DiD emerge as special cases. We adapt the bootstrap, jackknife, and placebo variance estimators to renormalize $\tilde{\omega}$ when resampling drops or duplicates treated units (Supplementary Appendix B).
+## Inference
+
+We adapt all three variance estimators of @arkhangelsky2021 to handle weight renormalization during resampling. The key complication is the bootstrap: in a given draw $b$, treated unit $j$ appears $n_j^{(b)}$ times, and the bootstrap-adjusted weights are
+\begin{equation} \label{eq:boot-w}
+\tilde{\omega}_j^{(b)} = \frac{\tilde{\omega}_j \cdot n_j^{(b)}}{\sum_{k=1}^{N_1} \tilde{\omega}_k \cdot n_k^{(b)}}.
+\end{equation}
+The jackknife renormalizes analogously when leaving out a treated unit; the placebo method uses uniform weights for pseudo-treated control units, since the original $\tilde{\omega}$ do not map naturally to control units (see Supplementary Appendix B for details and alternative placebo weighting schemes).
 
 
 # Application: ACA Medicaid Expansion
@@ -206,12 +226,22 @@ ggplot(es_df, aes(x = year, y = estimate, color = Weighting, fill = Weighting)) 
   theme(legend.position = "bottom")
 ```
 
-Figure 1 presents the event-study decomposition. Pre-treatment coefficients cluster near zero for both weighting schemes, supporting the parallel-trends assumption. Post-treatment, the two paths diverge sharply: the population-weighted coefficients are consistently negative ($-11$ to $-17$ deaths per 100,000), while the equally-weighted coefficients fluctuate near zero. The pattern is consistent with growing impact over time as Medicaid enrollment increased. Comparing across estimators (Supplementary Appendix D), all three methods yield similar results under equal weighting, confirming that the weighting choice---not the estimator choice---drives the main finding. Standard errors are modestly larger under population weighting (approximately 2.4 vs. 2.0 for SDID), reflecting greater heterogeneity in the reweighted sample.
+Figure 1 presents the event-study decomposition. Pre-treatment coefficients cluster near zero for both weighting schemes, supporting the parallel-trends assumption. Post-treatment, the two paths diverge sharply: the population-weighted coefficients are consistently negative ($-11$ to $-17$ deaths per 100,000), while the equally-weighted coefficients fluctuate near zero. The pattern is consistent with growing impact over time as Medicaid enrollment increased. Comparing across estimators (Supplementary Appendix D), all three methods yield similar results under equal weighting, confirming that the weighting choice---not the estimator choice---drives the main finding.
+
+```{r weight-stats}
+hhi <- sum(treated_weights^2)
+n1_eff <- 1 / hhi
+top10_share <- sum(sort(treated_weights, decreasing = TRUE)[1:10])
+```
+
+The weight concentration statistics illuminate why the estimates diverge so dramatically. The population weights have a Herfindahl index of `r round(hhi, 4)`, implying an effective number of treated units $N_1^{\text{eff}} = `r round(n1_eff, 0)`$ compared to the raw $N_1 = `r nrow(setup$Y) - setup$N0`$. The ten largest counties account for `r round(top10_share * 100, 0)`\% of total treated-county weight. Standard errors are modestly larger under population weighting (approximately 2.4 vs. 2.0 for SDID), reflecting greater heterogeneity in the reweighted sample.
+
+A limitation of this application is that treatment is assigned at the state level while the unit of observation is the county. The current variance estimators resample at the county level, which does not account for within-state error correlation. A cluster bootstrap resampling entire states would be more appropriate; we discuss this extension in Supplementary Appendix G.
 
 
 # Conclusion
 
-We have proposed a simple but consequential extension to the SDID estimator: replacing uniform treated-unit averaging with researcher-chosen weights. The modification requires changing only the collapsed form of the outcome matrix; the optimization algorithm proceeds identically. The ACA application demonstrates that the weighting choice can determine not just the magnitude but the sign of the estimated treatment effect. Extensions to staggered treatment adoption and clustered inference are discussed in the Supplementary Appendix.
+We have proposed a simple but consequential extension to the SDID estimator: replacing uniform treated-unit averaging with researcher-chosen weights. The modification requires changing only the collapsed form of the outcome matrix; the optimization algorithm proceeds identically. The ACA application demonstrates that the weighting choice can determine not just the magnitude but the sign of the estimated treatment effect---a finding that generalizes to any setting where treatment effects are heterogeneous and correlated with unit size. Important extensions include staggered treatment adoption, where the weighted estimator can be applied within each adoption cohort, and cluster-robust inference for settings where treatment assignment occurs at a higher level than the unit of observation (Supplementary Appendix G). Monte Carlo simulations examining the finite-sample coverage properties of the adapted variance estimators are reported in Supplementary Appendix E.
 
 \section*{Declaration of generative AI and AI-assisted technologies in the manuscript preparation process}
 
