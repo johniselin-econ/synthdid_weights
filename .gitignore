@@ -1,5 +1,12 @@
 *.DS_Store
+.Rproj.user
+.Rhistory
+docs
+tmpclaude-*
+
+# LaTeX build artifacts
 *.aux
+*.bbl
 *.blg
 *.log
 *.out
@@ -7,21 +14,19 @@
 *.toc
 *.nav
 *.snm
-*.pdf
-!figures/*.pdf
-!talks/MSR_sept2016/figures/*.pdf
-!literature/*.pdf
-!IRB/*.pdf
-!old_files/*.pdf
-.Rproj.user
-docs
-.Rhistory
-tmpclaude-*
 
-# LaTeX/knitr build artifacts
-*.bbl
+# knitr/rmarkdown build artifacts
 *.knit.md
 *.tex
 !paper/header.tex
 *_cache/
 *_files/
+
+# Compiled outputs
+*.pdf
+*.html
+*.rds
+vignettes/output/
+
+# Exceptions: keep data CSVs but not binary artifacts
+!data/*.csv

@@ -1,11 +1,14 @@
 ^.*\.Rproj$
 ^\.Rproj\.user$
 ^experiments
+^scripts
 ^tests/benchmarks
 ^vignettes
+^paper
 ^azure-pipelines\.yml$
 ^_pkgdown\.yml$
 ^docs$
 ^pkgdown$
 ^DEVELOPING\.md$
 ^data/README\.md$
+^README\.md$

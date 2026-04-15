@@ -584,7 +584,7 @@ run_sdid_weighted <- function(df,
 
   # Defensive checks
   if (!exists("synthdid_estimate_weighted")) {
-    stop("Weighted SDID functions not loaded. Source the R_weighted files first.")
+    stop("Weighted SDID functions not loaded. Source the R/ files first.")
   }
 
   df2 <- df
