@@ -22,12 +22,12 @@ set.seed(42)
 
 # Source the weighted functions (in correct order for dependencies)
 # Note: The base synthdid package provides helper functions like sc.weight.fw, contract3
-source("../R_weighted/utils.R")
-source("../R_weighted/solver.R")
-source("../R_weighted/synthdid.R")
-source("../R_weighted/vcov.R")
-source("../R_weighted/summary.R")
-source("../R_weighted/print.R")
+source("../R/utils.R")
+source("../R/solver.R")
+source("../R/synthdid.R")
+source("../R/vcov.R")
+source("../R/summary.R")
+source("../R/print.R")
 ```
 
 # Introduction

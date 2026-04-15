@@ -372,3 +372,91 @@ plot.synthdid_estimate = function(x, ...) {
   }
   synthdid_plot(x, ...)
 }
+# =============================================================================
+# WEIGHTED VERSIONS
+# =============================================================================
+
+#' Plots treated and synthetic control trajectories for weighted estimates.
+#' Similar to synthdid_plot but accounts for user-specified treated.weights and period.weights.
+#'
+#' @param estimates, a list of weighted estimates output by synthdid_estimate_weighted. Or a single estimate.
+#' @param treated.name, the name of the treated curve that appears in the legend. Defaults to 'treated'
+#' @param control.name, the name of the control curve that appears in the legend. Defaults to 'synthetic control'
+#' @param ... Additional arguments passed to synthdid_plot
+#' @export synthdid_plot_weighted
+synthdid_plot_weighted = function(estimates, treated.name = 'treated (weighted)', control.name = 'synthetic control', ...) {
+  if (requireNamespace("ggplot2", quietly = TRUE)) {
+    .ignore <- tryCatch(attachNamespace("ggplot2"), error = function(e) e)
+  } else {
+    stop("Plotting requires the package `ggplot2`. Install it to use this function.")
+  }
+  if (class(estimates) == 'synthdid_estimate_weighted') { estimates = list(estimates) }
+  if (is.null(names(estimates))) { names(estimates) = sprintf('estimate %d', 1:length(estimates)) }
+
+  # For weighted estimates, we modify the treatment weights internally
+  # The synthdid_plot function uses rep(1/N1, N1) for treated units
+  # For weighted estimates, we replace omega.target with treated.weights
+  # This requires modifying plot.descriptions generation
+
+  # For now, we can use the base synthdid_plot but the treated trajectory
+  # will show the weighted average of treated units
+
+  # Create modified estimates where we store the weighted average
+  modified_estimates = lapply(estimates, function(est) {
+    setup = attr(est, 'setup')
+    treated.weights = attr(est, 'treated.weights')
+    period.weights = attr(est, 'period.weights')
+    N0 = setup$N0
+    N1 = nrow(setup$Y) - N0
+    T0 = setup$T0
+    T1 = ncol(setup$Y) - T0
+
+    # Create a new Y matrix where the treated units are collapsed to a single weighted row
+    Y_control = setup$Y[1:N0, , drop = FALSE]
+    Y_treated = setup$Y[(N0+1):(N0+N1), , drop = FALSE]
+    Y_treated_weighted = as.matrix(treated.weights %*% Y_treated)
+    rownames(Y_treated_weighted) = "Treated (weighted)"
+
+    Y_new = rbind(Y_control, Y_treated_weighted)
+
+    # Create a new estimate with the modified setup
+    new_setup = list(Y = Y_new, N0 = N0, T0 = T0, X = array(dim = c(N0+1, T0+T1, 0)))
+    new_est = est
+    attr(new_est, 'setup') = new_setup
+
+    new_est
+  })
+
+  # Use synthdid_plot with modified estimates
+  synthdid_plot(modified_estimates, treated.name = treated.name, control.name = control.name, ...)
+}
+
+#' For weighted estimator and a placebo, plots treated and synthetic control trajectories.
+#' Requires ggplot2
+#' @param estimate, as output by synthdid_estimate_weighted.
+#' @param overlay, binary, indicates whether plots should be overlaid or shown in different facets. Defaults to FALSE.
+#' @param treated.fraction as in synthdid_placebo_weighted
+#' @export synthdid_placebo_plot_weighted
+synthdid_placebo_plot_weighted = function(estimate, overlay = FALSE, treated.fraction = NULL) {
+  if (requireNamespace("ggplot2", quietly = TRUE)) {
+    .ignore <- tryCatch(attachNamespace("ggplot2"), error = function(e) e)
+  } else {
+    stop("Plotting requires the package `ggplot2`. Install it to use this function.")
+  }
+  estimates = list(estimate = estimate, placebo = synthdid_placebo_weighted(estimate, treated.fraction = treated.fraction))
+  synthdid_plot_weighted(estimates, facet = if (overlay) { c(1, 1) } else { NULL })
+}
+
+#' Plot a weighted synthdid object
+#' @param x The object to plot
+#' @param ... Additional arguments (currently ignored).
+#' @method plot synthdid_estimate_weighted
+#' @export
+plot.synthdid_estimate_weighted = function(x, ...) {
+  if (requireNamespace("ggplot2", quietly = TRUE)) {
+    .ignore <- tryCatch(attachNamespace("ggplot2"), error = function(e) e)
+  } else {
+    stop("Plotting requires the package `ggplot2`. Install it to use this function.")
+  }
+  synthdid_plot_weighted(x, ...)
+}

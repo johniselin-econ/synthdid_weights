@@ -34,14 +34,14 @@ library(synthdid)
 library(hdm)    # For double-lasso variable selection
 library(glmnet) # For regularized regression
 
-# Source weighted SDID functions (Solution 3)
+# Source weighted SDID functions
 # These extend the synthdid package to allow user-specified treated unit weights
-source("../R_weighted/utils.R")
-source("../R_weighted/solver.R")
-source("../R_weighted/synthdid.R")
-source("../R_weighted/vcov.R")
-source("../R_weighted/summary.R")
-source("../R_weighted/print.R")
+source("../R/utils.R")
+source("../R/solver.R")
+source("../R/synthdid.R")
+source("../R/vcov.R")
+source("../R/summary.R")
+source("../R/print.R")
 
 ```
 

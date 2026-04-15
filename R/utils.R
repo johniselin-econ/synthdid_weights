@@ -5,6 +5,43 @@ collapsed.form = function(Y, N0, T0) {
     cbind(t(colMeans(Y[(N0 + 1):N, 1:T0, drop = FALSE])), mean(Y[(N0 + 1):N, (T0 + 1):T, drop = FALSE])))
 }
 
+# Weighted version: collapse Y using specified weights for treated units and post-treatment periods
+# treated.weights: weights for treated units (N1 vector, should sum to 1)
+# period.weights: weights for post-treatment periods (T1 vector, should sum to 1)
+collapsed.form_weighted = function(Y, N0, T0, treated.weights = NULL, period.weights = NULL) {
+  N = nrow(Y); T = ncol(Y)
+  N1 = N - N0; T1 = T - T0
+
+  # Default to uniform weights if not specified
+  if (is.null(treated.weights)) {
+    treated.weights = rep(1 / N1, N1)
+  }
+  if (is.null(period.weights)) {
+    period.weights = rep(1 / T1, T1)
+  }
+
+  # Extract submatrices
+  Y_control_pre = Y[1:N0, 1:T0, drop = FALSE]                    # Control units, pre-period
+  Y_control_post = Y[1:N0, (T0 + 1):T, drop = FALSE]             # Control units, post-period
+  Y_treated_pre = Y[(N0 + 1):N, 1:T0, drop = FALSE]              # Treated units, pre-period
+  Y_treated_post = Y[(N0 + 1):N, (T0 + 1):T, drop = FALSE]       # Treated units, post-period
+
+  # For control units in post-period: weighted average across post-periods (for each control unit)
+  control_post_collapsed = Y_control_post %*% period.weights     # N0 x 1
+
+  # For treated units in pre-period: weighted average across treated units (for each time period)
+  treated_pre_collapsed = t(t(Y_treated_pre) %*% treated.weights) # 1 x T0
+
+  # For treated units in post-period: doubly weighted average
+  treated_post_collapsed = sum(treated.weights %*% Y_treated_post %*% period.weights)  # scalar
+
+  # Construct collapsed matrix (N0+1) x (T0+1)
+  rbind(
+    cbind(Y_control_pre, control_post_collapsed),
+    cbind(treated_pre_collapsed, treated_post_collapsed)
+  )
+}
+
 # return the component-wise sum of decreasing vectors in which NA is taken to mean that the vector has stopped decreasing
 # and we can use the last non-na element. Where both are NA, leave as NA.
 pairwise.sum.decreasing = function(x, y) {
@@ -120,15 +157,26 @@ timesteps = function(Y) {
 
 ## define some convenient accessors
 setOldClass("synthdid_estimate")
+setOldClass("synthdid_estimate_weighted")
 get_slot = function(name) { function(object) { object[[name]] } }
 setGeneric('weights')
 setGeneric('Y',      get_slot('Y'))
 setGeneric('lambda', get_slot('lambda'))
 setGeneric('omega',  get_slot('omega'))
+setGeneric('treated.weights', get_slot('treated.weights'))
+setGeneric('period.weights',  get_slot('period.weights'))
 setMethod(weights, signature='synthdid_estimate',  definition=function(object) { attr(object, 'weights') })
 setMethod(Y,       signature='synthdid_estimate',  definition=function(object) { attr(object, 'setup')$Y })
 setMethod(lambda,  signature='synthdid_estimate',  definition=function(object) { lambda(weights(object)) })
 setMethod(omega,   signature='synthdid_estimate',  definition=function(object) { omega(weights(object))  })
+
+# Accessors for weighted estimates
+setMethod(weights,         signature='synthdid_estimate_weighted', definition=function(object) { attr(object, 'weights') })
+setMethod(Y,               signature='synthdid_estimate_weighted', definition=function(object) { attr(object, 'setup')$Y })
+setMethod(lambda,          signature='synthdid_estimate_weighted', definition=function(object) { lambda(weights(object)) })
+setMethod(omega,           signature='synthdid_estimate_weighted', definition=function(object) { omega(weights(object))  })
+setMethod(treated.weights, signature='synthdid_estimate_weighted', definition=function(object) { attr(object, 'treated.weights') })
+setMethod(period.weights,  signature='synthdid_estimate_weighted', definition=function(object) { attr(object, 'period.weights')  })
 
 
 # A convenience function for generating data for unit tests.
