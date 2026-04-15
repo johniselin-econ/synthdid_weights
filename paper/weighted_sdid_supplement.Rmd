@@ -722,21 +722,25 @@ For inference, the placebo method requires choosing period weights for the place
 
 In many applications of SDID---including our ACA application---the unit of observation differs from the level of treatment assignment. Counties are the units in the panel, but Medicaid expansion is a state-level policy. Errors are likely correlated within states, violating the implicit assumption of unit-level independence in the bootstrap, jackknife, and placebo variance estimators.
 
-The standard SDID variance estimators resample individual units (counties). When treatment is assigned at the state level, this fails to account for the common state-level shocks that drive within-state correlation. The natural analog is a *cluster bootstrap* that resamples entire states (clusters of counties) rather than individual counties. For the weighted estimator, this requires:
+Our software implements a cluster-robust bootstrap following @clarke2023. The cluster bootstrap resamples entire clusters (e.g., states) with replacement rather than individual units (counties). The algorithm proceeds as follows:
 
 \begin{enumerate}
-  \item Drawing states with replacement rather than counties;
-  \item Including all counties within each drawn state;
-  \item Renormalizing both control weights $\hat{\omega}$ (across the resampled control counties) and treated-unit weights $\tilde{\omega}$ (across the resampled treated counties, with multiplicity from with-replacement sampling); and
-  \item Re-estimating $\hat{\tau}^w$ on each bootstrap sample.
+  \item Draw clusters with replacement from the set of all clusters;
+  \item Include all units within each drawn cluster;
+  \item Subset the fixed control weights $\hat{\omega}$ for the control units that appear in the draw, and renormalize;
+  \item Subset and renormalize the treated-unit weights $\tilde{\omega}$ for the treated units that appear; and
+  \item Re-estimate $\hat{\tau}^w$ on the resampled data using the subsetted weights.
 \end{enumerate}
 
-The cluster jackknife proceeds analogously, leaving out one state at a time and renormalizing the remaining county-level weights.
+The cluster jackknife proceeds analogously, leaving out one cluster at a time and renormalizing the remaining weights. The variance formula uses $K$ (the number of clusters) rather than $N$:
+$$
+\widehat{\text{Var}}^{\text{cjk}} = \frac{K-1}{K} \sum_{k=1}^{K} \left(\hat{\tau}^{w,(-k)} - \bar{\tau}^{w,(\cdot)}\right)^2.
+$$
 
-A formal treatment of cluster-robust inference for weighted SDID---including conditions under which the cluster bootstrap is valid and finite-sample coverage properties---is an important direction for future work. In the interim, researchers facing this mismatch between unit and treatment level should report both unit-level and cluster-level standard errors as a sensitivity check.
+The cluster bootstrap and jackknife are available via `vcov(estimate, method = "bootstrap", cluster = state_fips)` or by passing `cluster` directly to `synthdid_estimate_weighted()`, which stores it for automatic use by `vcov()`. In the ACA application in the main text, we report state-clustered bootstrap standard errors for the population-weighted estimates.
 
 ## Limitations
 
-Several additional limitations merit discussion. First, our treated-unit weights $\tilde{\omega}$ are fixed by the researcher, not estimated from the data. We do not claim optimality in any formal sense; rather, the weights encode the researcher's definition of the estimand. Second, while we adapt the variance estimators of @arkhangelsky2021, we do not provide new asymptotic results. The properties of the original estimators---including the recommendation against the jackknife for SC---carry over to the weighted case, but a formal treatment of the weighted estimator's asymptotic distribution under a factor model is left to future work. Third, the placebo variance estimator uses uniform weights for placebo-treated units, which introduces a discrepancy with the original weight structure. The implications for coverage in finite samples are examined via simulation in Appendix \ref{app:simulations}.
+Several additional limitations merit discussion. First, our treated-unit weights $\tilde{\omega}$ are fixed by the researcher, not estimated from the data. We do not claim optimality in any formal sense; rather, the weights encode the researcher's definition of the estimand. Second, while we adapt the variance estimators of @arkhangelsky2021 and provide a cluster-robust bootstrap, we do not provide new asymptotic results. The properties of the original estimators---including the recommendation against the jackknife for SC---carry over to the weighted case, but a formal treatment of the weighted estimator's asymptotic distribution under a factor model is left to future work. Third, the placebo variance estimator uses uniform weights for placebo-treated units, which introduces a discrepancy with the original weight structure; cluster-robust placebo inference is not yet implemented. The implications for coverage in finite samples are examined via simulation in Appendix \ref{app:simulations}.
 
 \clearpage
