@@ -1,287 +1,101 @@
 ---
-title: "Weighted Synthetic Difference-in-Differences"
+title: "Weighted SDID"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Weighted Synthetic Difference-in-Differences}
+  %\VignetteIndexEntry{Weighted SDID}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
 
 ```{r echo=FALSE}
 knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
-ragg_png = function(..., res = 192) {
-  ragg::agg_png(..., res = res, units = "in")
-}
-knitr::opts_chunk$set(dev = "ragg_png", fig.ext = "png")
 ```
 
 ```{r setup}
 library(synthdid)
-library(ggplot2)
 set.seed(42)
-
-# Source the weighted functions (in correct order for dependencies)
-# Note: The base synthdid package provides helper functions like sc.weight.fw, contract3
-source("../R/utils.R")
-source("../R/solver.R")
-source("../R/synthdid.R")
-source("../R/vcov.R")
-source("../R/summary.R")
-source("../R/print.R")
 ```
 
-# Introduction
+# Weighted estimation
 
-This vignette demonstrates the weighted synthetic difference-in-differences estimator, which extends the standard SDID to allow for user-specified weights on treated units. This is particularly useful when:
+The standard SDID estimator gives equal weight to all treated units.
+When treated units differ in size, you may want a population-weighted estimate instead.
+The `synthdid_estimate_weighted` function allows user-specified weights on treated units.
 
-1. There are multiple treated units of different sizes (e.g., states with different populations)
-2. You want to estimate a population-weighted average treatment effect rather than a simple average
-3. Some treated units are more policy-relevant than others
+We demonstrate with simulated data where three treated units have different sizes and effects.
 
-# Simulating Panel Data with Heterogeneous Treatment Effects
+```{r simulate}
+# Generate panel data
+setup = random.low.rank()
+N0 = setup$N0
+N1 = nrow(setup$Y) - N0
+T0 = setup$T0
 
-We simulate a panel dataset with:
-- 40 control units
-- 3 treated units with different populations and treatment effects
-- 20 pre-treatment periods and 5 post-treatment periods
-
-```{r simulate-data}
-# Parameters
-N0 <- 40        # Control units
-N1 <- 3         # Treated units
-T0 <- 20        # Pre-treatment periods
-T1 <- 5         # Post-treatment periods
-N <- N0 + N1
-T_total <- T0 + T1
-
-# Population weights for treated units (e.g., reflecting state populations)
-# Unit 1: Large state (60% of treated population)
-# Unit 2: Medium state (30% of treated population)
-# Unit 3: Small state (10% of treated population)
-pop_weights <- c(0.60, 0.30, 0.10)
-
-# Heterogeneous treatment effects by unit
-# Large state: small effect (tau = 5)
-# Medium state: medium effect (tau = 15)
-# Small state: large effect (tau = 30)
-tau_by_unit <- c(5, 15, 30)
-
-# True population-weighted average treatment effect
-tau_true_weighted <- sum(pop_weights * tau_by_unit)
-# True simple average treatment effect
-tau_true_simple <- mean(tau_by_unit)
-
-cat("True treatment effects by unit:\n")
-cat(sprintf("  Unit 1 (pop weight %.0f%%): tau = %.1f\n", pop_weights[1]*100, tau_by_unit[1]))
-cat(sprintf("  Unit 2 (pop weight %.0f%%): tau = %.1f\n", pop_weights[2]*100, tau_by_unit[2]))
-cat(sprintf("  Unit 3 (pop weight %.0f%%): tau = %.1f\n", pop_weights[3]*100, tau_by_unit[3]))
-cat(sprintf("\nTrue simple average effect: %.1f\n", tau_true_simple))
-cat(sprintf("True population-weighted effect: %.1f\n", tau_true_weighted))
+# Population weights (e.g., unit 1 is much larger)
+pop = c(rep(1, N1 - 1), 10)  # last unit is 10x larger
+pop_weights = pop / sum(pop)
 ```
 
-```{r generate-Y}
-# Generate outcome matrix Y
-# Y_it = alpha_i + beta_t + epsilon_it + tau_i * W_it
+# Compare equally-weighted and population-weighted estimates
 
-# Unit fixed effects
-alpha <- c(rnorm(N0, mean = 50, sd = 10),
-           rnorm(N1, mean = 55, sd = 5))
+```{r estimates}
+tau_sdid = synthdid_estimate(setup$Y, N0, T0)
+tau_sdid_w = synthdid_estimate_weighted(setup$Y, N0, T0,
+               treated.weights = pop_weights)
+tau_did = did_estimate(setup$Y, N0, T0)
+tau_did_w = did_estimate_weighted(setup$Y, N0, T0,
+              treated.weights = pop_weights)
 
-# Time fixed effects (with a trend)
-beta <- cumsum(rnorm(T_total, mean = 0.5, sd = 1))
-
-# Generate Y matrix
-Y <- matrix(0, nrow = N, ncol = T_total)
-for (i in 1:N) {
-  for (t in 1:T_total) {
-    Y[i, t] <- alpha[i] + beta[t] + rnorm(1, sd = 2)
-  }
-}
-
-# Add treatment effects for treated units in post-period
-for (j in 1:N1) {
-  i <- N0 + j
-  for (t in (T0 + 1):T_total) {
-    Y[i, t] <- Y[i, t] + tau_by_unit[j]
-  }
-}
-
-# Add row and column names
-rownames(Y) <- c(paste0("Control_", 1:N0), paste0("Treated_", 1:N1))
-colnames(Y) <- paste0("t", 1:T_total)
-
-cat("Dimensions of Y:", nrow(Y), "units x", ncol(Y), "periods\n")
-cat("N0 =", N0, "control units, N1 =", N1, "treated units\n")
-cat("T0 =", T0, "pre-treatment periods, T1 =", T1, "post-treatment periods\n")
+cat(sprintf("Equally-weighted SDID:     %1.2f\n", tau_sdid))
+cat(sprintf("Population-weighted SDID:  %1.2f\n", tau_sdid_w))
+cat(sprintf("Equally-weighted DiD:      %1.2f\n", tau_did))
+cat(sprintf("Population-weighted DiD:   %1.2f\n", tau_did_w))
 ```
 
-# Standard (Unweighted) Estimation
+# Standard errors
 
-First, we estimate the treatment effect using the standard SDID estimator, which gives equal weight to all treated units.
-
-```{r standard-estimate}
-# Standard SDID (equal weights on treated units)
-tau_sdid <- synthdid_estimate(Y, N0, T0)
-tau_sc <- sc_estimate(Y, N0, T0)
-tau_did <- did_estimate(Y, N0, T0)
-
-cat("Standard Estimates (equal weights on treated units):\n")
-cat(sprintf("  Diff-in-Diff:              %.2f\n", tau_did))
-cat(sprintf("  Synthetic Control:         %.2f\n", tau_sc))
-cat(sprintf("  Synthetic Diff-in-Diff:    %.2f\n", tau_sdid))
-cat(sprintf("\nTrue simple average effect:  %.2f\n", tau_true_simple))
-```
-
-# Weighted Estimation
-
-Now we use the weighted estimator with population weights. This gives more weight to larger treated units.
-
-```{r weighted-estimate}
-# Weighted SDID (population weights on treated units)
-tau_sdid_w <- synthdid_estimate_weighted(Y, N0, T0, treated.weights = pop_weights)
-tau_sc_w <- sc_estimate_weighted(Y, N0, T0, treated.weights = pop_weights)
-tau_did_w <- did_estimate_weighted(Y, N0, T0, treated.weights = pop_weights)
-
-cat("Weighted Estimates (population weights on treated units):\n")
-cat(sprintf("  Diff-in-Diff:              %.2f\n", tau_did_w))
-cat(sprintf("  Synthetic Control:         %.2f\n", tau_sc_w))
-cat(sprintf("  Synthetic Diff-in-Diff:    %.2f\n", tau_sdid_w))
-cat(sprintf("\nTrue population-weighted effect: %.2f\n", tau_true_weighted))
-```
-
-# Comparison of Results
-
-```{r comparison-table}
-results <- data.frame(
-  Estimator = c("Diff-in-Diff", "Synthetic Control", "Synthetic Diff-in-Diff"),
-  Unweighted = c(as.numeric(tau_did), as.numeric(tau_sc), as.numeric(tau_sdid)),
-  Weighted = c(as.numeric(tau_did_w), as.numeric(tau_sc_w), as.numeric(tau_sdid_w)),
-  True_Simple = rep(tau_true_simple, 3),
-  True_Weighted = rep(tau_true_weighted, 3)
-)
-
-results$Unweighted_Error <- results$Unweighted - results$True_Simple
-results$Weighted_Error <- results$Weighted - results$True_Weighted
-
-knitr::kable(results, digits = 2,
-             caption = "Comparison of Weighted vs Unweighted Estimates")
-```
-
-# Understanding the Difference
-
-The key insight is that with heterogeneous treatment effects across treated units, the choice of weights matters:
-
-- **Unweighted (simple average)**: Each treated unit contributes equally to the average treatment effect. This answers: "What is the average effect across treated units?"
-
-- **Weighted (population-weighted)**: Larger units contribute more to the average. This answers: "What is the average effect per person in the treated population?"
-
-In our simulation:
-- The largest treated unit (60% of population) has the smallest effect (tau = 5)
-- The smallest treated unit (10% of population) has the largest effect (tau = 30)
-
-Therefore, the population-weighted effect (`r round(tau_true_weighted, 1)`) is smaller than the simple average (`r round(tau_true_simple, 1)`).
-
-# Visualizing the Weights
-
-```{r weight-visualization, fig.width=8, fig.height=4}
-# Compare the treated unit weights
-weight_df <- data.frame(
-  Unit = rep(paste0("Treated_", 1:N1), 2),
-  Weight = c(rep(1/N1, N1), pop_weights),
-  Type = rep(c("Unweighted (equal)", "Population-weighted"), each = N1),
-  Effect = rep(tau_by_unit, 2)
-)
-
-ggplot(weight_df, aes(x = Unit, y = Weight, fill = Type)) +
-  geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
-  geom_text(aes(label = sprintf("tau=%.0f", Effect)),
-            position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
-  scale_fill_manual(values = c("steelblue", "coral")) +
-  labs(title = "Treated Unit Weights: Equal vs Population-Weighted",
-       subtitle = sprintf("Simple avg effect = %.1f, Population-weighted effect = %.1f",
-                         tau_true_simple, tau_true_weighted),
-       y = "Weight", x = "Treated Unit") +
-  theme_minimal() +
-  theme(legend.position = "bottom")
-```
-
-# Examining the Synthetic Control Weights
-
-```{r examine-weights}
-# Get the omega weights from both estimates
-omega_unweighted <- attr(tau_sdid, 'weights')$omega
-omega_weighted <- attr(tau_sdid_w, 'weights')$omega
-
-# Top control units by weight
-top_n <- 10
-top_unweighted <- head(sort(omega_unweighted, decreasing = TRUE), top_n)
-top_weighted <- head(sort(omega_weighted, decreasing = TRUE), top_n)
-
-cat("Top", top_n, "control unit weights (unweighted SDID):\n")
-print(round(top_unweighted, 4))
-
-cat("\nTop", top_n, "control unit weights (weighted SDID):\n")
-print(round(top_weighted, 4))
-```
-
-# Standard Errors
-
-We can compute standard errors for the weighted estimates using bootstrap, jackknife, or placebo methods.
+Variance estimators are adapted for weight renormalization during resampling.
+Bootstrap, jackknife, and placebo methods are available.
 
 ```{r standard-errors}
-# Compute standard errors (using jackknife for speed)
-se_sdid <- sqrt(vcov(tau_sdid, method = "jackknife"))
-se_sdid_w <- sqrt(vcov(tau_sdid_w, method = "jackknife"))
+se_jk = sqrt(vcov(tau_sdid_w, method = "jackknife"))
+cat(sprintf("Weighted SDID: %1.2f (SE = %1.2f)\n", tau_sdid_w, se_jk))
+cat(sprintf("95%% CI: (%1.2f, %1.2f)\n",
+    tau_sdid_w - 1.96 * se_jk, tau_sdid_w + 1.96 * se_jk))
+```
 
-cat("Standard Errors (jackknife):\n")
-cat(sprintf("  Unweighted SDID: %.2f (SE = %.2f)\n", tau_sdid, se_sdid))
-cat(sprintf("  Weighted SDID:   %.2f (SE = %.2f)\n", tau_sdid_w, se_sdid_w))
+# Cluster-robust standard errors
 
-# 95% confidence intervals
-cat("\n95% Confidence Intervals:\n")
-cat(sprintf("  Unweighted: (%.2f, %.2f)\n",
-            tau_sdid - 1.96*se_sdid, tau_sdid + 1.96*se_sdid))
-cat(sprintf("  Weighted:   (%.2f, %.2f)\n",
-            tau_sdid_w - 1.96*se_sdid_w, tau_sdid_w + 1.96*se_sdid_w))
+When treatment is assigned at a higher level (e.g., states) than the unit of observation
+(e.g., counties), pass a cluster variable. The bootstrap then resamples clusters.
+
+```{r cluster-se}
+# Assign units to 10 clusters
+cluster = rep(1:10, length.out = nrow(setup$Y))
+
+tau_cl = synthdid_estimate_weighted(setup$Y, N0, T0,
+           treated.weights = pop_weights,
+           cluster = cluster)
+
+se_cl = suppressWarnings(sqrt(vcov(tau_cl, method = "bootstrap", replications = 50)))
+cat(sprintf("Cluster-bootstrapped SE: %1.2f\n", se_cl))
+```
+
+# Event study
+
+Decompose the treatment effect into period-specific estimates.
+
+```{r event-study}
+es = synthdid_event_study(tau_sdid_w)
+cat(sprintf("Post-treatment effects: %s\n",
+    paste(round(es$estimate[es$relative_time >= 0], 2), collapse = ", ")))
 ```
 
 # Summary
 
 ```{r summary}
-cat("Summary of Weighted SDID Estimate:\n")
-
-# Extract components manually to avoid S4 dispatch issues
-setup = attr(tau_sdid_w, 'setup')
-weights = attr(tau_sdid_w, 'weights')
-tw = attr(tau_sdid_w, 'treated.weights')
-pw = attr(tau_sdid_w, 'period.weights')
-
-cat(sprintf("  Estimate: %.3f\n", as.numeric(tau_sdid_w)))
-cat(sprintf("  N0 = %d, N1 = %d, T0 = %d, T1 = %d\n",
-            setup$N0, nrow(setup$Y) - setup$N0, setup$T0, ncol(setup$Y) - setup$T0))
-cat(sprintf("  Effective N0: %.1f\n", 1/sum(weights$omega^2)))
-cat(sprintf("  Effective N1: %.1f\n", 1/sum(tw^2)))
-cat("\nTreated unit weights:\n")
-print(round(tw, 3))
-cat("\nTop 5 control unit weights (omega):\n")
-print(round(head(sort(weights$omega, decreasing = TRUE), 5), 3))
+s = summary(tau_sdid_w, fast = TRUE)
+cat(sprintf("Estimate: %1.3f (SE: %1.3f)\n", s$estimate, s$se))
+cat(sprintf("Effective N0: %1.1f, Effective N1: %1.1f\n",
+    s$dimensions["N0.effective"], s$dimensions["N1.effective"]))
 ```
-
-# When to Use Weighted vs Unweighted
-
-| Scenario | Recommended Approach |
-|----------|---------------------|
-| Policy evaluation for population | Use population weights |
-| Effect on "typical" treated unit | Use equal weights |
-| Treatment effects vary by unit size | Consider both; report as robustness |
-| Units represent different subgroups | Weight by subgroup importance |
-
-# Conclusion
-
-The weighted SDID estimator provides flexibility when treatment effects are heterogeneous across treated units. By allowing user-specified weights, researchers can:
-
-1. Estimate population-weighted average treatment effects
-2. Up-weight policy-relevant units
-3. Account for differential sampling probabilities
-
-The choice between weighted and unweighted estimates should be guided by the research question: Are you interested in the average effect per treated unit, or the average effect per person/entity in the treated population?
