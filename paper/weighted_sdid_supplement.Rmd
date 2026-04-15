@@ -514,7 +514,7 @@ kableExtra::kbl(
   kableExtra::kable_styling(latex_options = c("hold_position"))
 ```
 
-Table E.1 reports bias and root mean squared error. Both estimators are approximately unbiased for their respective target estimands across all configurations. RMSE is generally lower for the equally-weighted estimator, reflecting its use of a larger effective sample of treated units, but the difference is modest. Importantly, the population-weighted estimator does not exhibit excess bias even under high weight concentration (HHI $= 0.10$), confirming that the weighted collapsed form provides a consistent estimate of the population-weighted ATT.
+Table E.1 reports bias and root mean squared error. Both estimators are approximately unbiased for their respective target estimands across all configurations. RMSE is generally lower for the equally-weighted estimator, reflecting its use of a larger effective sample of treated units, but the difference is modest. Importantly, the population-weighted estimator does not exhibit excess bias even under high weight concentration (HHI $= 3/N_1$), confirming that the weighted collapsed form provides a consistent estimate of the population-weighted ATT.
 
 ```{r mc-coverage-table}
 # Compute 95% CI coverage

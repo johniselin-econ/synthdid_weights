@@ -82,7 +82,7 @@ The key observation is that the target on the right-hand side of the weight esti
 
 ## Weighted modification
 
-Let $\tilde{\omega} = (\tilde{\omega}_1, \ldots, \tilde{\omega}_{N_1})$ be researcher-specified weights on treated units, normalized so $\sum_j \tilde{\omega}_j = 1$. The target estimand is $\tau^{(\tilde{\omega})} = \sum_j \tilde{\omega}_j \bar{\tau}_j$, where $\bar{\tau}_j$ is the average treatment effect for unit $j$. Our modification replaces the uniform averages in \eqref{eq:collapsed} with weighted averages:
+Let $\tilde{\omega} = (\tilde{\omega}_1, \ldots, \tilde{\omega}_{N_1})$ be researcher-specified weights on treated units, normalized so $\sum_j \tilde{\omega}_j = 1$. The target estimand is $\tau^{(\tilde{\omega})} = \sum_j \tilde{\omega}_j \bar{\tau}_j$, where $\bar{\tau}_j = T_1^{-1}\sum_{t=T_0+1}^{T} \tau_{jt}$ is the average treatment effect for unit $j$ across post-treatment periods. Our modification replaces the uniform averages in \eqref{eq:collapsed} with weighted averages:
 \begin{equation} \label{eq:collapsed-w}
 \tilde{Y}^w_{N_0+1, t} = \sum_{j=1}^{N_1} \tilde{\omega}_j Y_{N_0+j,t}, \quad
 \tilde{Y}^w_{i, T_0+1} = \frac{1}{T_1} \sum_{t=T_0+1}^{T} Y_{it}.
@@ -91,7 +91,7 @@ Control weights $\hat{\omega}^w$ and time weights $\hat{\lambda}^w$ are estimate
 \begin{equation} \label{eq:tau-w}
 \hat{\tau}^{w} = \begin{pmatrix} -\hat{\omega}^w \\ \tilde{\omega} \end{pmatrix}^\top Y \begin{pmatrix} -\hat{\lambda}^w \\ \frac{1}{T_1}\mathbf{1}_{T_1} \end{pmatrix}.
 \end{equation}
-Comparing \eqref{eq:tau-sdid} and \eqref{eq:tau-w}, the modification is concentrated in two places: the collapsed form that feeds the weight solver, and the treated-unit block of the final bilinear form. When $\tilde{\omega}_j = 1/N_1$ for all $j$, the weighted estimator reduces to the standard SDID (proof in Supplementary Appendix C). Weighted DiD ($\hat{\omega} = 1/N_0$, $\hat{\lambda} = 1/T_0$) and weighted SC ($\hat{\lambda} = 0$) emerge as special cases.
+Comparing \eqref{eq:tau-sdid} and \eqref{eq:tau-w}, the modification is concentrated in two places: the collapsed form that feeds the weight solver, and the treated-unit block of the final bilinear form. When $\tilde{\omega}_j = 1/N_1$ for all $j$, the weighted estimator reduces to the standard SDID (proof in Supplementary Appendix C). Weighted DiD ($\hat{\omega} = \mathbf{1}_{N_0}/N_0$, $\hat{\lambda} = \mathbf{1}_{T_0}/T_0$) and weighted SC ($\hat{\lambda} = \mathbf{0}$) emerge as special cases.
 
 ## Inference
 
@@ -207,7 +207,10 @@ kableExtra::kbl(
   align = c("l", "r", "r", "r", "r")
 ) %>%
   kableExtra::add_header_above(c(" " = 1, "Equally weighted" = 2, "Population weighted" = 2)) %>%
-  kableExtra::kable_styling(latex_options = c("hold_position"))
+  kableExtra::kable_styling(latex_options = c("hold_position")) %>%
+  kableExtra::footnote(general = sprintf("Sample: %s counties, %s--%s. Outcome: all-cause mortality per 100,000, ages 20--64 (CDC WONDER). %s states as clusters.",
+    format(nrow(setup$Y), big.mark = ","), year_range[1], year_range[2], n_states),
+    general_title = "", threeparttable = TRUE)
 ```
 
 Table 1 reports the main results. The equally-weighted and population-weighted estimates diverge dramatically---indeed, they differ in sign. The equally-weighted (i.e., standard) SDID estimate is near zero, indicating no detectable mortality effect when all treated counties receive equal weight. The population-weighted SDID estimate is approximately $-13.5$ deaths per 100,000, indicating a substantial mortality reduction when the estimand weights counties by population. The DiD estimates show a similar pattern: a near-zero equally-weighted estimate and a large negative population-weighted estimate. This divergence arises because treatment effects are heterogeneous and correlated with county size: larger counties experience larger mortality reductions from Medicaid expansion, which may reflect greater baseline uninsurance rates and more scope for coverage gains in urban areas \citep{sommers2016, miller2021}.
@@ -233,12 +236,13 @@ ggplot(es_df, aes(x = year, y = estimate, color = Weighting, fill = Weighting)) 
   geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.15, color = NA) +
   geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
   geom_vline(xintercept = 2013.5, linetype = "dashed", color = "gray30") +
-  geom_point(size = 1.3) +
+  geom_point(aes(shape = Weighting), size = 1.3) +
   geom_line(linewidth = 0.5) +
   facet_wrap(~ Estimator) +
   scale_color_manual(values = c("Equally weighted" = "steelblue", "Population weighted" = "firebrick")) +
   scale_fill_manual(values = c("Equally weighted" = "steelblue", "Population weighted" = "firebrick")) +
-  labs(x = NULL, y = "Effect on mortality\n(deaths per 100,000)", color = NULL, fill = NULL) +
+  scale_shape_manual(values = c("Equally weighted" = 16, "Population weighted" = 17)) +
+  labs(x = NULL, y = "Effect on mortality\n(deaths per 100,000)", color = NULL, fill = NULL, shape = NULL) +
   theme_minimal(base_size = 10) +
   theme(legend.position = "bottom")
 ```
