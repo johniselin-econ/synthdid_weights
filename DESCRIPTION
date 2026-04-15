@@ -30,5 +30,5 @@ Suggests:
     ggplot2,
     kableExtra,
     CVXR
-URL: https://github.com/synth-inference/synthdid
-BugReports: https://github.com/synth-inference/synthdid/issues
+URL: https://github.com/johniselin-econ/synthdid_weights
+BugReports: https://github.com/johniselin-econ/synthdid_weights/issues

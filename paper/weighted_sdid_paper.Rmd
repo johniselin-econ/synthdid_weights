@@ -60,7 +60,7 @@ set.seed(20240101)
 
 The synthetic difference-in-differences (SDID) estimator of @arkhangelsky2021 combines the strengths of the synthetic control method and difference-in-differences by using data-driven unit weights $\hat{\omega}$ and time weights $\hat{\lambda}$ while allowing level differences between groups. When multiple units are treated, the standard implementation averages them equally: each treated unit contributes $1/N_1$ to the estimand. This is an implicit design choice, not a requirement of the methodology.
 
-In many empirical settings, equal weighting is inappropriate. When studying a state-level policy, a researcher interested in the per-capita treatment effect should weight by population. If treatment effects are heterogeneous and correlated with unit size, the equally-weighted and population-weighted estimands will diverge. We propose a weighted SDID estimator that replaces the uniform $1/N_1$ averaging with researcher-chosen weights $\tilde{\omega}_j$ in the collapsed form of the outcome matrix. The modification is minimal---one equation change---but it affects the estimation of both control unit weights $\hat{\omega}$ and time weights $\hat{\lambda}$, since the synthetic control is now constructed to match a differently-weighted treated average. We adapt all three variance estimators (bootstrap, jackknife, placebo) to handle weight renormalization during resampling. Software is available as an extension to the \texttt{synthdid} R package.\footnote{Available at \texttt{https://github.com/synth-inference/synthdid}. See the Supplementary Appendix for inference details and extensions.}
+In many empirical settings, equal weighting is inappropriate. When studying a state-level policy, a researcher interested in the per-capita treatment effect should weight by population. If treatment effects are heterogeneous and correlated with unit size, the equally-weighted and population-weighted estimands will diverge. We propose a weighted SDID estimator that replaces the uniform $1/N_1$ averaging with researcher-chosen weights $\tilde{\omega}_j$ in the collapsed form of the outcome matrix. The modification is minimal---one equation change---but it affects the estimation of both control unit weights $\hat{\omega}$ and time weights $\hat{\lambda}$, since the synthetic control is now constructed to match a differently-weighted treated average. We adapt all three variance estimators (bootstrap, jackknife, placebo) to handle weight renormalization during resampling. Software is available as an extension to the \texttt{synthdid} R package.\footnote{Available at \texttt{https://github.com/johniselin-econ/synthdid_weights}. See the Supplementary Appendix for inference details and extensions.}
 
 We apply the method to the county-level mortality effects of the ACA's 2014 Medicaid expansion, following @borgschulte2020. Treated counties range from over 10 million to under 10,000 residents. The equally-weighted SDID estimate is near zero; the population-weighted estimate indicates a mortality reduction of approximately 13.5 deaths per 100,000---a sign change driven entirely by the weighting choice. This demonstrates that when treatment effects are heterogeneous across units of different sizes, the choice of treated-unit weights is economically consequential.
 
@@ -91,7 +91,7 @@ Control weights $\hat{\omega}^w$ and time weights $\hat{\lambda}^w$ are estimate
 \begin{equation} \label{eq:tau-w}
 \hat{\tau}^{w} = \begin{pmatrix} -\hat{\omega}^w \\ \tilde{\omega} \end{pmatrix}^\top Y \begin{pmatrix} -\hat{\lambda}^w \\ \frac{1}{T_1}\mathbf{1}_{T_1} \end{pmatrix}.
 \end{equation}
-Comparing \eqref{eq:tau-sdid} and \eqref{eq:tau-w}, the modification is concentrated in two places: the collapsed form that feeds the weight solver, and the treated-unit block of the final bilinear form. When $\tilde{\omega}_j = 1/N_1$ for all $j$, the weighted estimator reduces to the standard SDID (proof in Supplementary Appendix C). Weighted SC ($\hat{\lambda} = 0$) and weighted DiD ($\hat{\omega} = 1/N_0$, $\hat{\lambda} = 1/T_0$) emerge as special cases.
+Comparing \eqref{eq:tau-sdid} and \eqref{eq:tau-w}, the modification is concentrated in two places: the collapsed form that feeds the weight solver, and the treated-unit block of the final bilinear form. When $\tilde{\omega}_j = 1/N_1$ for all $j$, the weighted estimator reduces to the standard SDID (proof in Supplementary Appendix C). Weighted DiD ($\hat{\omega} = 1/N_0$, $\hat{\lambda} = 1/T_0$) and weighted SC ($\hat{\lambda} = 0$) emerge as special cases.
 
 ## Inference
 
@@ -160,33 +160,28 @@ treated_weights <- treated_weights / sum(treated_weights, na.rm = TRUE)
 
 ```{r run-estimates, cache=TRUE}
 tau_sdid   <- synthdid_estimate(setup$Y, setup$N0, setup$T0)
-tau_sc     <- sc_estimate(setup$Y, setup$N0, setup$T0)
 tau_did    <- did_estimate(setup$Y, setup$N0, setup$T0)
 
 tau_sdid_w <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
                                           treated.weights = treated_weights)
-tau_sc_w   <- sc_estimate_weighted(setup$Y, setup$N0, setup$T0,
-                                    treated.weights = treated_weights)
 tau_did_w  <- did_estimate_weighted(setup$Y, setup$N0, setup$T0,
                                      treated.weights = treated_weights)
 ```
 
 ```{r compute-ses, cache=TRUE}
 se_sdid   <- tryCatch(sqrt(vcov(tau_sdid,   method = "jackknife")), error = function(e) NA)
-se_sc     <- tryCatch(sqrt(vcov(tau_sc,     method = "jackknife")), error = function(e) NA)
 se_did    <- tryCatch(sqrt(vcov(tau_did,    method = "jackknife")), error = function(e) NA)
 se_sdid_w <- tryCatch(sqrt(vcov(tau_sdid_w, method = "jackknife")), error = function(e) NA)
-se_sc_w   <- tryCatch(sqrt(vcov(tau_sc_w,   method = "jackknife")), error = function(e) NA)
 se_did_w  <- tryCatch(sqrt(vcov(tau_did_w,  method = "jackknife")), error = function(e) NA)
 ```
 
 ```{r results-table}
 results <- tibble::tibble(
-  Estimator = c("DiD", "SC", "SDID"),
-  Unweighted = c(as.numeric(tau_did), as.numeric(tau_sc), as.numeric(tau_sdid)),
-  `SE (unwt.)` = c(se_did, se_sc, se_sdid),
-  `Pop.-weighted` = c(as.numeric(tau_did_w), as.numeric(tau_sc_w), as.numeric(tau_sdid_w)),
-  `SE (wt.)` = c(se_did_w, se_sc_w, se_sdid_w)
+  Estimator = c("DiD", "SDID"),
+  Unweighted = c(as.numeric(tau_did), as.numeric(tau_sdid)),
+  `SE (unwt.)` = c(se_did, se_sdid),
+  `Pop.-weighted` = c(as.numeric(tau_did_w), as.numeric(tau_sdid_w)),
+  `SE (wt.)` = c(se_did_w, se_sdid_w)
 )
 
 kableExtra::kbl(
@@ -201,32 +196,40 @@ kableExtra::kbl(
   kableExtra::kable_styling(latex_options = c("hold_position"))
 ```
 
-Table 1 reports the main results. The equally-weighted and population-weighted estimates diverge dramatically---indeed, they differ in sign. The unweighted SDID estimate is near zero, indicating no detectable mortality effect when all treated counties receive equal weight. The population-weighted SDID estimate is approximately $-13.5$ deaths per 100,000, indicating a substantial mortality reduction when the estimand weights counties by population. The DiD estimates show a similar pattern. This divergence arises because treatment effects are heterogeneous and correlated with county size: larger counties experience larger mortality reductions from Medicaid expansion, consistent with greater baseline uninsurance rates and more scope for coverage gains in urban areas.
+Table 1 reports the main results. The equally-weighted and population-weighted estimates diverge dramatically---indeed, they differ in sign. The unweighted SDID estimate is near zero, indicating no detectable mortality effect when all treated counties receive equal weight. The population-weighted SDID estimate is approximately $-13.5$ deaths per 100,000, indicating a substantial mortality reduction when the estimand weights counties by population. The DiD estimates show a similar pattern: a near-zero unweighted estimate and a large negative population-weighted estimate. This divergence arises because treatment effects are heterogeneous and correlated with county size: larger counties experience larger mortality reductions from Medicaid expansion, consistent with greater baseline uninsurance rates and more scope for coverage gains in urban areas.
 
-```{r event-study-sdid, fig.cap="Event-study decomposition of the SDID treatment effect under equal and population weighting. Shaded bands show 95\\% bootstrap confidence intervals (200 replications). The dashed vertical line marks treatment onset (2014).", fig.height=4.5, cache=TRUE}
+```{r event-study-both, fig.cap="Event-study decomposition under equal and population weighting. Left panel: DiD. Right panel: SDID. Shaded bands show 95\\% bootstrap confidence intervals (200 replications). The dashed vertical line marks treatment onset (2014).", fig.height=4, fig.width=8, cache=TRUE}
 es_sdid   <- synthdid_event_study(tau_sdid,   se.method = "bootstrap", replications = 200)
 es_sdid_w <- synthdid_event_study(tau_sdid_w, se.method = "bootstrap", replications = 200)
+es_did    <- synthdid_event_study(tau_did,    se.method = "bootstrap", replications = 200)
+es_did_w  <- synthdid_event_study(tau_did_w,  se.method = "bootstrap", replications = 200)
 
 es_df <- bind_rows(
-  es_sdid   %>% mutate(Weighting = "Equally weighted"),
-  es_sdid_w %>% mutate(Weighting = "Population weighted")
+  es_did    %>% mutate(Weighting = "Equally weighted", Estimator = "DiD"),
+  es_did_w  %>% mutate(Weighting = "Population weighted", Estimator = "DiD"),
+  es_sdid   %>% mutate(Weighting = "Equally weighted", Estimator = "SDID"),
+  es_sdid_w %>% mutate(Weighting = "Population weighted", Estimator = "SDID")
 ) %>%
-  mutate(year = as.numeric(time))
+  mutate(
+    year = as.numeric(time),
+    Estimator = factor(Estimator, levels = c("DiD", "SDID"))
+  )
 
 ggplot(es_df, aes(x = year, y = estimate, color = Weighting, fill = Weighting)) +
   geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.15, color = NA) +
   geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
   geom_vline(xintercept = 2013.5, linetype = "dashed", color = "gray30") +
-  geom_point(size = 1.5) +
-  geom_line(linewidth = 0.6) +
+  geom_point(size = 1.3) +
+  geom_line(linewidth = 0.5) +
+  facet_wrap(~ Estimator) +
   scale_color_manual(values = c("Equally weighted" = "steelblue", "Population weighted" = "firebrick")) +
   scale_fill_manual(values = c("Equally weighted" = "steelblue", "Population weighted" = "firebrick")) +
   labs(x = NULL, y = "Effect on mortality\n(deaths per 100,000)", color = NULL, fill = NULL) +
-  theme_minimal(base_size = 11) +
+  theme_minimal(base_size = 10) +
   theme(legend.position = "bottom")
 ```
 
-Figure 1 presents the event-study decomposition. Pre-treatment coefficients cluster near zero for both weighting schemes, supporting the parallel-trends assumption. Post-treatment, the two paths diverge sharply: the population-weighted coefficients are consistently negative ($-11$ to $-17$ deaths per 100,000), while the equally-weighted coefficients fluctuate near zero. The pattern is consistent with growing impact over time as Medicaid enrollment increased. Comparing across estimators (Supplementary Appendix D), all three methods yield similar results under equal weighting, confirming that the weighting choice---not the estimator choice---drives the main finding.
+Figure 1 presents the event-study decomposition for both DiD (left) and SDID (right) under equal and population weighting. Pre-treatment coefficients cluster near zero under both methods and weighting schemes, supporting the parallel-trends assumption. Post-treatment, the two weighting schemes diverge sharply in both panels: the population-weighted coefficients are consistently negative ($-11$ to $-17$ deaths per 100,000), while the equally-weighted coefficients fluctuate near zero. The SDID pre-treatment fit is slightly tighter than DiD, reflecting the data-driven time weights, but the key finding is consistent across both estimators: the weighting choice---not the estimator choice---drives the main result.
 
 ```{r weight-stats}
 hhi <- sum(treated_weights^2)
@@ -234,7 +237,7 @@ n1_eff <- 1 / hhi
 top10_share <- sum(sort(treated_weights, decreasing = TRUE)[1:10])
 ```
 
-The weight concentration statistics illuminate why the estimates diverge so dramatically. The population weights have a Herfindahl index of `r round(hhi, 4)`, implying an effective number of treated units $N_1^{\text{eff}} = `r round(n1_eff, 0)`$ compared to the raw $N_1 = `r nrow(setup$Y) - setup$N0`$. The ten largest counties account for `r round(top10_share * 100, 0)`\% of total treated-county weight. Standard errors are modestly larger under population weighting (approximately 2.4 vs. 2.0 for SDID), reflecting greater heterogeneity in the reweighted sample.
+The weight concentration statistics illuminate why the estimates diverge so dramatically. The population weights have a Herfindahl index of `r round(hhi, 4)`, implying an effective number of treated units $N_1^{\text{eff}} = `r round(n1_eff, 0)`$ compared to the raw $N_1 = `r nrow(setup$Y) - setup$N0`$. The ten largest counties account for `r round(top10_share * 100, 0)`\% of total treated-county weight. Standard errors are modestly larger under population weighting (approximately 2.4 vs. 2.0 for SDID), reflecting greater heterogeneity in the reweighted sample. The consistency of results across DiD and SDID confirms that the finding is robust to the choice of estimator.
 
 A limitation of this application is that treatment is assigned at the state level while the unit of observation is the county. The current variance estimators resample at the county level, which does not account for within-state error correlation. A cluster bootstrap resampling entire states would be more appropriate; we discuss this extension in Supplementary Appendix G.
 
@@ -249,4 +252,4 @@ During the preparation of this work the authors used Claude Code (Anthropic) for
 
 \section*{Data availability}
 
-Data used in this study are publicly available from CDC WONDER (mortality), SEER (population), and BLS (unemployment). Replication code and the weighted \texttt{synthdid} R package are available at \url{https://github.com/synth-inference/synthdid}.
+Data used in this study are publicly available from CDC WONDER (mortality), SEER (population), and BLS (unemployment). Replication code and the weighted \texttt{synthdid} R package are available at \url{https://github.com/johniselin-econ/synthdid_weights}.
