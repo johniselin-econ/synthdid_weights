@@ -1,0 +1,239 @@
+TODO: synthdid_weights — remaining items before submission
+==========================================================
+
+DLPS Replication (see paper/DLPS_REPLICATION_PLAN.md)
+- [ ] Pull Census ACS covariates (demographics, poverty, income) via tidycensus
+- [ ] Pull Census SAHIE uninsured rates
+- [ ] Pull MIT Election Lab presidential vote shares (2008, 2012)
+- [ ] Code Democratic governor 2010 indicator
+- [ ] Pull Census of Governments state health expenditures
+- [ ] Implement proper hdm double-lasso (rlassologit + rlasso, union of selected vars)
+- [ ] Implement overlap trimming (not arbitrary quantile)
+- [ ] Pre-trend verification with held-out 2010-2013 window
+- [ ] Update supplement Appendix F with full replication results
+
+Monte Carlo Simulations
+- [ ] Run full Monte Carlo with N_SIM=500, B=200 (currently set but not executed)
+- [ ] Verify coverage tables look reasonable
+- [ ] Render supplement with MC results included
+
+==========================================================
+Coarse-review revision plan (2026-04-17)
+Review: https://coarse.ink/review/b8980347-3839-4aec-8f50-c57142248958?token=BBjYxNMJTeD45l_n56mNxZ7PWwtUHSrqMV8jI2H1tbg
+Local:  docs/coarse_review_2026-04-17.md
+Recommendation: Major revision
+==========================================================
+
+Macro issues — revision targets from overview section
+(priority order: placebo-sim plan drives identification-theory write-up)
+
+[M3] Placebo variance estimator inconsistent with paper's motivation
+  - Paper uses uniform weights for pseudo-treated controls even though the
+    whole premise is that uniform weighting is wrong
+  - vcov.R already implements 3 schemes: "uniform" (default), "size_match",
+    "permute". Supplement Appendix E only sims "uniform"
+  Plan:
+  - [ ] Trim MC grid: N1=10, gamma in {0, 1.0}, HHI in {low, high} = 4 cells
+        (plus one ACA-calibrated cell: HHI=0.0085, N1=118)
+  - [ ] Add "permute" placebo variant alongside "uniform" (drop size_match —
+        ad hoc, defer)
+  - [ ] Parallelize outer sims via future/furrr across ~16 cores
+  - [ ] N_SIM=300, B=200. Wall-clock estimate ~80 min on 16 cores after
+        trimming (see scripts/time_mc_sim.R — 470 sec/rep sequential)
+  - [ ] Decision criteria: (i) empirical size under sharp null across HHI,
+        (ii) coverage under heterogeneity, (iii) robustness to HHI. Prior:
+        permute wins because it preserves the weight HHI
+  - [ ] Commit to winning scheme; revise vcov.R default from "uniform" to
+        winner; update documentation
+  - [ ] Rewrite supplement Appendix B + E to present the comparison and
+        backed recommendation
+
+[M2] Monte Carlo evidence absent from main text
+  - Relegating all sim evidence to Appendix E leaves central methodological
+    claim unsubstantiated in main narrative
+  - [ ] Once M3 sims finish, summarize a 1-page coverage+RMSE table into
+        main text (new §3 or end of §2.3)
+  - [ ] Include ACA-calibrated DGP row so the Table 1 SEs have simulation
+        backing
+  - [ ] Cross-reference full grid in Appendix E
+
+[M1] No formal identification or asymptotic theory in main text
+  - No stated assumptions under which tau_tilde_w is consistent; no rate;
+    no asymptotic distribution
+  - Arkhangelsky et al. (2021) regularity conditions are not verified under
+    non-uniform treated weights
+  - [ ] Add short §2.4 "Identification" stating:
+        (a) weighted parallel-trends / weighted factor model assumption
+        (b) target estimand tau^(omega_tilde) = sum_j omega_tilde_j * tau_j
+        (c) proposition: under (a) and Arkhangelsky et al. conditions,
+            tau_tilde_w is consistent for tau^(omega_tilde)
+  - [ ] Supplementary Appendix C: proof sketch — show their conditions
+        depend on omega_tilde only through the collapsed form; rates
+        inherit when tilde_omega is fixed and bounded away from the simplex
+        boundary
+  - [ ] Discuss effective sample size: as HHI increases, rate degrades
+        from N1 to N1_eff = 1/sum(omega_tilde^2); cross-reference M3 sims
+        showing finite-sample coverage under concentration
+
+Additional macro concerns from overview section
+
+[A1] SUTVA / Medicaid spillovers in ACA application
+  - State-level treatment, county-level outcomes. Border counties may see
+    spillovers via provider networks, patient migration, federal funding
+  - [ ] Cite Medicaid spillover literature (e.g., Baicker et al.)
+  - [ ] Add border-county robustness: drop counties within X miles of an
+        expansion/non-expansion border, or test whether control counties
+        near the border show differential trends
+  - [ ] At minimum: 1-paragraph discussion of why spillovers unlikely to
+        drive the sign reversal
+
+[A2] Staggered adoption handling unclear
+  - Montana (2016), Louisiana (2016), and others expanded after 2014.
+    Paper defines treatment as single 2014 event
+  - [ ] Document how late expanders are handled (treated-with-delay,
+        dropped, or always-control?)
+  - [ ] Sensitivity: drop late expanders entirely and see if estimate
+        changes
+  - [ ] Cite Clarke et al. (2023) staggered SDID explicitly
+
+[A3] Single weight specification — robustness check needed
+  - Paper's empirical evidence rests on one weight vector (population)
+  - [ ] Robustness table: weighted SDID under
+        (i)   population (baseline)
+        (ii)  trimmed population (cap top 5% counties)
+        (iii) inverse variance weights
+        (iv)  propensity-score-derived weights (if available from DLPS rep)
+  - [ ] Report whether the -13.5 estimate survives; decompose contribution
+        of top-10 counties to the weighted ATT
+
+[A4] Worked parametric example showing when weighting flips the sign
+  - Central claim is that weighting can reverse sign; a transparent algebra
+    example would make this concrete
+  - [ ] Two-treated-unit example under simple interactive FE model:
+        unit 1 weight 0.9, tau_1 = -15; unit 2 weight 0.1, tau_2 = +10
+  - [ ] Compute tau^sdid and tau^w explicitly; show the arithmetic
+  - [ ] Place in §2.2 as motivating illustration (before ACA application)
+
+[A5] Diagnostic criteria for when to use weighted SDID
+  - Paper tells practitioners weighting matters; doesn't tell them how to
+    detect it ex ante
+  - [ ] Propose a Hausman-style test: compare tau_sdid and tau_tilde_w,
+        compute difference SE from joint bootstrap
+  - [ ] Alternatively: compare pre-treatment outcome trajectories under
+        equal vs proposed weights — if they diverge, estimands differ
+  - [ ] Add a short "When to use weighted SDID" box in §4 (conclusion) or
+        end of §2
+
+[A6] Comparison to heterogeneity-robust DiD (Callaway-Sant'Anna et al.)
+  - Significant positioning gap. Referees at econometrics journals will
+    ask "why not just use CS / SA / dC&dH?"
+  - [ ] Add 1-paragraph positioning section: what weighted SDID offers
+        that CS etc. do not (pre-treatment fit, time weights, robustness
+        to parallel-trends violations)
+  - [ ] Include CS estimate with population-weighted aggregation in Table
+        1 as additional benchmark (treatment timing is ~uniform for the
+        2014 cohort so this is feasible)
+
+[A7] Decomposition of sign reversal driver
+  - Paper attributes sign change to size-correlated heterogeneity but
+    never directly demonstrates the correlation
+  - [ ] Scatter/bin plot: county-level estimated effects (or residual
+        post-synth-control gap) vs population, with size weighting overlaid
+  - [ ] Compute weighted SDID with and without top-10 largest counties;
+        or plot sensitivity as function of population cap
+  - [ ] Distinguish "broad pattern" from "few influential outliers"
+
+Detailed comments (11) — editorial revisions
+
+[D1] Asymmetric SE methods confound the central comparison
+  - Table 1: equally-weighted uses county-level jackknife;
+    population-weighted uses state-clustered bootstrap
+  - [ ] Report state-clustered bootstrap for BOTH columns (supplementary
+        row is fine) so readers can isolate precision-cost-of-reweighting
+        from inference-method change
+
+[D2] Cluster-robust inference framed as future work despite being used
+  - Conclusion calls cluster-robust a "future extension" but Table 1
+    already uses state-clustered bootstrap SEs
+  - [ ] Rewrite paragraph: acknowledge clustering is already operative;
+        reframe the extension as "formal asymptotic theory for
+        cluster-robust weighted SDID" or "beyond bootstrap"
+
+[D3] DiD pre-trend failure undercuts cross-estimator robustness claim
+  - Paper says DiD has "non-trivial pre-treatment fluctuations" then
+    claims "consistency across DiD and SDID confirms robustness"
+  - [ ] Add qualifier: "though the DiD estimate under population weighting
+        should be interpreted cautiously given the pre-treatment
+        fluctuations noted above"
+
+[D4] Hat/tilde notation inconsistency across intro
+  - $\hat{\omega}$, $\tilde{\omega}$ used inconsistently across intro
+    paragraphs and Section 2.1
+  - [ ] Pick one convention (suggest: tilde for user-specified, hat for
+        estimator output) and apply it throughout. Global search.
+
+[D5] tilde-omega denotes both researcher weights and control weights
+  - Researcher-chosen treated weights $\tilde{\omega}_j$ and SDID control
+    weights $\tilde{\omega}$ share notation
+  - [ ] Introduce $\hat{\omega}^w$ earlier OR use different letter for
+        treated-averaging weights (e.g., $\pi_j$)
+
+[D6] Sign change claim needs explicit base-estimate sign
+  - Intro says equally-weighted is "near zero" — Table 1 shows +0.35
+  - [ ] State explicitly: "The equally-weighted SDID estimate is +0.35
+        deaths per 100,000" so the reversal from +0.35 to -13.5 reads
+        as a sign change, not a magnitude shift
+
+[D7] "Modestly larger" understates a 2.65x SE increase
+  - 5.3/2.0 = 2.65x → CI is 165% wider
+  - [ ] Replace "modestly larger" with "substantially larger"
+  - [ ] Acknowledge part of the increase comes from switching to
+        state-clustered inference (cross-ref D1)
+
+[D8] 90/10 ratio overstated as "order of magnitude"
+  - 176,243 / 5,928 ≈ 30 — closer to 1.5 orders of magnitude
+  - [ ] Fix text to "roughly 30 times larger"
+  - [ ] Consider replacing 90/10 ratio with HHI / top-10 share (already
+        reported and more informative)
+
+[D9] Sample construction details needed for replicability
+  - "following Borgschulte and Vogler (2020)" is ambiguous (identical
+    sample or independently constructed?); CDC WONDER suppresses
+    counts < 10, which truncates small counties
+  - [ ] One sentence: "counties with non-suppressed mortality in all
+        nine years, following Borgschulte and Vogler (2020)"
+  - [ ] Report N of suppressed counties excluded
+
+[D10] 46 states not identified
+  - Table note says "46 states as clusters"; no explanation of which
+    are excluded
+  - [ ] Identify excluded jurisdictions (likely DC + states with data
+        suppression) and explain why in table note
+
+[D11] 200 bootstrap replications may be too few for CIs
+  - 95% CI endpoints from B=200 depend on 5th and 195th order statistics,
+    which are volatile
+  - [ ] Increase to B=999 for the published Table 1
+  - [ ] Report whether SE and CI endpoints change materially
+  - [ ] If kept at 200 due to compute, note that explicitly
+
+Package Documentation
+- [ ] Run devtools::document() to regenerate man/ pages for all weighted functions
+- [ ] Update _pkgdown.yml with weighted function reference section
+- [ ] Verify devtools::check() passes cleanly
+
+Final Submission Prep
+- [ ] Clear all Rmd caches and do a clean knit from scratch (both paper + supplement)
+- [ ] Verify word count < 2,000 (currently ~1,500)
+- [ ] Verify abstract < 100 words (currently 95)
+- [ ] Verify highlights < 85 chars each (currently all under 72)
+- [ ] Prepare competing interests declaration (Word doc per Elsevier)
+- [ ] Deposit data in a repository per Elsevier Option C requirements
+- [ ] Pay $125 submission fee
+- [ ] Submit via Editorial Manager
+
+Optional Improvements
+- [ ] Implement cluster-robust placebo SE (currently warns and falls back to unit-level)
+- [ ] Add cluster support to .event_study_replications() for clustered event-study SEs
+- [ ] Consider adding state-clustered SEs for the equally-weighted estimates too
+- [ ] Write CLAUDE.md for the repo (init skill)

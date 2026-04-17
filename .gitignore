@@ -1,7 +1,9 @@
 *.DS_Store
 .Rproj.user
 .Rhistory
-docs
+docs/*
+!docs/todo.txt
+!docs/coarse_review_2026-04-17.md
 tmpclaude-*
 
 # LaTeX build artifacts
