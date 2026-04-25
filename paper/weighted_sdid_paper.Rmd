@@ -136,7 +136,7 @@ treated_pop <- panel %>%
   )
 ```
 
-We use a balanced county-year panel covering `r year_range[1]`--`r year_range[2]` with `r format(n_counties, big.mark = ",")` counties (`r format(n_treated, big.mark = ",")` treated, `r format(n_control, big.mark = ",")` control), following @borgschulte2020. The outcome is the all-cause mortality rate per 100,000 among adults aged 20--64 (# JOHN WE NEED A CITATION. THE OG PAPER CITES THE NATIONAL VITAL STATISTICS NOT CDC WONDER. COULD YOU DO THIS? CDC WONDER). The treated-unit weights $\tilde{\omega}_j$ are each county's share of total treated-county population as of 2013. The population distribution is highly skewed: the 90th percentile county (`r format(round(treated_pop$p90), big.mark = ",")` residents) is an order of magnitude larger than the 10th percentile (`r format(round(treated_pop$p10), big.mark = ",")`).
+We use a balanced county-year panel covering `r year_range[1]`--`r year_range[2]` with `r format(n_counties, big.mark = ",")` counties (`r format(n_treated, big.mark = ",")` treated, `r format(n_control, big.mark = ",")` control), following @borgschulte2020. The outcome is the all-cause mortality rate per 100,000 among adults aged 20--64, drawn from CDC WONDER's Underlying Cause of Death file [@cdcwonder]; we use these public-use tabulations rather than the restricted-access National Vital Statistics System microdata used by @borgschulte2020, which are sourced from the same NCHS underlying records. The treated-unit weights $\tilde{\omega}_j$ are each county's share of total treated-county population as of 2013. The population distribution is highly skewed: the 90th percentile county (`r format(round(treated_pop$p90), big.mark = ",")` residents) is an order of magnitude larger than the 10th percentile (`r format(round(treated_pop$p10), big.mark = ",")`).
 
 ## Results
 
@@ -269,5 +269,4 @@ During the preparation of this work the authors used Claude Code (Anthropic) for
 
 \section*{Data availability}
 
-#JOHN WE NEED CITATIONS
-Data used in this study are publicly available from CDC WONDER (mortality), SEER (population), and BLS (unemployment). Replication code and the weighted \texttt{synthdid} R package are available at \url{https://github.com/johniselin-econ/synthdid_weights}.
+Data used in this study are publicly available from CDC WONDER (mortality) [@cdcwonder], the SEER program (population) [@seer], and the Bureau of Labor Statistics (county-level unemployment) [@bls_laus]. Replication code and the weighted \texttt{synthdid} R package are available at \url{https://github.com/johniselin-econ/synthdid_weights}.
