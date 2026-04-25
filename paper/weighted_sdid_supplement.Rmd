@@ -720,7 +720,7 @@ The standard SDID estimator averages post-treatment periods uniformly. Our frame
 - **Exposure varies** across post-treatment periods (e.g., partial implementation in the first year);
 - **Discounting** is appropriate for welfare calculations.
 
-Period weights enter the collapsed form through the last column of $\tilde{Y}^w$ (equation \ref{eq:weighted-collapsed}) and also affect time weight estimation (equation \ref{eq:lambda-w}), since $\hat{\lambda}^w$ is chosen to match pre-treatment periods to the $\tilde{\pi}$-weighted post-treatment average.
+Period weights enter the collapsed form through the last column of $\tilde{Y}^w$ (equation 3 of the main text) and also affect time weight estimation, since $\hat{\lambda}^w$ is chosen to match pre-treatment periods to the $\tilde{\pi}$-weighted post-treatment average rather than uniformly-averaged post-treatment outcome.
 
 For inference, the placebo method requires choosing period weights for the placebo post-period. Our implementation defaults to uniform weights for the placebo post-period, regardless of the original $\tilde{\pi}$, since the placebo post-period length may differ from $T_1$.
 
