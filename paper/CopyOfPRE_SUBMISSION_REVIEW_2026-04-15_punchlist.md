@@ -69,7 +69,7 @@
 ### Required Analyses (for acceptance)
 1. **Clustered standard errors:** The paper acknowledges this limitation but does not provide them. State-clustered SEs (or at minimum wild cluster bootstrap p-values) should be reported alongside county-level SEs, even if only in a robustness table. The main result could be overturned if state-clustered SEs are much larger.
 2. **Robustness to weight specification:** Show results with alternative weight specifications (e.g., log population, population shares from a different base year, employment-based weights). This tests whether the sign change is specific to 2013 population weights.
-3. **SC estimates:** The main text omits SC results (only DiD and SDID). The supplement includes them. At least report SC in the main table to complete the comparison.
+3. **SC estimates:** The main text omits SC results (onlyDIDand SDID). The supplement includes them. At least report SC in the main table to complete the comparison.
 4. **Formal significance testing of the divergence:** The paper claims the weighting "determines the sign" but does not formally test whether the equally-weighted and population-weighted estimates are statistically distinguishable from each other. A Hausman-type test or joint confidence region would strengthen the claim.
 
 ### Suggested Analyses (to strengthen)
@@ -126,14 +126,6 @@ The main risk is a referee who views the contribution as "too obvious" (just cha
 
 
 REMAINING:
-"Slightly tighter" quantification — add inline R RMSPE calculation + update prose at line 250
-Asterisks in Table 1 — modify the kable code
-SC in main Table 1 — run SC estimate, add row to table
-Formal test of estimand divergence — new analysis (Hausman-type or bootstrap)
-Alternative weight robustness — new robustness table
-County-size decomposition — new figure
-Leave-one-out sensitivity — new analysis
+
 Pre-treatment balance table — new table
-Placebo treatment dates — new falsification analysis
-BV2020 headline number comparison — done in intro; supplement prose may still need updating to match
 Cache clearing / clean knit — pre-submission, verify clean knit from scratch

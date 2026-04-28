@@ -62,8 +62,8 @@ The synthetic difference-in-differences (SDID) estimator of @arkhangelsky2021 co
 
 In many empirical settings, equal weighting is inappropriate. When studying a state-level policy, a researcher interested in the per-capita treatment effect should weight by population. If treatment effects are heterogeneous and correlated with unit size, the equally-weighted and population-weighted estimands will diverge. We propose a weighted SDID estimator that replaces the uniform $1/N_1$ averaging with researcher-chosen weights $\tilde{\omega}_j$ in the collapsed form of the outcome matrix. The modification affects control unit weights $\hat{\omega}$ and time weights $\hat{\lambda}$, since the synthetic control is now constructed to match a differently-weighted treated average. We also derive variants of the original variance estimators (bootstrap, jackknife, and placebo) that renormalize weights when treated units are resampled. Software is available as an extension to the \texttt{synthdid} R package.\footnote{Available at \url{https://github.com/johniselin-econ/synthdid_weights}. See the Supplementary Appendix for inference details and extensions.} Our approach complements recent extensions to the SC literature, including augmented SC with covariates \citep{benmichael2021}, Bayesian alternatives \citep{pang2022}, and inference via prediction intervals \citep{cattaneo2021}.
 
-We apply the method to the county-level mortality effects of the ACA's 2014 Medicaid expansion, following @borgschulte2020. The authors use double-lasso propensity score weighting specifically to address pre-existing differences in mortality trends between expansion and non-expansion counties, a setting where SDID's data-driven reweighting is a natural alternative. Treated counties range from under 10,000 to over 10 million residents, making the weighting choice consequential. The equally-weighted (i.e., standard) SDID estimate is near zero (SE \approx r round(se_sdid, 1)), and is not statistically distinguishable from zero at conventional levels. The population-weighted SDID estimate is approximately −13.5-13.5
-−13.5 deaths per 100,000 (SE \approx r round(se_sdid_w, 1)), which is significant at the 5% level and close to the 11.36 deaths per 100,000 that @borgschulte2020 find using their propensity score approach.(our supplement replicates this approach with a reduced covariate set; see Appendix F). These results indicate a substantial mortality reduction under population weighting with a sign change relative to the equally-weighted estimate driven entirely by the weighting choice, not the estimator.
+We apply the method to the county-level mortality effects of the ACA's 2014 Medicaid expansion, following @borgschulte2020. The authors use double-lasso propensity score weighting specifically to address pre-existing differences in mortality trends between expansion and non-expansion counties, a setting where SDID's data-driven reweighting is a natural alternative. Treated counties range from under 10,000 to over 10 million residents, making the weighting choice consequential. The equally-weighted (i.e., standard) SDID estimate is near zero (SE \approx `r round(se_sdid, 1)`), and is not statistically distinguishable from zero at conventional levels. The population-weighted SDID estimate is approximately −13.5-13.5
+−13.5 deaths per 100,000 (SE \approx `r round(se_sdid_w, 1)`), which is significant at the 5% level and close to the 11.36 deaths per 100,000 that @borgschulte2020 find using their propensity score approach.(our supplement replicates this approach with a reduced covariate set; see Appendix F). These results indicate a substantial mortality reduction under population weighting with a sign change relative to the equally-weighted estimate driven entirely by the weighting choice, not the estimator.
 
 
 # The Weighted Estimator
@@ -92,7 +92,7 @@ Control weights $\hat{\omega}^w$ and time weights $\hat{\lambda}^w$ are estimate
 \begin{equation} \label{eq:tau-w}
 \hat{\tau}^{w} = \begin{pmatrix} -\hat{\omega}^w \\ \tilde{\omega} \end{pmatrix}^\top Y \begin{pmatrix} -\hat{\lambda}^w \\ \frac{1}{T_1}\mathbf{1}_{T_1} \end{pmatrix}.
 \end{equation}
-Comparing \eqref{eq:tau-sdid} and \eqref{eq:tau-w}, the modification is concentrated in two places: the collapsed form that feeds the weight solver, and the treated-unit block of the final bilinear form. When $\tilde{\omega}_j = 1/N_1$ for all $j$, the weighted estimator reduces to the standard SDID (proof in Supplementary Appendix C). Weighted DiD ($\hat{\omega} = \mathbf{1}_{N_0}/N_0$, $\hat{\lambda} = \mathbf{1}_{T_0}/T_0$) and weighted SC ($\hat{\lambda} = \mathbf{0}$) emerge as special cases.
+Comparing \eqref{eq:tau-sdid} and \eqref{eq:tau-w}, the modification is concentrated in two places: the collapsed form that feeds the weight solver, and the treated-unit block of the final bilinear form. When $\tilde{\omega}_j = 1/N_1$ for all $j$, the weighted estimator reduces to the standard SDID (proof in Supplementary Appendix C). Weighted DID ($\hat{\omega} = \mathbf{1}_{N_0}/N_0$, $\hat{\lambda} = \mathbf{1}_{T_0}/T_0$) and weighted SC ($\hat{\lambda} = \mathbf{0}$) emerge as special cases.
 
 ## Inference
 
@@ -178,6 +178,10 @@ tau_sdid_w <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
 tau_did_w  <- did_estimate_weighted(setup$Y, setup$N0, setup$T0,
                                      treated.weights = treated_weights,
                                      cluster = cluster_vec)
+tau_sc   <- sc_estimate(setup$Y, setup$N0, setup$T0)
+tau_sc_w <- sc_estimate_weighted(setup$Y, setup$N0, setup$T0,
+                                  treated.weights = treated_weights,
+                                  cluster = cluster_vec)
 ```
 
 ```{r compute-ses, cache=TRUE}
@@ -188,50 +192,101 @@ se_sdid_w <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_w, method = "bootstrap
                        error = function(e) NA)
 se_did_w  <- tryCatch(suppressWarnings(sqrt(vcov(tau_did_w,  method = "bootstrap", replications = 200))),
                        error = function(e) NA)
+se_sc   <- tryCatch(sqrt(vcov(tau_sc,   method = "jackknife")), error = function(e) NA)
+se_sc_w <- tryCatch(suppressWarnings(sqrt(vcov(tau_sc_w, method = "bootstrap", replications = 200))),
+                     error = function(e) NA)
 ```
 
 ```{r results-table}
+# significance stars helper
+stars <- function(est, se) {
+  if (is.na(est) | is.na(se)) return("")
+  p <- 2 * pnorm(-abs(est / se))
+  dplyr::case_when(p < 0.01 ~ "***", p < 0.05 ~ "**", p < 0.10 ~ "*", TRUE ~ "")
+}
+
+fmt <- function(x) formatC(x, digits = 2, format = "f")
+
 results <- tibble::tibble(
-  Estimator = c("DiD", "SDID"),
-  `Equally wtd.` = c(as.numeric(tau_did), as.numeric(tau_sdid)),
-  `SE (eq.)` = c(se_did, se_sdid),
-  `Pop.-weighted` = c(as.numeric(tau_did_w), as.numeric(tau_sdid_w)),
-  `SE (wt.)` = c(se_did_w, se_sdid_w)
+  Estimator = c("DID", "SC", "SDID"),
+  `Equally wtd.` = c(paste0(fmt(as.numeric(tau_did)),   stars(as.numeric(tau_did),   se_did)),
+                      paste0(fmt(as.numeric(tau_sc)),    stars(as.numeric(tau_sc),    se_sc)),
+                      paste0(fmt(as.numeric(tau_sdid)),  stars(as.numeric(tau_sdid),  se_sdid))),
+  `SE (eq.)`      = c(fmt(se_did), fmt(se_sc), fmt(se_sdid)),
+  `Pop.-weighted` = c(paste0(fmt(as.numeric(tau_did_w)), stars(as.numeric(tau_did_w), se_did_w)),
+                       paste0(fmt(as.numeric(tau_sc_w)),  stars(as.numeric(tau_sc_w),  se_sc_w)),
+                       paste0(fmt(as.numeric(tau_sdid_w)),stars(as.numeric(tau_sdid_w),se_sdid_w))),
+  `SE (wt.)`      = c(fmt(se_did_w), fmt(se_sc_w), fmt(se_sdid_w))
 )
 
 kableExtra::kbl(
   results,
-  digits = 2,
+  digits = NULL,
   booktabs = TRUE,
-  caption = "Effect of ACA Medicaid expansion on mortality (deaths per 100,000, ages 20--64). Equally-weighted SEs: county-level jackknife. Population-weighted SEs: state-clustered bootstrap (200 replications).",
+  caption = "Effect of ACA Medicaid expansion on mortality (deaths per 100,000, ages 20--64). Equally-weighted SEs: county-level jackknife. Population-weighted SEs: state-clustered bootstrap (200 replications). $^{*}p<0.10$, $^{**}p<0.05$, $^{***}p<0.01$.",
   col.names = c("Estimator", "Estimate", "SE", "Estimate", "SE"),
   align = c("l", "r", "r", "r", "r")
 ) %>%
   kableExtra::add_header_above(c(" " = 1, "Equally weighted" = 2, "Population weighted" = 2)) %>%
   kableExtra::kable_styling(latex_options = c("hold_position")) %>%
-  kableExtra::footnote(general = sprintf("Sample: %s counties, %s--%s. Outcome: all-cause mortality per 100,000, ages 20--64 (CDC WONDER). %s states as clusters.",
+  kableExtra::footnote(general = sprintf("Sample: %s counties, %s--%s. Outcome: all-cause mortality per 100,000, ages 20--64 (CDC WONDER). %s states as clusters. $^{*}p<0.10$, $^{**}p<0.05$, $^{***}p<0.01$. Significance based on normal approximation; $p$-values for bootstrap SEs are approximate.",
     format(nrow(setup$Y), big.mark = ","), year_range[1], year_range[2], n_states),
     general_title = "", threeparttable = TRUE)
 ```
 
-Table 1 reports the main results. The equally-weighted and population-weighted estimates diverge, even differing in sign. The equally-weighted (i.e., standard) SDID estimate is near zero, indicating no detectable mortality effect when all treated counties receive equal weight. The population-weighted SDID estimate is approximately $-13.5$ deaths per 100,000, indicating a substantial mortality reduction when the estimand weights counties by population. The DiD estimates show a similar pattern: a near-zero equally-weighted estimate and a large negative population-weighted estimate. This divergence arises because treatment effects are heterogeneous and correlated with county size: larger counties experience larger mortality reductions from Medicaid expansion, which may reflect greater baseline uninsurance rates and more scope for coverage gains in urban areas \citep{sommers2016, miller2021}.
+```{r paired bootstrap}
+paired_bootstrap <- function(Y, N0, T0, treated.weights, replications = 500, seed = 42) {
+  set.seed(seed)
+  N <- nrow(Y)
+  diffs <- rep(NA, replications)
+  count <- 0
+  while (count < replications) {
+    ind <- sample(1:N, replace = TRUE)
+    # skip draws that are all control or all treated
+    if (all(ind <= N0) || all(ind > N0)) next
+    ind_s <- sort(ind)
+    N0_b  <- sum(ind <= N0)
+    Y_b   <- Y[ind_s, ]
+    tw_b  <- sum_normalize(treated.weights[sort(ind[ind > N0]) - N0])
+    est_eq <- tryCatch(
+      as.numeric(synthdid_estimate(Y_b, N0_b, T0)),
+      error = function(e) NA)
+    est_wt <- tryCatch(
+      as.numeric(synthdid_estimate_weighted(Y_b, N0_b, T0, treated.weights = tw_b)),
+      error = function(e) NA)
+    if (is.na(est_eq) || is.na(est_wt)) next
+    diffs[count + 1] <- est_wt - est_eq
+    count <- count + 1
+  }
+  diffs
+}
 
-```{r event-study-both, fig.cap="Event-study decomposition under equal and population weighting. Left panel: DiD. Right panel: SDID. Shaded bands show 95\\% bootstrap confidence intervals (200 replications). The dashed vertical line marks treatment onset (2014).", fig.height=4, fig.width=8, cache=TRUE}
+boot_diffs <- paired_bootstrap(setup$Y, setup$N0, setup$T0, treated_weights, replications = 500)
+obs_diff   <- as.numeric(tau_sdid_w) - as.numeric(tau_sdid)
+p_diverge  <- mean(abs(boot_diffs - mean(boot_diffs)) >= abs(obs_diff - mean(boot_diffs)))
+```
+
+Table 1 reports the main results. The equally-weighted and population-weighted estimates diverge, even differing in sign. The equally-weighted (i.e., standard) SDID estimate is near zero, indicating no detectable mortality effect when all treated counties receive equal weight. The population-weighted SDID estimate is approximately $-13.5$ deaths per 100,000, indicating a substantial mortality reduction when the estimand weights counties by population. The DID estimates show a similar pattern: a near-zero equally-weighted estimate and a large negative population-weighted estimate. This divergence arises because treatment effects are heterogeneous and correlated with county size: larger counties experience larger mortality reductions from Medicaid expansion, which may reflect greater baseline uninsurance rates and more scope for coverage gains in urban areas \citep{sommers2016, miller2021}. A paired bootstrap test confirms that the two SDID estimands are statistically distinguishable ($p = $ `r round(p_diverge, 3)`; see Supplementary Appendix G).
+
+```{r event-study-both, fig.cap="Event-study decomposition under equal and population weighting. Left panel: DID. Right panel: SDID. Shaded bands show 95\\% bootstrap confidence intervals (200 replications). The dashed vertical line marks treatment onset (2014).", fig.height=4, fig.width=8, cache=TRUE}
 es_sdid   <- synthdid_event_study(tau_sdid,   se.method = "bootstrap", replications = 500)
 es_sdid_w <- synthdid_event_study(tau_sdid_w, se.method = "bootstrap", replications = 500)
 es_did    <- synthdid_event_study(tau_did,    se.method = "bootstrap", replications = 500)
 es_did_w  <- synthdid_event_study(tau_did_w,  se.method = "bootstrap", replications = 500)
 
 es_df <- bind_rows(
-  es_did    %>% mutate(Weighting = "Equally weighted", Estimator = "DiD"),
-  es_did_w  %>% mutate(Weighting = "Population weighted", Estimator = "DiD"),
+  es_did    %>% mutate(Weighting = "Equally weighted", Estimator = "DID"),
+  es_did_w  %>% mutate(Weighting = "Population weighted", Estimator = "DID"),
   es_sdid   %>% mutate(Weighting = "Equally weighted", Estimator = "SDID"),
   es_sdid_w %>% mutate(Weighting = "Population weighted", Estimator = "SDID")
 ) %>%
   mutate(
     year = as.numeric(time),
-    Estimator = factor(Estimator, levels = c("DiD", "SDID"))
+    Estimator = factor(Estimator, levels = c("DID", "SDID"))
   )
+
+rmspe_did_pre  <- es_df %>% filter(Estimator == "DID",  Weighting == "Equally weighted", year < 2014) %>% summarise(rmspe = sqrt(mean(estimate^2))) %>% pull(rmspe)
+rmspe_sdid_pre <- es_df %>% filter(Estimator == "SDID", Weighting == "Equally weighted", year < 2014) %>% summarise(rmspe = sqrt(mean(estimate^2))) %>% pull(rmspe)
 
 ggplot(es_df, aes(x = year, y = estimate, color = Weighting, fill = Weighting)) +
   geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.15, color = NA) +
@@ -248,7 +303,7 @@ ggplot(es_df, aes(x = year, y = estimate, color = Weighting, fill = Weighting)) 
   theme(legend.position = "bottom")
 ```
 
-Figure 1 presents the event-study decomposition for both DiD (left) and SDID (right) under equal and population weighting. Under equal weighting, pre-treatment coefficients cluster near zero for both methods. However, under population weighting, the DiD panel shows non-trivial pre-treatment divergence between treated and control groups, raising concerns about the parallel-trends assumption when larger counties are weighted more heavily. This is the concern that motivated @borgschulte2020, who use double-lasso propensity score weighting to address pre-existing differences between expansion and non-expansion counties. The SDID estimator addresses the pre-treatment fit concern through a different approach: its data-driven time weights $\hat{\lambda}$ down-weight periods where treated and synthetic control trajectories diverge, yielding tighter pre-treatment coefficients in the right panel. Post-treatment, both methods show the same qualitative pattern: under population-weighting, the coefficients are consistently negative ($-11$ to $-17$ deaths per 100,000), while under equal-weighting the coefficients fluctuate near zero. The consistency across estimators confirms that the weighting choice, rather than the estimator choice, is what drives the main result. Though SDID provides stronger support for the identifying assumption under population weighting.
+Figure 1 presents the event-study decomposition for both DID (left) and SDID (right) under equal and population weighting. Under equal weighting, pre-treatment coefficients cluster near zero for both methods. However, under population weighting, the DID panel shows non-trivial pre-treatment divergence between treated and control groups, raising concerns about the parallel-trends assumption when larger counties are weighted more heavily. This is the concern that motivated @borgschulte2020, who use double-lasso propensity score weighting to address pre-existing differences between expansion and non-expansion counties. The SDID estimator addresses the pre-treatment fit concern through a different approach: its data-driven time weights $\hat{\lambda}$ down-weight periods where treated and synthetic control trajectories diverge, yielding tighter pre-treatment coefficients in the right panel (RMSPE: `r round(rmspe_sdid_pre, 2)` for SDID vs. `r round(rmspe_did_pre, 2)` for DID, both equally weighted). Post-treatment, both methods show the same qualitative pattern: under population-weighting, the coefficients are consistently negative ($-11$ to $-17$ deaths per 100,000), while under equal-weighting the coefficients fluctuate near zero. The consistency across estimators confirms that the weighting choice, rather than the estimator choice, is what drives the main result. Though SDID provides stronger support for the identifying assumption under population weighting.
 
 ```{r weight-stats}
 hhi <- sum(treated_weights^2)
@@ -256,7 +311,7 @@ n1_eff <- 1 / hhi
 top10_share <- sum(sort(treated_weights, decreasing = TRUE)[1:10])
 ```
 
-The weight concentration statistics explain the divergence in estimates. The population weights have a Herfindahl index of `r round(hhi, 4)`, implying an effective number of treated units $N_1^{\text{eff}} = `r round(n1_eff, 0)`$ compared to the raw $N_1 = `r nrow(setup$Y) - setup$N0`$. The ten largest counties account for `r round(top10_share * 100, 0)`\% of total treated-county weight. Standard errors are modestly larger under population weighting (`r round(se_sdid_w, 1)` vs. `r round(se_sdid, 1)` for SDID), reflecting greater heterogeneity in the reweighted sample. We report state-clustered bootstrap standard errors for the population-weighted estimates, resampling entire states with replacement following @clarke2023, and county-level jackknife SEs for the equally-weighted estimates. Because treatment is assigned at the state level, county-level resampling ignores within-state correlation; the equally-weighted SEs are therefore likely understated, and the corresponding confidence intervals should be interpreted as lower bounds on true uncertainty. Further discussion of clustered inference for SDID is in Supplementary Appendix G. The consistency of results across DiD and SDID confirms that the finding is robust to the choice of estimator. As a further check, Supplementary Appendix F compares our population-weighted SDID to the double-lasso propensity score weighted DiD of @borgschulte2020, an entirely independent approach to constructing a population-relevant comparison group. The two estimates are close, suggesting the large negative mortality effect under population weighting is not an artifact of any single method.
+The weight concentration statistics explain the divergence in estimates. The population weights have a Herfindahl index of `r round(hhi, 4)`, implying an effective number of treated units $N_1^{\text{eff}} = `r round(n1_eff, 0)`$ compared to the raw $N_1 = `r nrow(setup$Y) - setup$N0`$. The ten largest counties account for `r round(top10_share * 100, 0)`\% of total treated-county weight. Standard errors are modestly larger under population weighting (`r round(se_sdid_w, 1)` vs. `r round(se_sdid, 1)` for SDID), reflecting greater heterogeneity in the reweighted sample. We report state-clustered bootstrap standard errors for the population-weighted estimates, resampling entire states with replacement following @clarke2023, and county-level jackknife SEs for the equally-weighted estimates. Because treatment is assigned at the state level, county-level resampling ignores within-state correlation; the equally-weighted SEs are therefore likely understated, and the corresponding confidence intervals should be interpreted as lower bounds on true uncertainty. Further discussion of clustered inference for SDID is in Supplementary Appendix G. The consistency of results across DID and SDID confirms that the finding is robust to the choice of estimator. As a further check, Supplementary Appendix F compares our population-weighted SDID to the double-lasso propensity score weighted DID of @borgschulte2020, an entirely independent approach to constructing a population-relevant comparison group. The two estimates are close, suggesting the large negative mortality effect under population weighting is not an artifact of any single method.
 
 
 
