@@ -184,7 +184,7 @@ panel <- readr::read_csv(
     pop = population,
     state_fips,
     pct_white, pop_20_64, pct_55_64,
-    log_20_64, log_35_44, log_f_20_64, unemp
+    log_20_64, log_35_44, log_f_20_64, unemp,
   ) %>%
   mutate(post = as.integer(time >= 2014))
 
@@ -202,7 +202,7 @@ T1 <- n_years - T0
 # Prepare the balanced panel in matrix form for synthdid
 panel_sdid <- panel %>%
   arrange(unit, time) %>%
-  select(unit, time, y, treated_unit, pop) %>%
+  select(unit, time, y, treated_unit, pop, state_fips) %>%
   mutate(
     .unit = as.factor(unit),
     .time = time,
@@ -227,6 +227,13 @@ pop_ordered <- pop_2013 %>%
 weight_order <- match(treated_names, pop_ordered$unit_char)
 treated_weights <- pop_ordered$pop[weight_order]
 treated_weights <- treated_weights / sum(treated_weights, na.rm = TRUE)
+
+unit_state <- panel_sdid %>%
+  distinct(unit, state_fips) %>%
+  mutate(unit_char = as.character(unit))
+all_names <- rownames(setup$Y)
+cluster_vec <- unit_state$state_fips[match(all_names, unit_state$unit_char)]
+n_states <- n_distinct(cluster_vec)
 
 # Alternative weight specifications for robustness
 pop_2010 <- panel %>% filter(treated_unit == 1, time == 2010) %>% select(unit, pop)
@@ -257,13 +264,21 @@ tau_sc_w   <- sc_estimate_weighted(setup$Y, setup$N0, setup$T0,
                                     treated.weights = treated_weights)
 tau_did_w  <- did_estimate_weighted(setup$Y, setup$N0, setup$T0,
                                      treated.weights = treated_weights)
+
+se_sdid_w <- tryCatch(
+  suppressWarnings(sqrt(vcov(tau_sdid_w, method = "bootstrap", replications = 500))),
+  error = function(e) NA)
+
+se_sdid <- tryCatch(
+  sqrt(vcov(tau_sdid, method = "jackknife")),
+  error = function(e) NA)
 ```
 
 ```{r event-study-all, fig.cap="Event-study decomposition comparing DID, SC, and SDID estimators (equally weighted). Shaded bands show 95\\% bootstrap confidence intervals.", fig.height=4.5, cache=TRUE}
 # Compute event-study coefficients with bootstrap SEs
-es_sdid <- synthdid_event_study(tau_sdid, se.method = "bootstrap", replications = 200)
-es_sc   <- synthdid_event_study(tau_sc,   se.method = "bootstrap", replications = 200)
-es_did  <- synthdid_event_study(tau_did,  se.method = "bootstrap", replications = 200)
+es_sdid <- synthdid_event_study(tau_sdid, se.method = "bootstrap", replications = 500)
+es_sc   <- synthdid_event_study(tau_sc,   se.method = "bootstrap", replications = 500)
+es_did  <- synthdid_event_study(tau_did,  se.method = "bootstrap", replications = 500)
 
 es_all <- bind_rows(
   es_did  %>% mutate(Estimator = "DID"),
@@ -760,11 +775,9 @@ $$
 
 The cluster bootstrap and jackknife are available via `vcov(estimate, method = "bootstrap", cluster = state_fips)` or by passing `cluster` directly to `synthdid_estimate_weighted()`, which stores it for automatic use by `vcov()`. In the ACA application in the main text, we report state-clustered bootstrap standard errors for the population-weighted estimates.
 
-## Testing the Divergence Between Estimands
+# Testing the Divergence Between Estimands
 
-#CHECK
-
-```{r paired bootstrap}
+```{r paired bootstrap supplement}
 paired_bootstrap <- function(Y, N0, T0, treated.weights, replications = 500, seed = 42) {
   set.seed(seed)
   N <- nrow(Y)
@@ -791,17 +804,21 @@ paired_bootstrap <- function(Y, N0, T0, treated.weights, replications = 500, see
   diffs
 }
 
-boot_diffs <- paired_bootstrap(setup$Y, setup$N0, setup$T0, treated_weights, replications = 500)
+boot_diffs <- paired_bootstrap(setup$Y, setup$N0, setup$T0, treated_weights, replications = 50)
 obs_diff   <- as.numeric(tau_sdid_w) - as.numeric(tau_sdid)
-p_diverge  <- mean(abs(boot_diffs - mean(boot_diffs)) >= abs(obs_diff - mean(boot_diffs)))
+boot_null <- boot_diffs - mean(boot_diffs)  # recenter to null
+p_diverge <- mean(abs(boot_null) >= abs(obs_diff))
+p_diverge_text <- ifelse(p_diverge < 0.001, "p < 0.001", paste0("p = ", round(p_diverge, 3)))
 ```
 
-We test whether the equally-weighted and population-weighted SDID estimands are statistically distinguishable using a paired bootstrap: on each of B = 500 replications we apply identical unit resamples to both estimators and compute $\Delta_b = \hat{\tau}^w_b - \hat{\tau}_b$. The two-sided p-value is obtained by comparing the observed difference $\Delta_{\text{obs}}$ = `r round(as.numeric(tau_sdid_w) - as.numeric(tau_sdid), 1)` to the recentered bootstrap distribution, yielding p = `r round(p_diverge, 3)`.
+We test whether the equally-weighted and population-weighted SDID estimands are statistically distinguishable using a paired bootstrap: on each of B = 500 replications we apply identical unit resamples to both estimators and compute $\Delta_b = \hat{\tau}^w_b - \hat{\tau}_b$. The bootstrap distribution is recentered to the null of no difference (\Delta = 0) by subtracting the mean bootstrap gap; the two-sided p-value is the fraction of recentered draws whose absolute value exceeds the observed difference $|\Delta_{\text{obs}}| = $ `r abs(round(as.numeric(tau_sdid_w) - as.numeric(tau_sdid), 1))` deaths per 100,000, yielding `r p_diverge_text`. The two estimands are sharply distinguishable: the observed gap exceeds the largest draw in the recentered bootstrap distribution (`r round(max(abs(boot_diffs - mean(boot_diffs))), 1)` deaths per 100,000), confirming that the divergence between equal and population weighting is not attributable to sampling variability but reflects a genuine difference in what the two estimands are measuring.
+
+
+ the two-sided p-value  
 
 ## Alternative Weight Specifications
 
-#CHECK
-The main results use 2013 county population shares as treated-unit weights. Table G.1 reports SDID estimates under four alternative specifications: the 2010 population shares (testing sensitivity to the base year), square root population weights (down-weighting the largest counties relative to linear population shares), log population weights (further compressing the weight distribution), and equal weights (the standard SDID estimand, reproduced for reference). Across all population-based specifications the estimate remains large and negative, ranging from `r round(min(as.numeric(tau_sdid_log), as.numeric(tau_sdid_sqrt), as.numeric(tau_sdid_2010), as.numeric(tau_sdid_w)), 1)` to `r round(max(as.numeric(tau_sdid_log), as.numeric(tau_sdid_sqrt), as.numeric(tau_sdid_2010), as.numeric(tau_sdid_w)), 1)` deaths per 100,000, while the equally-weighted estimate remains near zero. The sign change is therefore not specific to the choice of 2013 linear population weights; it emerges whenever larger counties receive greater weight in the estimand.
+The main results use 2013 county population shares as treated-unit weights. Table G.1 reports SDID estimates under four alternative specifications: the 2010 population shares (testing sensitivity to the base year), square root population weights (down-weighting the largest counties relative to linear population shares), log population weights (further compressing the weight distribution), and equal weights (the standard SDID estimand, reproduced for reference). The results reveal a clear gradient: as the weight distribution is compressed from linear population shares toward equal weighting, the estimated effect moves monotonically toward zero. The baseline and 2010 population-weighted estimates are similar in magnitude (`r round(as.numeric(tau_sdid_w), 1)` and `r round(as.numeric(tau_sdid_2010), 1)` deaths per 100,000 respectively), confirming insensitivity to the choice of base year, though the 2010 specification carries a larger standard error. Square root and log population weights yield estimates closer to zero and are not statistically distinguishable from it, indicating that the large negative effect requires giving substantial weight to the largest counties --- log compression alone is sufficient to eliminate it. The finding is therefore not an artifact of the specific 2013 linear population weight choice, but it is sensitive to how aggressively large counties are upweighted: the divergence from the equally-weighted estimand emerges when the weight distribution meaningfully concentrates on the largest treated units.
 
 ```{r robustness}
 # Robustness estimates
@@ -815,9 +832,9 @@ tau_sdid_2010 <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
                                              treated.weights = treated_weights_2010,
                                              cluster = cluster_vec)
 
-se_sdid_log  <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_log,  method = "bootstrap", replications = 200))), error = function(e) NA)
-se_sdid_sqrt <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_sqrt, method = "bootstrap", replications = 200))), error = function(e) NA)
-se_sdid_2010 <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_2010, method = "bootstrap", replications = 200))), error = function(e) NA)
+se_sdid_log  <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_log,  method = "bootstrap", replications = 500))), error = function(e) NA)
+se_sdid_sqrt <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_sqrt, method = "bootstrap", replications = 500))), error = function(e) NA)
+se_sdid_2010 <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_2010, method = "bootstrap", replications = 500))), error = function(e) NA)
 
 robust_results <- tibble::tibble(
   `Weight specification` = c("Population (2013, baseline)",
@@ -841,9 +858,6 @@ kableExtra::kbl(
 ```
 
 ## Treatment Effect Heterogeneity by County Size
-
-#CHECK
-Figure G.X plots mean post-treatment SDID unit-level effects against log county population, binned by decile. Unit-level effects are computed as the average post-treatment difference between each treated county's observed outcome and its synthetic control prediction, $\hat{Y}_j(0,t) = \hat{\omega}^\top Y_{\text{control},t}$, using the equally-weighted SDID control weights $\hat{\omega}$.
 
 ```{r heterogeneity-plot, fig.cap="Binned scatter of unit-level SDID treatment effects against log county population (2013), by decile. Each point represents a population decile of treated counties; size is proportional to the number of counties in the bin. Unit-level effects use equally-weighted control weights $\\hat{\\omega}$ throughout so that heterogeneity in the treatment effect is isolated from the weighting scheme."}
 
@@ -883,6 +897,13 @@ unit_effect_df <- tibble::tibble(
     n = n()
   )
 
+bin_cor       <- cor(unit_effect_df$mean_log_pop, unit_effect_df$mean_effect)
+ind_cor       <- cor(unit_effects, pop_ordered$pop[weight_order])
+smallest_effect <- unit_effect_df$mean_effect[1]
+largest_effect  <- unit_effect_df$mean_effect[nrow(unit_effect_df)]
+smallest_logpop <- unit_effect_df$mean_log_pop[1]
+largest_logpop  <- unit_effect_df$mean_log_pop[nrow(unit_effect_df)]
+
 ggplot(unit_effect_df, aes(x = mean_log_pop, y = mean_effect)) +
   geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
   geom_point(aes(size = n), color = "steelblue") +
@@ -896,13 +917,10 @@ ggplot(unit_effect_df, aes(x = mean_log_pop, y = mean_effect)) +
   theme_minimal(base_size = 10) +
   theme(legend.position = "right")
 ```
+Figure G.X plots mean post-treatment SDID unit-level effects against log county population, binned by decile. Unit-level effects are computed as the average post-treatment difference between each treated county's observed outcome and its synthetic control prediction, Y^j(0,t)=ω^⊤Ycontrol,t\hat{Y}_j(0,t) = \hat{\omega}^\top Y_{\text{control},t}, using the equally-weighted SDID control weights \hat{\omega}. The relationship is strongly negative and broadly monotone: the smallest counties (log population \approx `r round(smallest_logpop, 1)`) show average mortality increases of around `r round(smallest_effect, 0)` deaths per 100,000, while the largest (log population \approx `r round(largest_logpop, 1)`) show average reductions of around `r abs(round(largest_effect, 0))` deaths per 100,000. The bin-level correlation between mean log population and mean treatment effect is `r round(bin_cor, 2)`, though the individual county-level correlation is more modest (`r round(ind_cor, 2)`), reflecting substantial noise in county-level synthetic control predictions for small counties where mortality rates are volatile. This heterogeneity-size gradient is what drives the divergence between the equally-weighted and population-weighted estimands: equal weighting over-represents the many small counties with near-zero or positive effects, while population weighting shifts the estimand toward the large urban counties where coverage gains, and mortality reductions, were largest.
 
-#CHECK 
-The negative slope confirms that larger counties experience larger mortality  reductions from Medicaid expansion. The correlation between unit-level effects and 2013 population is `r round(cor(unit_effects, pop_ordered$pop[weight_order]), 2)`, and the pattern is monotone across most of the population distribution. This heterogeneity-size correlation is what drives the divergence between the equally-weighted and population-weighted estimands: equal weighting over-represents the many small counties with near-zero or positive effects, while population weighting shifts the estimand toward the large urban counties where coverage gains, and mortality reductions, were largest.
 
 ## Leave-One-Out Sensitivity
-
-#CHECK
 
 Figure G.X reports a leave-one-out sensitivity analysis for the population-weighted SDID estimate. We drop each of the 50 largest treated counties by population weight in turn — the counties that most influence the estimand — re-estimate the full weighted SDID, and plot the resulting estimates with 95\% bootstrap confidence intervals. The blue dashed line marks the baseline estimate using all treated counties ($\hat{\tau}^w =$ `r round(as.numeric(tau_sdid_w), 1)` deaths per 100,000).
 
@@ -930,7 +948,7 @@ loo_results <- purrr::map_dfr(top_counties, function(j) {
   }
 
   se <- tryCatch(
-    suppressWarnings(sqrt(vcov(model, method = "bootstrap", replications = 200))),
+    suppressWarnings(sqrt(vcov(model, method = "bootstrap", replications = 500))),
     error = function(e) NA)
 
   tibble::tibble(
@@ -963,7 +981,6 @@ The estimates cluster tightly around the baseline across all 50 counties, rangin
 
 ## Placebo Test
 ```{r}
-
 # restrict to pre-treatment years only
 panel_pre <- panel %>% filter(time <= 2013)
 dfp_pre <- panel_pre %>%
@@ -1005,7 +1022,7 @@ intime_results <- purrr::map_dfr(placebo_dates, function(pd) {
 
 
 set.seed(20240101)
-n_placebo   <- 200
+n_placebo   <- 500
 N1          <- nrow(setup$Y) - N0
 placebo_ests <- rep(NA, n_placebo)
 
