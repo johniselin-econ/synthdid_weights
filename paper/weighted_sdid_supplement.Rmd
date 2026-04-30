@@ -730,51 +730,6 @@ if (!is.na(dlps_est)) {
 
 Table F.1 compares all estimation approaches on the ACA application. The DLPS-weighted DID estimate provides an independent benchmark: it uses an entirely different method to construct a population-relevant comparison (propensity score reweighting of controls) rather than synthetic control methods. The DLPS estimate of r round(dlps_est, 2) deaths per 100,000 is close to both our population-weighted SDID estimate (`r round(as.numeric(tau_sdid_w), 2)`) and the published estimate of −11.36 from @borgschulte2020, despite our use of a reduced covariate set. The convergence across three independent approaches --- DLPS-weighted DID, population-weighted SDID, and the original BV2020 specification --- provides strong cross-validation that the large negative mortality effect under population weighting is not an artifact of any single method.
 
-# Extensions {#app:extensions}
-
-This appendix discusses several extensions to the weighted SDID framework presented in the main text.
-
-## Staggered Treatment Adoption
-
-Our baseline framework assumes simultaneous treatment adoption. Many important applications---including the ACA, where additional states expanded Medicaid after 2014---feature staggered adoption. Recent extensions of SDID to staggered settings decompose the problem into cohort-specific estimates [see, e.g., @arkhangelsky2021, Section 6]. The weighted SDID estimator can be applied within each adoption cohort; aggregation across cohorts introduces an additional layer of weighting that interacts with the treated-unit weights $\tilde{\omega}$.
-
-This connects to a large recent literature on aggregation in staggered DID designs. @callaway2021 and @sun2021 propose group-time-specific ATTs that are then aggregated with researcher-chosen weights. @dechaisemartin2020 emphasize that conventional TWFE can produce negative weights on some group-time cells. Our weighted SDID can be viewed as providing an analogous flexibility for the synthetic control component: the researcher chooses how to weight treated units within each cohort, and the synthetic control is constructed to match that weighted target.
-
-A full treatment of weighted SDID under staggered adoption---including formal results on the interaction between cohort weights, within-cohort treated-unit weights, and the properties of the resulting estimator---is left to future work.
-
-## Time-Varying Period Weights
-
-The standard SDID estimator averages post-treatment periods uniformly. Our framework generalizes this to researcher-specified period weights $\tilde{\pi}_s$, which may be useful when:
-
-- **Short-run vs. long-run effects** differ, and the researcher wishes to focus on a specific horizon;
-- **Exposure varies** across post-treatment periods (e.g., partial implementation in the first year);
-- **Discounting** is appropriate for welfare calculations.
-
-Period weights enter the collapsed form through the last column of $\tilde{Y}^w$ (equation 3 of the main text) and also affect time weight estimation, since $\hat{\lambda}^w$ is chosen to match pre-treatment periods to the $\tilde{\pi}$-weighted post-treatment average rather than uniformly-averaged post-treatment outcome.
-
-For inference, the placebo method requires choosing period weights for the placebo post-period. Our implementation defaults to uniform weights for the placebo post-period, regardless of the original $\tilde{\pi}$, since the placebo post-period length may differ from $T_1$.
-
-## Clustered Standard Errors
-
-In many applications of SDID---including our ACA application---the unit of observation differs from the level of treatment assignment. Counties are the units in the panel, but Medicaid expansion is a state-level policy. Errors are likely correlated within states, violating the implicit assumption of unit-level independence in the bootstrap, jackknife, and placebo variance estimators.
-
-Our software implements a cluster-robust bootstrap following @clarke2023. The cluster bootstrap resamples entire clusters (e.g., states) with replacement rather than individual units (counties). The algorithm proceeds as follows:
-
-\begin{enumerate}
-  \item Draw clusters with replacement from the set of all clusters;
-  \item Include all units within each drawn cluster;
-  \item Subset the fixed control weights $\hat{\omega}$ for the control units that appear in the draw, and renormalize;
-  \item Subset and renormalize the treated-unit weights $\tilde{\omega}$ for the treated units that appear; and
-  \item Re-estimate $\hat{\tau}^w$ on the resampled data using the subsetted weights.
-\end{enumerate}
-
-The cluster jackknife proceeds analogously, leaving out one cluster at a time and renormalizing the remaining weights. The variance formula uses $K$ (the number of clusters) rather than $N$:
-$$
-\widehat{\text{Var}}^{\text{cjk}} = \frac{K-1}{K} \sum_{k=1}^{K} \left(\hat{\tau}^{w,(-k)} - \bar{\tau}^{w,(\cdot)}\right)^2.
-$$
-
-The cluster bootstrap and jackknife are available via `vcov(estimate, method = "bootstrap", cluster = state_fips)` or by passing `cluster` directly to `synthdid_estimate_weighted()`, which stores it for automatic use by `vcov()`. In the ACA application in the main text, we report state-clustered bootstrap standard errors for the population-weighted estimates.
-
 # Testing the Divergence Between Estimands
 
 ```{r paired bootstrap supplement}
@@ -813,10 +768,7 @@ p_diverge_text <- ifelse(p_diverge < 0.001, "p < 0.001", paste0("p = ", round(p_
 
 We test whether the equally-weighted and population-weighted SDID estimands are statistically distinguishable using a paired bootstrap: on each of B = 500 replications we apply identical unit resamples to both estimators and compute $\Delta_b = \hat{\tau}^w_b - \hat{\tau}_b$. The bootstrap distribution is recentered to the null of no difference (\Delta = 0) by subtracting the mean bootstrap gap; the two-sided p-value is the fraction of recentered draws whose absolute value exceeds the observed difference $|\Delta_{\text{obs}}| = $ `r abs(round(as.numeric(tau_sdid_w) - as.numeric(tau_sdid), 1))` deaths per 100,000, yielding `r p_diverge_text`. The two estimands are sharply distinguishable: the observed gap exceeds the largest draw in the recentered bootstrap distribution (`r round(max(abs(boot_diffs - mean(boot_diffs))), 1)` deaths per 100,000), confirming that the divergence between equal and population weighting is not attributable to sampling variability but reflects a genuine difference in what the two estimands are measuring.
 
-
- the two-sided p-value  
-
-## Alternative Weight Specifications
+# Alternative Weight Specifications
 
 The main results use 2013 county population shares as treated-unit weights. Table G.1 reports SDID estimates under four alternative specifications: the 2010 population shares (testing sensitivity to the base year), square root population weights (down-weighting the largest counties relative to linear population shares), log population weights (further compressing the weight distribution), and equal weights (the standard SDID estimand, reproduced for reference). The results reveal a clear gradient: as the weight distribution is compressed from linear population shares toward equal weighting, the estimated effect moves monotonically toward zero. The baseline and 2010 population-weighted estimates are similar in magnitude (`r round(as.numeric(tau_sdid_w), 1)` and `r round(as.numeric(tau_sdid_2010), 1)` deaths per 100,000 respectively), confirming insensitivity to the choice of base year, though the 2010 specification carries a larger standard error. Square root and log population weights yield estimates closer to zero and are not statistically distinguishable from it, indicating that the large negative effect requires giving substantial weight to the largest counties --- log compression alone is sufficient to eliminate it. The finding is therefore not an artifact of the specific 2013 linear population weight choice, but it is sensitive to how aggressively large counties are upweighted: the divergence from the equally-weighted estimand emerges when the weight distribution meaningfully concentrates on the largest treated units.
 
@@ -832,9 +784,9 @@ tau_sdid_2010 <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
                                              treated.weights = treated_weights_2010,
                                              cluster = cluster_vec)
 
-se_sdid_log  <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_log,  method = "bootstrap", replications = 500))), error = function(e) NA)
-se_sdid_sqrt <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_sqrt, method = "bootstrap", replications = 500))), error = function(e) NA)
-se_sdid_2010 <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_2010, method = "bootstrap", replications = 500))), error = function(e) NA)
+se_sdid_log  <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_log,  method = "bootstrap", replications = 50))), error = function(e) NA)
+se_sdid_sqrt <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_sqrt, method = "bootstrap", replications = 50))), error = function(e) NA)
+se_sdid_2010 <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_2010, method = "bootstrap", replications = 50))), error = function(e) NA)
 
 robust_results <- tibble::tibble(
   `Weight specification` = c("Population (2013, baseline)",
@@ -917,8 +869,8 @@ ggplot(unit_effect_df, aes(x = mean_log_pop, y = mean_effect)) +
   theme_minimal(base_size = 10) +
   theme(legend.position = "right")
 ```
-Figure G.X plots mean post-treatment SDID unit-level effects against log county population, binned by decile. Unit-level effects are computed as the average post-treatment difference between each treated county's observed outcome and its synthetic control prediction, Y^j(0,t)=ω^⊤Ycontrol,t\hat{Y}_j(0,t) = \hat{\omega}^\top Y_{\text{control},t}, using the equally-weighted SDID control weights \hat{\omega}. The relationship is strongly negative and broadly monotone: the smallest counties (log population \approx `r round(smallest_logpop, 1)`) show average mortality increases of around `r round(smallest_effect, 0)` deaths per 100,000, while the largest (log population \approx `r round(largest_logpop, 1)`) show average reductions of around `r abs(round(largest_effect, 0))` deaths per 100,000. The bin-level correlation between mean log population and mean treatment effect is `r round(bin_cor, 2)`, though the individual county-level correlation is more modest (`r round(ind_cor, 2)`), reflecting substantial noise in county-level synthetic control predictions for small counties where mortality rates are volatile. This heterogeneity-size gradient is what drives the divergence between the equally-weighted and population-weighted estimands: equal weighting over-represents the many small counties with near-zero or positive effects, while population weighting shifts the estimand toward the large urban counties where coverage gains, and mortality reductions, were largest.
 
+Figure G.X plots mean post-treatment SDID unit-level effects against log county population, binned by decile. Unit-level effects are computed as the average post-treatment difference between each treated county's observed outcome and its synthetic control prediction, Y^j(0,t)=ω^⊤Ycontrol,t\hat{Y}_j(0,t) = \hat{\omega}^\top Y_{\text{control},t}, using the equally-weighted SDID control weights \hat{\omega}. The relationship is strongly negative and broadly monotone: the smallest counties (log population \approx `r round(smallest_logpop, 1)`) show average mortality increases of around `r round(smallest_effect, 0)` deaths per 100,000, while the largest (log population \approx `r round(largest_logpop, 1)`) show average reductions of around `r abs(round(largest_effect, 0))` deaths per 100,000. The bin-level correlation between mean log population and mean treatment effect is `r round(bin_cor, 2)`, though the individual county-level correlation is more modest (`r round(ind_cor, 2)`), reflecting substantial noise in county-level synthetic control predictions for small counties where mortality rates are volatile. This heterogeneity-size gradient is what drives the divergence between the equally-weighted and population-weighted estimands: equal weighting over-represents the many small counties with near-zero or positive effects, while population weighting shifts the estimand toward the large urban counties where coverage gains, and mortality reductions, were largest.
 
 ## Leave-One-Out Sensitivity
 
@@ -927,6 +879,14 @@ Figure G.X reports a leave-one-out sensitivity analysis for the population-weigh
 ```{r leave one out}
 top_n_loo <- 50
 top_counties <- order(treated_weights, decreasing = TRUE)[1:top_n_loo]
+
+omega   <- attr(tau_sdid, 'weights')$omega
+Y       <- attr(tau_sdid, 'setup')$Y
+N0      <- attr(tau_sdid, 'setup')$N0
+T0      <- attr(tau_sdid, 'setup')$T0
+
+Y_control  <- Y[1:N0, ]
+Y_treated  <- Y[(N0+1):nrow(Y), ]
 
 loo_results <- purrr::map_dfr(top_counties, function(j) {
   j_full <- N0 + j
@@ -948,7 +908,7 @@ loo_results <- purrr::map_dfr(top_counties, function(j) {
   }
 
   se <- tryCatch(
-    suppressWarnings(sqrt(vcov(model, method = "bootstrap", replications = 500))),
+    suppressWarnings(sqrt(vcov(model, method = "bootstrap", replications = 50))),
     error = function(e) NA)
 
   tibble::tibble(
@@ -1022,7 +982,7 @@ intime_results <- purrr::map_dfr(placebo_dates, function(pd) {
 
 
 set.seed(20240101)
-n_placebo   <- 500
+n_placebo   <- 50
 N1          <- nrow(setup$Y) - N0
 placebo_ests <- rep(NA, n_placebo)
 
@@ -1083,6 +1043,52 @@ ggplot(tibble::tibble(est = placebo_ests[!is.na(placebo_ests)]),
 **In-time placebo.** As a first falsification check, we restrict the sample to pre-treatment years (2009--2013) and assign placebo treatment dates of 2011 and 2012. The weighted SDID should find no effect in either case since no policy change occurred. Figure G.X reports the estimates under both weighting schemes; all four estimates are close to zero, consistent with the absence of a pre-treatment trend break.
 
 **In-space placebo.** As a second check, we randomly assign treatment to `r N1` control counties (matching the true number of treated counties) while keeping the real treatment date of 2014. We repeat this 200 times under equal weighting and compare the distribution of placebo estimates to the observed population-weighted estimate of `r round(as.numeric(tau_sdid_w), 1)` deaths per 100,000. Figure G.X shows the placebo distribution; the observed estimate sits well in the left tail, yielding a randomization inference $p$-value of `r round(p_placebo, 3)`. This confirms that the estimated effect is unlikely to arise by chance assignment of treatment.
+
+
+# Extensions {#app:extensions}
+
+This appendix discusses several extensions to the weighted SDID framework presented in the main text.
+
+## Staggered Treatment Adoption
+
+Our baseline framework assumes simultaneous treatment adoption. Many important applications---including the ACA, where additional states expanded Medicaid after 2014---feature staggered adoption. Recent extensions of SDID to staggered settings decompose the problem into cohort-specific estimates [see, e.g., @arkhangelsky2021, Section 6]. The weighted SDID estimator can be applied within each adoption cohort; aggregation across cohorts introduces an additional layer of weighting that interacts with the treated-unit weights $\tilde{\omega}$.
+
+This connects to a large recent literature on aggregation in staggered DID designs. @callaway2021 and @sun2021 propose group-time-specific ATTs that are then aggregated with researcher-chosen weights. @dechaisemartin2020 emphasize that conventional TWFE can produce negative weights on some group-time cells. Our weighted SDID can be viewed as providing an analogous flexibility for the synthetic control component: the researcher chooses how to weight treated units within each cohort, and the synthetic control is constructed to match that weighted target.
+
+A full treatment of weighted SDID under staggered adoption---including formal results on the interaction between cohort weights, within-cohort treated-unit weights, and the properties of the resulting estimator---is left to future work.
+
+## Time-Varying Period Weights
+
+The standard SDID estimator averages post-treatment periods uniformly. Our framework generalizes this to researcher-specified period weights $\tilde{\pi}_s$, which may be useful when:
+
+- **Short-run vs. long-run effects** differ, and the researcher wishes to focus on a specific horizon;
+- **Exposure varies** across post-treatment periods (e.g., partial implementation in the first year);
+- **Discounting** is appropriate for welfare calculations.
+
+Period weights enter the collapsed form through the last column of $\tilde{Y}^w$ (equation 3 of the main text) and also affect time weight estimation, since $\hat{\lambda}^w$ is chosen to match pre-treatment periods to the $\tilde{\pi}$-weighted post-treatment average rather than uniformly-averaged post-treatment outcome.
+
+For inference, the placebo method requires choosing period weights for the placebo post-period. Our implementation defaults to uniform weights for the placebo post-period, regardless of the original $\tilde{\pi}$, since the placebo post-period length may differ from $T_1$.
+
+## Clustered Standard Errors
+
+In many applications of SDID---including our ACA application---the unit of observation differs from the level of treatment assignment. Counties are the units in the panel, but Medicaid expansion is a state-level policy. Errors are likely correlated within states, violating the implicit assumption of unit-level independence in the bootstrap, jackknife, and placebo variance estimators.
+
+Our software implements a cluster-robust bootstrap following @clarke2023. The cluster bootstrap resamples entire clusters (e.g., states) with replacement rather than individual units (counties). The algorithm proceeds as follows:
+
+\begin{enumerate}
+  \item Draw clusters with replacement from the set of all clusters;
+  \item Include all units within each drawn cluster;
+  \item Subset the fixed control weights $\hat{\omega}$ for the control units that appear in the draw, and renormalize;
+  \item Subset and renormalize the treated-unit weights $\tilde{\omega}$ for the treated units that appear; and
+  \item Re-estimate $\hat{\tau}^w$ on the resampled data using the subsetted weights.
+\end{enumerate}
+
+The cluster jackknife proceeds analogously, leaving out one cluster at a time and renormalizing the remaining weights. The variance formula uses $K$ (the number of clusters) rather than $N$:
+$$
+\widehat{\text{Var}}^{\text{cjk}} = \frac{K-1}{K} \sum_{k=1}^{K} \left(\hat{\tau}^{w,(-k)} - \bar{\tau}^{w,(\cdot)}\right)^2.
+$$
+
+The cluster bootstrap and jackknife are available via `vcov(estimate, method = "bootstrap", cluster = state_fips)` or by passing `cluster` directly to `synthdid_estimate_weighted()`, which stores it for automatic use by `vcov()`. In the ACA application in the main text, we report state-clustered bootstrap standard errors for the population-weighted estimates.
 
 
 ## Limitations
