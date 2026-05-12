@@ -129,3 +129,26 @@ REMAINING:
 
 Pre-treatment balance table — new table
 Cache clearing / clean knit — pre-submission, verify clean knit from scratch
+CDC WONDER query parameters — add to Data Availability statement (age range, cause filters)
+Referee Q4 (placebo variance with uniform pseudo-treated weights) — still only acknowledged in Limitations
+Referee Q6 (asymptotic theory) — still only flagged as future work
+
+---
+
+## Cleanup pass 2026-04-29 (after first revision draft)
+
+The 2026-04-15 round of additions was committed but introduced several editing artifacts. The following were fixed in this pass:
+
+- **Mangled intro sentence** in main paper (`weighted_sdid_paper.Rmd`): "−13.5-13.5\n−13.5" garble, bare `\approx` outside math, broken parenthesis. Removed inline-R references to `se_sdid` / `se_sdid_w` from intro since those variables are not yet computed at that point in the document.
+- **Paired-bootstrap divergence test**: code used `replications = 50` while prose said `B = 500`. Bumped code to 500 in both main and supplement.
+- **Robustness table caption**: said "200 replications" but code uses 500. Fixed.
+- **Orphan line** "the two-sided p-value" in supplement §G removed.
+- **`#CHECK` author flag** removed.
+- **Five "Figure G.X" placeholders** in supplement §G replaced with proper labels (G.1 heterogeneity, G.2 leave-one-out, G.3 in-time placebo, G.4 in-space placebo). Section D and F figure labels were left as-is per existing convention (hardcoded in prose).
+- **Missing backticks** on `r round(dlps_est, 2)` in supplement §F — fixed so it renders as inline R.
+- **LaTeX/math escaping** in supplement §G: bare `\Delta`, bare `\approx`, and a duplicated/concatenated unicode+LaTeX expression `Y^j(0,t)=ω^⊤Ycontrol,t\hat{Y}_j(0,t)...` all wrapped in proper `$...$` delimiters.
+- **In-time placebo logic bug**: prior code set `.W = 0L` for all rows of the pre-period panel, leaving zero treated units and making `synthdid_estimate()` undefined. Rewrote `run_intime_placebo()` to keep treated counties' treatment label but set treatment start to the placebo year. Cluster vector and treated weights are now matched against `setup_pb`'s actual rownames rather than spliced from the full-sample objects.
+- **In-space placebo cluster subset bug**: prior code passed `cluster_vec[1:nrow(setup_pre$Y)]`, which does not align rows. The rewritten in-time chunk no longer touches `cluster_vec` for the in-space loop (in-space uses `setup$Y` directly).
+- **In-space placebo iteration count**: code was 500, prose was 200. Both now report 500 via inline R.
+- **Cruft files**: removed `paper/test.R.txt` (empty) and `paper/weighted_sdid_paper.synctex(busy)` (build artifact).
+- **`\ind` macro** removal from `header.tex`: verified by grep that nothing in either Rmd uses `\ind`.

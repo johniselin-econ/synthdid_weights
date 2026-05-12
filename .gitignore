@@ -23,6 +23,9 @@ tmpclaude-*
 !paper/header.tex
 *_cache/
 *_files/
+*.synctex*
+paper/_build*.txt
+*.extraction_cache.json
 
 # Compiled outputs
 *.pdf

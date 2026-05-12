@@ -728,7 +728,7 @@ if (!is.na(dlps_est)) {
 }
 ```
 
-Table F.1 compares all estimation approaches on the ACA application. The DLPS-weighted DID estimate provides an independent benchmark: it uses an entirely different method to construct a population-relevant comparison (propensity score reweighting of controls) rather than synthetic control methods. The DLPS estimate of r round(dlps_est, 2) deaths per 100,000 is close to both our population-weighted SDID estimate (`r round(as.numeric(tau_sdid_w), 2)`) and the published estimate of −11.36 from @borgschulte2020, despite our use of a reduced covariate set. The convergence across three independent approaches --- DLPS-weighted DID, population-weighted SDID, and the original BV2020 specification --- provides strong cross-validation that the large negative mortality effect under population weighting is not an artifact of any single method.
+Table F.1 compares all estimation approaches on the ACA application. The DLPS-weighted DID estimate provides an independent benchmark: it uses an entirely different method to construct a population-relevant comparison (propensity score reweighting of controls) rather than synthetic control methods. The DLPS estimate of `r round(dlps_est, 2)` deaths per 100,000 is close to both our population-weighted SDID estimate (`r round(as.numeric(tau_sdid_w), 2)`) and the published estimate of $-11.36$ from @borgschulte2020, despite our use of a reduced covariate set. The convergence across three independent approaches --- DLPS-weighted DID, population-weighted SDID, and the original BV2020 specification --- provides strong cross-validation that the large negative mortality effect under population weighting is not an artifact of any single method.
 
 # Testing the Divergence Between Estimands
 
@@ -759,16 +759,16 @@ paired_bootstrap <- function(Y, N0, T0, treated.weights, replications = 500, see
   diffs
 }
 
-boot_diffs <- paired_bootstrap(setup$Y, setup$N0, setup$T0, treated_weights, replications = 50)
+boot_diffs <- paired_bootstrap(setup$Y, setup$N0, setup$T0, treated_weights, replications = 500)
 obs_diff   <- as.numeric(tau_sdid_w) - as.numeric(tau_sdid)
 boot_null <- boot_diffs - mean(boot_diffs)  # recenter to null
 p_diverge <- mean(abs(boot_null) >= abs(obs_diff))
 p_diverge_text <- ifelse(p_diverge < 0.001, "p < 0.001", paste0("p = ", round(p_diverge, 3)))
 ```
 
-We test whether the equally-weighted and population-weighted SDID estimands are statistically distinguishable using a paired bootstrap: on each of B = 500 replications we apply identical unit resamples to both estimators and compute $\Delta_b = \hat{\tau}^w_b - \hat{\tau}_b$. The bootstrap distribution is recentered to the null of no difference (\Delta = 0) by subtracting the mean bootstrap gap; the two-sided p-value is the fraction of recentered draws whose absolute value exceeds the observed difference $|\Delta_{\text{obs}}| = $ `r abs(round(as.numeric(tau_sdid_w) - as.numeric(tau_sdid), 1))` deaths per 100,000, yielding `r p_diverge_text`. The two estimands are sharply distinguishable: the observed gap exceeds the largest draw in the recentered bootstrap distribution (`r round(max(abs(boot_diffs - mean(boot_diffs))), 1)` deaths per 100,000), confirming that the divergence between equal and population weighting is not attributable to sampling variability but reflects a genuine difference in what the two estimands are measuring.
+We test whether the equally-weighted and population-weighted SDID estimands are statistically distinguishable using a paired bootstrap: on each of $B = 500$ replications we apply identical unit resamples to both estimators and compute $\Delta_b = \hat{\tau}^w_b - \hat{\tau}_b$. The bootstrap distribution is recentered to the null of no difference ($\Delta = 0$) by subtracting the mean bootstrap gap; the two-sided $p$-value is the fraction of recentered draws whose absolute value exceeds the observed difference $|\Delta_{\text{obs}}| =$ `r abs(round(as.numeric(tau_sdid_w) - as.numeric(tau_sdid), 1))` deaths per 100,000, yielding `r p_diverge_text`. The two estimands are sharply distinguishable: the observed gap exceeds the largest draw in the recentered bootstrap distribution (`r round(max(abs(boot_diffs - mean(boot_diffs))), 1)` deaths per 100,000), confirming that the divergence between equal and population weighting is not attributable to sampling variability but reflects a genuine difference in what the two estimands are measuring.
 
-# Alternative Weight Specifications
+## Alternative Weight Specifications
 
 The main results use 2013 county population shares as treated-unit weights. Table G.1 reports SDID estimates under four alternative specifications: the 2010 population shares (testing sensitivity to the base year), square root population weights (down-weighting the largest counties relative to linear population shares), log population weights (further compressing the weight distribution), and equal weights (the standard SDID estimand, reproduced for reference). The results reveal a clear gradient: as the weight distribution is compressed from linear population shares toward equal weighting, the estimated effect moves monotonically toward zero. The baseline and 2010 population-weighted estimates are similar in magnitude (`r round(as.numeric(tau_sdid_w), 1)` and `r round(as.numeric(tau_sdid_2010), 1)` deaths per 100,000 respectively), confirming insensitivity to the choice of base year, though the 2010 specification carries a larger standard error. Square root and log population weights yield estimates closer to zero and are not statistically distinguishable from it, indicating that the large negative effect requires giving substantial weight to the largest counties --- log compression alone is sufficient to eliminate it. The finding is therefore not an artifact of the specific 2013 linear population weight choice, but it is sensitive to how aggressively large counties are upweighted: the divergence from the equally-weighted estimand emerges when the weight distribution meaningfully concentrates on the largest treated units.
 
@@ -804,7 +804,7 @@ robust_results <- tibble::tibble(
 
 kableExtra::kbl(
   robust_results, digits = 2, booktabs = TRUE,
-  caption = "Robustness to alternative weight specifications. All estimates are SDID with state-clustered bootstrap SEs (200 replications) except equal weighting (county jackknife)."
+  caption = "Robustness to alternative weight specifications. All estimates are SDID with state-clustered bootstrap SEs (500 replications) except equal weighting (county jackknife)."
 ) %>%
   kableExtra::kable_styling(latex_options = "hold_position")
 ```
@@ -870,11 +870,11 @@ ggplot(unit_effect_df, aes(x = mean_log_pop, y = mean_effect)) +
   theme(legend.position = "right")
 ```
 
-Figure G.X plots mean post-treatment SDID unit-level effects against log county population, binned by decile. Unit-level effects are computed as the average post-treatment difference between each treated county's observed outcome and its synthetic control prediction, Y^j(0,t)=ω^⊤Ycontrol,t\hat{Y}_j(0,t) = \hat{\omega}^\top Y_{\text{control},t}, using the equally-weighted SDID control weights \hat{\omega}. The relationship is strongly negative and broadly monotone: the smallest counties (log population \approx `r round(smallest_logpop, 1)`) show average mortality increases of around `r round(smallest_effect, 0)` deaths per 100,000, while the largest (log population \approx `r round(largest_logpop, 1)`) show average reductions of around `r abs(round(largest_effect, 0))` deaths per 100,000. The bin-level correlation between mean log population and mean treatment effect is `r round(bin_cor, 2)`, though the individual county-level correlation is more modest (`r round(ind_cor, 2)`), reflecting substantial noise in county-level synthetic control predictions for small counties where mortality rates are volatile. This heterogeneity-size gradient is what drives the divergence between the equally-weighted and population-weighted estimands: equal weighting over-represents the many small counties with near-zero or positive effects, while population weighting shifts the estimand toward the large urban counties where coverage gains, and mortality reductions, were largest.
+Figure G.1 plots mean post-treatment SDID unit-level effects against log county population, binned by decile. Unit-level effects are computed as the average post-treatment difference between each treated county's observed outcome and its synthetic control prediction, $\hat{Y}_j(0,t) = \hat{\omega}^\top Y_{\text{control},t}$, using the equally-weighted SDID control weights $\hat{\omega}$. The relationship is strongly negative and broadly monotone: the smallest counties (log population $\approx$ `r round(smallest_logpop, 1)`) show average mortality increases of around `r round(smallest_effect, 0)` deaths per 100,000, while the largest (log population $\approx$ `r round(largest_logpop, 1)`) show average reductions of around `r abs(round(largest_effect, 0))` deaths per 100,000. The bin-level correlation between mean log population and mean treatment effect is `r round(bin_cor, 2)`, though the individual county-level correlation is more modest (`r round(ind_cor, 2)`), reflecting substantial noise in county-level synthetic control predictions for small counties where mortality rates are volatile. This heterogeneity-size gradient is what drives the divergence between the equally-weighted and population-weighted estimands: equal weighting over-represents the many small counties with near-zero or positive effects, while population weighting shifts the estimand toward the large urban counties where coverage gains, and mortality reductions, were largest.
 
 ## Leave-One-Out Sensitivity
 
-Figure G.X reports a leave-one-out sensitivity analysis for the population-weighted SDID estimate. We drop each of the 50 largest treated counties by population weight in turn — the counties that most influence the estimand — re-estimate the full weighted SDID, and plot the resulting estimates with 95\% bootstrap confidence intervals. The blue dashed line marks the baseline estimate using all treated counties ($\hat{\tau}^w =$ `r round(as.numeric(tau_sdid_w), 1)` deaths per 100,000).
+Figure G.2 reports a leave-one-out sensitivity analysis for the population-weighted SDID estimate. We drop each of the 50 largest treated counties by population weight in turn --- the counties that most influence the estimand --- re-estimate the full weighted SDID, and plot the resulting estimates with 95\% bootstrap confidence intervals. The blue dashed line marks the baseline estimate using all treated counties ($\hat{\tau}^w =$ `r round(as.numeric(tau_sdid_w), 1)` deaths per 100,000).
 
 ```{r leave one out}
 top_n_loo <- 50
@@ -937,76 +937,75 @@ ggplot(loo_results, aes(x = county_rank, y = estimate)) +
   theme_minimal(base_size = 10)
 ```
 
-The estimates cluster tightly around the baseline across all 50 counties, ranging from `r round(min(loo_results$estimate, na.rm = TRUE), 1)` to `r round(max(loo_results$estimate, na.rm = TRUE), 1)` deaths per 100,000, and remain negative and statistically distinguishable from zero throughout. No single county drives the result. This is consistent with the binned scatter in Figure G.X, which shows a broadly negative relationship between county size and treatment effect rather than a spike concentrated in one or two counties.
+The estimates cluster tightly around the baseline across all 50 counties, ranging from `r round(min(loo_results$estimate, na.rm = TRUE), 1)` to `r round(max(loo_results$estimate, na.rm = TRUE), 1)` deaths per 100,000, and remain negative and statistically distinguishable from zero throughout. No single county drives the result. This is consistent with the binned scatter in Figure G.1, which shows a broadly negative relationship between county size and treatment effect rather than a spike concentrated in one or two counties.
 
-## Placebo Test
-```{r}
-# restrict to pre-treatment years only
-panel_pre <- panel %>% filter(time <= 2013)
-dfp_pre <- panel_pre %>%
-  arrange(unit, time) %>%
-  select(unit, time, y = crude_rate, treated_unit) %>%
-  rename(.unit = unit, .time = time, .W = treated_unit) %>%
-  mutate(.W = 0L) %>%  # no actual treatment yet
-  as.data.frame()
+## Placebo Tests
 
-setup_pre <- synthdid::panel.matrices(
-  panel_pre %>%
+```{r placebo-intime, cache=TRUE}
+# In-time placebo: restrict to pre-treatment data and pretend treatment
+# occurred at an earlier date. Treated counties keep their treatment label
+# but treatment "starts" at the placebo year, so the effect should be zero.
+
+run_intime_placebo <- function(placebo_year) {
+  panel_pb <- panel %>%
+    filter(time <= 2013) %>%
     arrange(unit, time) %>%
-    select(.unit = unit, .time = time, y, .W = treated_unit) %>%
-    mutate(.W = 0L) %>%
+    mutate(.unit = as.factor(unit), .time = time,
+           .W = as.integer(treated_unit == 1 & time >= placebo_year)) %>%
+    select(.unit, .time, y, .W) %>%
     as.data.frame()
-)
 
-# placebo treatment at 2011 (T0=2) and 2012 (T0=3)
-placebo_dates <- list(
-  `2011` = list(T0 = 2, label = "2011"),
-  `2012` = list(T0 = 3, label = "2012")
-)
+  setup_pb <- synthdid::panel.matrices(panel_pb)
 
-intime_results <- purrr::map_dfr(placebo_dates, function(pd) {
+  # Build cluster vector and treated-unit weights matching setup_pb's row order
+  cl_pb <- unit_state$state_fips[match(rownames(setup_pb$Y), unit_state$unit_char)]
+  treated_pb <- rownames(setup_pb$Y)[(setup_pb$N0 + 1):nrow(setup_pb$Y)]
+  tw_pb <- pop_ordered$pop[match(treated_pb, pop_ordered$unit_char)]
+  tw_pb <- tw_pb / sum(tw_pb)
+
   est_eq <- tryCatch(
-    as.numeric(synthdid_estimate(setup_pre$Y, setup_pre$N0, pd$T0)),
+    as.numeric(synthdid_estimate(setup_pb$Y, setup_pb$N0, setup_pb$T0)),
     error = function(e) NA)
   est_wt <- tryCatch(
-    as.numeric(synthdid_estimate_weighted(setup_pre$Y, setup_pre$N0, pd$T0,
-                                          treated.weights = treated_weights,
-                                          cluster = cluster_vec[1:nrow(setup_pre$Y)])),
+    as.numeric(synthdid_estimate_weighted(setup_pb$Y, setup_pb$N0, setup_pb$T0,
+                                          treated.weights = tw_pb,
+                                          cluster = cl_pb)),
     error = function(e) NA)
-  tibble::tibble(
-    placebo_year = pd$label,
-    estimate_eq  = est_eq,
-    estimate_wt  = est_wt
-  )
-})
 
+  tibble::tibble(placebo_year = as.character(placebo_year),
+                 estimate_eq  = est_eq,
+                 estimate_wt  = est_wt)
+}
 
+intime_results <- purrr::map_dfr(c(2011L, 2012L), run_intime_placebo)
+```
+
+```{r placebo-inspace, cache=TRUE}
+# In-space placebo: randomly assign N1 control counties as treated,
+# keeping the real treatment date.
 set.seed(20240101)
-n_placebo   <- 50
-N1          <- nrow(setup$Y) - N0
-placebo_ests <- rep(NA, n_placebo)
+n_placebo    <- 500
+N1           <- nrow(setup$Y) - setup$N0
+placebo_ests <- rep(NA_real_, n_placebo)
 
-for (i in 1:n_placebo) {
-  # randomly assign N1 control counties as "treated"
-  placebo_treated <- sample(1:N0, N1, replace = FALSE)
-  placebo_control <- setdiff(1:N0, placebo_treated)
-  
-  # reorder Y: control rows first, then placebo treated
-  Y_placebo <- setup$Y[c(placebo_control, placebo_treated), ]
+for (i in seq_len(n_placebo)) {
+  placebo_treated <- sample(seq_len(setup$N0), N1, replace = FALSE)
+  placebo_control <- setdiff(seq_len(setup$N0), placebo_treated)
+
+  Y_placebo  <- setup$Y[c(placebo_control, placebo_treated), ]
   N0_placebo <- length(placebo_control)
-  
-  # equal weights for placebo treated units
-  tw_placebo <- rep(1/N1, N1)
-  
+  tw_placebo <- rep(1 / N1, N1)
+
   placebo_ests[i] <- tryCatch(
-    as.numeric(synthdid_estimate_weighted(Y_placebo, N0_placebo, T0,
+    as.numeric(synthdid_estimate_weighted(Y_placebo, N0_placebo, setup$T0,
                                           treated.weights = tw_placebo)),
-    error = function(e) NA)
+    error = function(e) NA_real_)
 }
 
 p_placebo <- mean(abs(placebo_ests) >= abs(as.numeric(tau_sdid_w)), na.rm = TRUE)
+```
 
-# In-time: simple dot plot
+```{r placebo-intime-plot, fig.cap="In-time placebo: weighted and equally-weighted SDID estimates with simulated treatment dates of 2011 and 2012, restricting to pre-treatment data (2009--2013). Estimates near zero are consistent with no pre-treatment trend break.", fig.height=3.2}
 intime_long <- intime_results %>%
   tidyr::pivot_longer(cols = c(estimate_eq, estimate_wt),
                       names_to = "weighting",
@@ -1023,14 +1022,15 @@ ggplot(intime_long, aes(x = placebo_year, y = estimate, color = weighting)) +
        color = NULL) +
   theme_minimal(base_size = 10) +
   theme(legend.position = "bottom")
+```
 
-# In-space: histogram with real estimate marked
+```{r placebo-inspace-plot, fig.cap="In-space placebo: distribution of SDID estimates from 500 random re-assignments of treatment to control counties (equal weighting). The dashed vertical line marks the observed population-weighted estimate.", fig.height=3.5}
 ggplot(tibble::tibble(est = placebo_ests[!is.na(placebo_ests)]),
        aes(x = est)) +
   geom_histogram(bins = 40, fill = "gray70", color = "white") +
   geom_vline(xintercept = as.numeric(tau_sdid_w),
              color = "firebrick", linewidth = 0.8, linetype = "dashed") +
-  annotate("text", x = as.numeric(tau_sdid_w) * 1.05, 
+  annotate("text", x = as.numeric(tau_sdid_w) * 1.05,
            y = Inf, vjust = 1.5, hjust = 0,
            label = sprintf("Observed\n%.1f", as.numeric(tau_sdid_w)),
            color = "firebrick", size = 3) +
@@ -1039,10 +1039,9 @@ ggplot(tibble::tibble(est = placebo_ests[!is.na(placebo_ests)]),
   theme_minimal(base_size = 10)
 ```
 
-#CHECK
-**In-time placebo.** As a first falsification check, we restrict the sample to pre-treatment years (2009--2013) and assign placebo treatment dates of 2011 and 2012. The weighted SDID should find no effect in either case since no policy change occurred. Figure G.X reports the estimates under both weighting schemes; all four estimates are close to zero, consistent with the absence of a pre-treatment trend break.
+**In-time placebo.** As a first falsification check, we restrict the sample to pre-treatment years (2009--2013) and assign placebo treatment dates of 2011 and 2012. The weighted SDID should find no effect in either case since no policy change occurred. Figure G.3 reports the estimates under both weighting schemes; all four estimates are close to zero, consistent with the absence of a pre-treatment trend break.
 
-**In-space placebo.** As a second check, we randomly assign treatment to `r N1` control counties (matching the true number of treated counties) while keeping the real treatment date of 2014. We repeat this 200 times under equal weighting and compare the distribution of placebo estimates to the observed population-weighted estimate of `r round(as.numeric(tau_sdid_w), 1)` deaths per 100,000. Figure G.X shows the placebo distribution; the observed estimate sits well in the left tail, yielding a randomization inference $p$-value of `r round(p_placebo, 3)`. This confirms that the estimated effect is unlikely to arise by chance assignment of treatment.
+**In-space placebo.** As a second check, we randomly assign treatment to `r N1` control counties (matching the true number of treated counties) while keeping the real treatment date of 2014. We repeat this `r n_placebo` times under equal weighting and compare the distribution of placebo estimates to the observed population-weighted estimate of `r round(as.numeric(tau_sdid_w), 1)` deaths per 100,000. Figure G.4 shows the placebo distribution; the observed estimate sits well in the left tail, yielding a randomization-inference $p$-value of `r round(p_placebo, 3)`. This confirms that the estimated effect is unlikely to arise by chance assignment of treatment.
 
 
 # Extensions {#app:extensions}
