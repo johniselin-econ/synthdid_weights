@@ -35,3 +35,4 @@ vignettes/output/
 
 # Exceptions: keep data CSVs but not binary artifacts
 !data/*.csv
+!paper/data/*.csv

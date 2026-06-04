@@ -1,7 +1,7 @@
 ## Count papers using DiD / SCM / SDID in title or abstract, by year × journal,
 ## from the AEA Replication Tracker SQLite produced by the
 ## `paulgp/replication-package-db` pipeline (extended to include QJE, JPE,
-## ReStud, Econometrica). Output is `data/lit_counts.csv`, which is read by the
+## ReStud, Econometrica). Output is `paper/data/lit_counts.csv`, which is read by the
 ## paper at render time so we don't re-query the SQLite on every knit.
 
 suppressPackageStartupMessages({
@@ -14,7 +14,7 @@ suppressPackageStartupMessages({
 })
 
 DB_PATH <- "../replication-package-db/data/replication_tracker.db"
-OUT_CSV <- "data/lit_counts.csv"
+OUT_CSV <- "paper/data/lit_counts.csv"
 
 if (!file.exists(DB_PATH)) {
   stop("SQLite not found at ", DB_PATH,

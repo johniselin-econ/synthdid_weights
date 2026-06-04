@@ -95,7 +95,7 @@ Our current DLPS implementation (Supplement Appendix F) uses:
 
 ```r
 # Pull and merge all covariates needed for B&V DLPS replication
-# Output: data/bv_covariates.csv (one row per county)
+# Output: paper/data/bv_covariates.csv (one row per county)
 #
 # Sources:
 #   1. Census ACS 5-year 2013 (tidycensus)
@@ -112,7 +112,7 @@ Steps:
 4. Code Democratic governor indicator
 5. Compute pre-expansion mortality averages from existing data
 6. Merge all by county FIPS
-7. Save as `data/bv_covariates.csv`
+7. Save as `paper/data/bv_covariates.csv`
 
 ### Step 2: Proper hdm double-lasso implementation
 **File**: Update `paper/weighted_sdid_supplement.Rmd` Appendix F
@@ -190,7 +190,7 @@ Report side-by-side:
 
 ## Files to create/modify
 - `scripts/pull_bv_covariates.R` — new data pull script
-- `data/bv_covariates.csv` — new covariate file
+- `paper/data/bv_covariates.csv` — new covariate file
 - `paper/weighted_sdid_supplement.Rmd` — rewrite Appendix F with full replication
 - `paper/references.bib` — add any new references
 

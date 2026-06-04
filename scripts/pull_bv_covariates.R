@@ -1,12 +1,12 @@
 ## Pull the Borgschulte & Vogler (2020) covariate menu via public sources for
-## use as inputs to the DLPS replication. Output: data/bv_covariates.csv.
+## use as inputs to the DLPS replication. Output: paper/data/bv_covariates.csv.
 ##
 ## Sources covered:
 ##   - ACS 2009-2013 5-year (tidycensus): demographics, age groups, race,
 ##     poverty, median income, total population.
 ##   - tigris county shapefile 2010: land area (for population density).
 ##   - Census SAHIE 2013: uninsured rate, non-elderly adults (ages 18-64).
-##   - Pre-expansion mortality 2009-2013: rolled up from data/analysis_data.csv.
+##   - Pre-expansion mortality 2009-2013: rolled up from paper/data/analysis_data.csv.
 ##   - Democratic governor 2010: state lookup table inline.
 ##
 ## Sources NOT yet covered (would-be additional improvements; flagged TODO):
@@ -25,7 +25,7 @@ suppressPackageStartupMessages({
 
 options(tigris_use_cache = TRUE)
 
-OUT_CSV <- "data/bv_covariates.csv"
+OUT_CSV <- "paper/data/bv_covariates.csv"
 
 # ---------------------------------------------------------------------------
 # 1. ACS 2009-2013 5-year demographics (variables match BV2020 covariate menu)
@@ -146,7 +146,7 @@ sahie <- sahie %>%
 # 4. Pre-expansion mortality average 2009-2013 from existing analysis data
 # ---------------------------------------------------------------------------
 
-panel <- read_csv("data/analysis_data.csv", show_col_types = FALSE)
+panel <- read_csv("paper/data/analysis_data.csv", show_col_types = FALSE)
 mort_pre <- panel %>%
   filter(year >= 2009, year <= 2013) %>%
   group_by(fips) %>%

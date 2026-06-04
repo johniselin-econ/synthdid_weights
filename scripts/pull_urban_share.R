@@ -2,7 +2,7 @@
 ## binscatter. We use 2010 Decennial SF1 because it predates the 2014 expansion
 ## and is the canonical source for county-level urban-population shares.
 ##
-## Output: data/urban_share.csv with columns (fips, pct_urban).
+## Output: paper/data/urban_share.csv with columns (fips, pct_urban).
 
 suppressPackageStartupMessages({
   library(tidycensus)
@@ -11,7 +11,7 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-OUT_CSV <- "data/urban_share.csv"
+OUT_CSV <- "paper/data/urban_share.csv"
 
 raw <- get_decennial(
   geography = "county",

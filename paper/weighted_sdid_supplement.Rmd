@@ -431,7 +431,7 @@ This appendix contains additional empirical results for the ACA application that
 
 ```{r load-data-app}
 panel <- readr::read_csv(
-  file.path("..", "data", "analysis_data.csv"), show_col_types = FALSE
+  file.path("data", "analysis_data.csv"), show_col_types = FALSE
 ) %>%
   select(
     unit = fips, time = year, y = crude_rate,
@@ -595,7 +595,7 @@ Estimation proceeds in five steps following BV: (i) collapse the panel to one ro
 panel_controls <- c("pct_white", "pct_55_64", "log_20_64", "log_35_44",
                     "log_f_20_64", "unemp")
 
-bv_cov <- readr::read_csv(file.path("..", "data", "bv_covariates.csv"),
+bv_cov <- readr::read_csv(file.path("data", "bv_covariates.csv"),
                           show_col_types = FALSE)
 bv_cov_vars <- c("pct_male", "pct_black", "pct_hispanic",
                  "pct_2024", "pct_2534", "pct_3544", "pct_4554", "pct_5564",
@@ -690,10 +690,10 @@ Our reproduction estimate of `r round(dlps_est, 2)` deaths per 100,000 (SE `r ro
 # Population-weighted means of BV2020-style covariates in our analysis sample,
 # alongside the values BV2020 report in their Table 1. "Treated" = ACA expansion
 # county; "Control" = non-expansion county after sample restrictions match BV.
-panel_desc <- readr::read_csv(file.path("..", "data", "analysis_data.csv"),
+panel_desc <- readr::read_csv(file.path("data", "analysis_data.csv"),
                               show_col_types = FALSE) %>%
   dplyr::filter(year >= 2009, year <= 2013)
-bv_desc <- readr::read_csv(file.path("..", "data", "bv_covariates.csv"),
+bv_desc <- readr::read_csv(file.path("data", "bv_covariates.csv"),
                            show_col_types = FALSE) %>%
   dplyr::rename(unit = fips)
 

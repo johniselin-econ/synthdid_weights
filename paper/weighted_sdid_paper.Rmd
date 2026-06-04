@@ -61,7 +61,7 @@ set.seed(20240101)
 The synthetic difference-in-differences (SDID) estimator of @arkhangelsky2021 has become a workhorse for causal inference in panel settings, combining the strengths of synthetic control [@abadie2010] and difference-in-differences by using data-driven unit weights $\hat{\omega}$ and time weights $\hat{\lambda}$ while permitting level differences across units. Figure 1 documents the diffusion of these tools across leading economics journals: difference-in-differences mentions in titles and abstracts roughly quintupled in the AEJ field journals over the past decade, while synthetic control appears in a small but growing number of papers; SDID itself is just emerging as a named method in the published literature. When multiple units are treated, the standard SDID implementation averages them equally: each treated unit contributes $1/N_1$ to both the target estimand and the construction of the synthetic control. This is an implicit design choice, not a requirement of the methodology.
 
 ```{r lit-counts, fig.cap="Annual counts of papers mentioning ``difference-in-differences'' (DiD), ``synthetic control'' (SCM), or ``synthetic difference-in-differences'' (SDID) in title or abstract, by journal tier. Top-5 = AER, QJE, JPE, ReStud, Econometrica; AEJ field = AEJ:Applied, AEJ:Policy, AEJ:Macro, AEJ:Micro. Counts use case-insensitive regex matching with hyphen/space and singular/plural variants; a paper matching multiple methods is counted in each line. Counts capture mentions, not citations: papers that apply a method without naming it in the title or abstract (or that cite the method paper without describing it) are not detected. Corpus assembled from OpenAlex via an extended fork of the AEA Replication Tracker pipeline (\\href{https://github.com/paulgp/replication-package-db}{paulgp/replication-package-db}).", fig.height=3.4, fig.width=6.5}
-lit_counts <- readr::read_csv("../data/lit_counts.csv", show_col_types = FALSE)
+lit_counts <- readr::read_csv("data/lit_counts.csv", show_col_types = FALSE)
 
 ggplot(lit_counts, aes(x = publication_year, y = n_method, color = method, shape = method)) +
   geom_line(linewidth = 0.6) +
@@ -190,7 +190,7 @@ We apply the weighted SDID estimator to the county-level mortality effects of th
 
 ```{r load-data}
 panel <- readr::read_csv(
-  file.path("..", "data", "analysis_data.csv"),
+  file.path("data", "analysis_data.csv"),
   show_col_types = FALSE
 ) %>%
   select(
@@ -452,7 +452,7 @@ ggplot(unit_effect_df, aes(x = mean_log_pop, y = mean_effect)) +
 The divergence between estimands is not a statistical artifact: it reflects substantive treatment-effect heterogeneity that is correlated with county size. Figure 3 plots mean post-treatment SDID unit-level effects against log county population in 20 quantile bins of log population, with point area scaled to the total 2013 population in each bin so the visual emphasis matches the population-weighted estimand. Unit-level effects are computed as $\hat{Y}_j(0,t) = \hat{\omega}^\top Y_{\text{control}, t}$ using the *equally-weighted* SDID control weights $\hat{\omega}$, so the heterogeneity displayed is in the treatment effect itself, not in the control matching. The relationship is strongly negative and broadly monotone: the smallest-population bin (log population $\approx$ `r round(smallest_logpop, 1)`, i.e., counties of $\sim 10,000$ residents) shows mean effects of $+`r round(smallest_effect, 0)`$ deaths per 100,000, while the largest bin (log population $\approx$ `r round(largest_logpop, 1)`, $\sim 2$ million residents) shows mean reductions of $`r abs(round(largest_effect, 0))`$ deaths per 100,000. The population-weighted bin-level correlation between mean log population and mean treatment effect is `r round(bin_cor, 2)`; the unweighted county-level correlation is more modest (`r round(ind_cor, 2)`), reflecting noise in county-level synthetic control predictions for small counties where mortality rates are volatile.
 
 ```{r urban-binscatter, fig.cap="Binned scatter of unit-level SDID treatment effects against the urban-population share of each county, in 20 quantile bins of pct.\\ urban (2010 Decennial Census, P002002 / P002001). Point area is proportional to the total 2013 population of counties in the bin; the dashed line is a population-weighted OLS fit through the bin means. Urban share is fixed at its 2010 (pre-treatment) value, so the gradient reflects pre-existing county composition rather than any post-2014 reclassification.", fig.height=3.4}
-urban_share <- readr::read_csv("../data/urban_share.csv", show_col_types = FALSE)
+urban_share <- readr::read_csv("data/urban_share.csv", show_col_types = FALSE)
 
 unit_effect_urban <- tibble::tibble(
   fips   = as.numeric(pop_ordered$unit_char[weight_order]),

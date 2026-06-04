@@ -26,7 +26,7 @@ project_name <- "synth_weights"
 date_run     <- format(Sys.Date(), "%Y-%m-%d")
 
 # --- File Paths (relative to Rproj root) ---
-dir_data     <- here("data")
+dir_data     <- here("paper", "data")
 dir_data_raw <- "/Users/johniselin/Library/CloudStorage/Dropbox/sdid_weights/data/"
 
 # --- Random Seed for Reproducibility ---
