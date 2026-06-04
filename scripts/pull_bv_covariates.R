@@ -126,10 +126,19 @@ sahie_url <- paste0(
   "https://api.census.gov/data/timeseries/healthins/sahie?",
   "get=NAME,NUI_PT,NIPR_PT,PCTUI_PT&",
   "for=county:*&",
-  # AGECAT=3 = ages 18-64 (closest match to BV's "non-elderly adults" 19-64)
-  "AGECAT=3&RACECAT=0&SEXCAT=0&IPRCAT=0&",
+  # AGECAT=1 = ages 18-64 (closest match to BV's "non-elderly adults" 19-64).
+  # NOTE (2026-06): this previously used AGECAT=3, which per the API metadata
+  # (api.census.gov/data/timeseries/healthins/sahie/variables/AGECAT.json)
+  # is ages 50-64, not 18-64 — that under-stated uninsured rates by ~7pp.
+  "AGECAT=1&RACECAT=0&SEXCAT=0&IPRCAT=0&",
   "time=2013"
 )
+## The Census API now requires a key for the SAHIE timeseries endpoint
+## (free signup: https://api.census.gov/data/key_signup.html; tidycensus reads
+## the same CENSUS_API_KEY from ~/.Renviron).
+if (nzchar(Sys.getenv("CENSUS_API_KEY"))) {
+  sahie_url <- paste0(sahie_url, "&key=", Sys.getenv("CENSUS_API_KEY"))
+}
 sahie_resp <- httr::GET(sahie_url, httr::timeout(60))
 stopifnot(httr::status_code(sahie_resp) == 200)
 sahie_raw <- jsonlite::fromJSON(rawToChar(sahie_resp$content))
@@ -167,13 +176,30 @@ dem_gov_2010 <- tribble(
 )
 
 # ---------------------------------------------------------------------------
-# 6. Merge everything
+# 6. Obama vote shares 2008/2012 (run scripts/pull_county_votes.R first;
+#    merged conditionally so this script still works without it)
+# ---------------------------------------------------------------------------
+
+VOTES_CSV <- "paper/data/county_votes.csv"
+votes <- if (file.exists(VOTES_CSV)) {
+  read_csv(VOTES_CSV, show_col_types = FALSE) %>%
+    select(fips, obama_share_2008, obama_share_2012)
+} else {
+  message("county_votes.csv not found; obama_share_* will be NA ",
+          "(run scripts/pull_county_votes.R)")
+  tibble(fips = numeric(), obama_share_2008 = numeric(),
+         obama_share_2012 = numeric())
+}
+
+# ---------------------------------------------------------------------------
+# 7. Merge everything
 # ---------------------------------------------------------------------------
 
 bv_cov <- acs %>%
   left_join(land,     by = "fips") %>%
   left_join(sahie,    by = "fips") %>%
   left_join(mort_pre, by = "fips") %>%
+  left_join(votes,    by = "fips") %>%
   mutate(
     state_fips = floor(fips / 1000),
     pop_density   = total_pop / pmax(aland_sqmi, 1),
@@ -188,7 +214,8 @@ bv_cov <- acs %>%
     pop_density, log_pop_density,
     uninsured_rate,
     avg_mortality_pre,
-    dem_governor_2010
+    dem_governor_2010,
+    obama_share_2008, obama_share_2012
   )
 
 write_csv(bv_cov, OUT_CSV)

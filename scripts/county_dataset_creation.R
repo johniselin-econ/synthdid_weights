@@ -47,6 +47,27 @@ drop <- c(2, 18, 22, 30, 33, 42)
 ## Imported via CDC Wonder on November 24, 2025
 ## All cause mortality, 20-64-year-olds by county and year
 
+## Suppression handling (2026-06 rework). CDC WONDER reports "Suppressed" for
+## county-year cells with 1-9 deaths and a numeric 0 for true zeros, so the two
+## are distinguishable in the raw export. The original version zero-filled
+## suppressed cells and then dropped any county without 9 years of data, which
+## removed ~380 (mostly small, rural, high-mortality, non-expansion) counties
+## relative to BV2020's 2,823-county pre-trim sample. We now impute suppressed
+## cells instead of dropping those counties.
+##
+## impute_method options:
+##   "residual" - allocate the state-year residual (exact state total minus the
+##                sum of unsuppressed county deaths) across suppressed cells in
+##                proportion to population, clamped to [1, 9]. Requires a
+##                state-level WONDER export at dir_data_raw/cdc_wonder_states.csv
+##                (state totals are never suppressed for all-cause 20-64).
+##                Falls back to "poisson" if that file is absent.
+##   "poisson"  - E[D | 1 <= D <= 9] under Poisson with lambda = population x
+##                state-year rate estimated from unsuppressed counties.
+##   "lower"/"upper" - bound runs (deaths = 1 / deaths = 9) for sensitivity.
+impute_suppressed <- TRUE
+impute_method     <- "residual"
+
 ## Load data
 df_mortality <- read.csv(file = file.path(dir_data_raw,"cdc_wonder_data.csv"))
 
@@ -64,27 +85,100 @@ df_mortality <- df_mortality %>%
          death_miss = ifelse(deaths == "Missing", 1, 0),
          pop_miss = ifelse(population == "Missing", 1, 0)) %>%
 
-  ## Replace suppressed or missing values with 0
-  mutate(deaths = ifelse(deaths == "Suppressed", 0, deaths),
-         deaths = ifelse(deaths == "Missing", 0,deaths),
-         population = ifelse(population == "Missing", 0, population)) %>%
+  ## Suppressed/missing deaths -> NA (imputed below); missing population -> NA
+  mutate(deaths = ifelse(deaths %in% c("Suppressed", "Missing"), NA, deaths),
+         population = ifelse(population == "Missing", NA, population)) %>%
 
   ## Rename geographic vars
   rename(fips = county.code) %>%
 
-  ## Tag counties where population is ever 0
-  group_by(fips) %>%
-  mutate(ever_zero_flag = as.numeric(any(population == 0))) %>%
-  ungroup() %>%
-
   ## Convert deaths and population to numeric
   mutate(deaths = as.numeric(deaths), population = as.numeric(population)) %>%
+  mutate(state_fips_mort = fips %/% 1000)
+
+## Impute suppressed cells (1-9 deaths by construction)
+if (impute_suppressed) {
+
+  ## State-year rates from unsuppressed counties (poisson fallback + weights)
+  state_rates <- df_mortality %>%
+    filter(death_supp == 0, death_miss == 0, !is.na(population)) %>%
+    group_by(state_fips_mort, year) %>%
+    summarise(state_rate = sum(deaths) / sum(population) * 100000,
+              .groups = "drop")
+
+  df_mortality <- df_mortality %>%
+    left_join(state_rates, by = c("state_fips_mort", "year"))
+
+  trunc_pois_mean <- function(lambda) {
+    ## E[D | 1 <= D <= 9] under Poisson(lambda)
+    d <- 1:9
+    sapply(lambda, function(l) {
+      if (is.na(l) || l <= 0) return(4.5)
+      p <- dpois(d, l)
+      if (sum(p) == 0) return(ifelse(l > 9, 9, 1))
+      sum(d * p) / sum(p)
+    })
+  }
+
+  state_file <- file.path(dir_data_raw, "cdc_wonder_states.csv")
+  method_used <- impute_method
+  if (impute_method == "residual" && !file.exists(state_file)) {
+    message("cdc_wonder_states.csv not found; falling back to poisson imputation")
+    method_used <- "poisson"
+  }
+
+  if (method_used == "residual") {
+    ## Exact state-year totals from the state-level WONDER export
+    df_states <- read.csv(state_file)
+    names(df_states) <- tolower(names(df_states))
+    df_states <- df_states %>%
+      transmute(state_fips_mort = as.numeric(state.code),
+                year = year,
+                state_deaths = as.numeric(deaths))
+
+    residuals_sy <- df_mortality %>%
+      group_by(state_fips_mort, year) %>%
+      summarise(observed = sum(deaths[death_supp == 0 & death_miss == 0],
+                               na.rm = TRUE),
+                supp_pop = sum(population[death_supp == 1], na.rm = TRUE),
+                .groups = "drop") %>%
+      left_join(df_states, by = c("state_fips_mort", "year")) %>%
+      mutate(residual = state_deaths - observed)
+
+    df_mortality <- df_mortality %>%
+      left_join(residuals_sy %>% select(state_fips_mort, year, residual, supp_pop),
+                by = c("state_fips_mort", "year")) %>%
+      mutate(deaths_imp = ifelse(
+        death_supp == 1 & !is.na(population) & supp_pop > 0,
+        pmin(pmax(residual * population / supp_pop, 1), 9),
+        NA_real_)) %>%
+      select(-residual, -supp_pop)
+  } else if (method_used == "poisson") {
+    df_mortality <- df_mortality %>%
+      mutate(deaths_imp = ifelse(
+        death_supp == 1 & !is.na(population),
+        trunc_pois_mean(population * state_rate / 100000),
+        NA_real_))
+  } else if (method_used == "lower") {
+    df_mortality <- df_mortality %>%
+      mutate(deaths_imp = ifelse(death_supp == 1, 1, NA_real_))
+  } else if (method_used == "upper") {
+    df_mortality <- df_mortality %>%
+      mutate(deaths_imp = ifelse(death_supp == 1, 9, NA_real_))
+  } else stop("Unknown impute_method: ", impute_method)
+
+  df_mortality <- df_mortality %>%
+    mutate(deaths = ifelse(death_supp == 1, deaths_imp, deaths)) %>%
+    select(-deaths_imp, -state_rate)
+}
+
+df_mortality <- df_mortality %>%
 
   ## Create mortality rate
   mutate(crude_rate = (deaths / population) * 100000 ) %>%
 
-  ## Select data
-  select(year, fips, crude_rate, deaths, population)
+  ## Select data (death_supp kept so downstream can flag/exclude imputed cells)
+  select(year, fips, crude_rate, deaths, population, death_supp)
 
 
 ## Population data via https://seer.cancer.gov/popdata/download.html
@@ -149,10 +243,17 @@ df_pop_age <- df_pop %>%
          pop_85 = '18' ) %>%
 
   ## Create summary variables
+  ## NOTE (2026-06): two bug fixes relative to the original version.
+  ##   (1) pop_20_64 / log_20_64 previously used across(pop_20_24:pop_20_24),
+  ##       a one-column range, so they captured only ages 20-24.
+  ##   (2) pct_55_64 previously used pop_total as the denominator; BV2020's
+  ##       five age shares sum to 1 within the 20-64 population (Table 1),
+  ##       so the denominator is the working-age population.
+  ## analysis_data.csv must be regenerated before these fixes reach the paper.
   mutate(pop_total = rowSums(across(pop_00:pop_85)),
-         pop_20_64 = rowSums(across(pop_20_24:pop_20_24))) %>%
-  mutate(pct_55_64 = (pop_55_59 + pop_60_64)/ pop_total,
-         log_20_64 = log(rowSums(across(pop_20_24:pop_20_24))),
+         pop_20_64 = rowSums(across(pop_20_24:pop_60_64))) %>%
+  mutate(pct_55_64 = (pop_55_59 + pop_60_64) / pop_20_64,
+         log_20_64 = log(pop_20_64),
          log_35_44 = log(rowSums(across(pop_35_39:pop_40_44)))) %>%
   select(year, state_abb, state_fips, county_fips, pct_55_64, log_20_64, log_35_44, pop_20_64, pop_total) %>%
   ungroup()
