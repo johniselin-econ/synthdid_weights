@@ -1,7 +1,9 @@
 #!/usr/bin/env Rscript
-# Knit main paper then supplement from clean state.
-# Usage: Rscript _build_all.R
-
+# Knit the paper and/or supplement from a clean state.
+# Usage:
+#   Rscript _build_all.R              # knit both
+#   Rscript _build_all.R paper        # knit only the paper
+#   Rscript _build_all.R supplement   # knit only the supplement
 setwd("C:/Users/ji252/Documents/GitHub/synthdid_weights/paper")
 stopifnot(file.exists("weighted_sdid_paper.Rmd"),
           file.exists("weighted_sdid_supplement.Rmd"))
@@ -32,14 +34,18 @@ knit_one <- function(rmd) {
   invisible(ok)
 }
 
+args <- commandArgs(trailingOnly = TRUE)
+target <- if (length(args) == 0) "both" else args[1]
+stopifnot(target %in% c("both", "paper", "supplement"))
+
 t_start <- Sys.time()
-ok_paper      <- knit_one("weighted_sdid_paper.Rmd")
-ok_supplement <- knit_one("weighted_sdid_supplement.Rmd")
+ok_paper      <- if (target %in% c("both", "paper"))      knit_one("weighted_sdid_paper.Rmd")      else NA
+ok_supplement <- if (target %in% c("both", "supplement")) knit_one("weighted_sdid_supplement.Rmd") else NA
 total <- difftime(Sys.time(), t_start, units = "mins")
 
 cat(sprintf("\n==== Build summary: paper=%s, supplement=%s, total=%.1f min ====\n",
-            if (ok_paper) "OK" else "FAIL",
-            if (ok_supplement) "OK" else "FAIL",
+            if (is.na(ok_paper))      "skipped" else if (ok_paper)      "OK" else "FAIL",
+            if (is.na(ok_supplement)) "skipped" else if (ok_supplement) "OK" else "FAIL",
             as.numeric(total)))
 
-if (!ok_paper || !ok_supplement) quit(status = 1)
+if (isFALSE(ok_paper) || isFALSE(ok_supplement)) quit(status = 1)
