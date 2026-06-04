@@ -13,12 +13,6 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 
 ```{r setup}
 library(synthdid)
-source("../R/utils.R")
-source("../R/solver.R")
-source("../R/synthdid.R")
-source("../R/vcov.R")
-source("../R/summary.R")
-source("../R/print.R")
 set.seed(42)
 ```
 
@@ -31,8 +25,8 @@ The `synthdid_estimate_weighted` function allows user-specified weights on treat
 We demonstrate with simulated data where three treated units have different sizes and effects.
 
 ```{r simulate}
-# Generate panel data
-setup = random.low.rank()
+# Generate panel data (random.low.rank is an internal test DGP)
+setup = synthdid:::random.low.rank()
 N0 = setup$N0
 N1 = nrow(setup$Y) - N0
 T0 = setup$T0

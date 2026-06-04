@@ -3,6 +3,8 @@ navbar:
   left:
   - text: "Get started"
     href: articles/synthdid.html
+  - text: "Weighted SDID"
+    href: articles/synthdid_weighted.html
   - text: "More on Plotting"
     href: articles/more-plotting.html
   - text: "Paper results"
@@ -11,7 +13,7 @@ navbar:
     href: reference/index.html
   right:
   - icon: fa-github fa-lg
-    href: https://github.com/synth-inference/synthdid
+    href: https://github.com/johniselin-econ/synthdid_weights
 
 reference:
   - title: Estimators
@@ -21,12 +23,31 @@ reference:
       - did_estimate
       - vcov.synthdid_estimate
       - synthdid_effect_curve
+      - synthdid_se
+
+  - title: Weighted estimators
+    contents:
+      - synthdid_estimate_weighted
+      - sc_estimate_weighted
+      - did_estimate_weighted
+      - vcov.synthdid_estimate_weighted
+      - synthdid_effect_curve_weighted
+      - synthdid_se_weighted
+      - synthdid_placebo_weighted
+
+  - title: Event studies
+    contents:
+      - synthdid_event_study
+      - plot_event_study
 
   - title: Summary methods
     contents:
       - synthdid_controls
       - summary.synthdid_estimate
       - print.synthdid_estimate
+      - synthdid_controls_weighted
+      - summary.synthdid_estimate_weighted
+      - print.synthdid_estimate_weighted
 
   - title: Utilities
     contents:
@@ -39,7 +60,18 @@ reference:
     - synthdid_units_plot
     - synthdid_placebo_plot
     - synthdid_rmse_plot
+    - plot.synthdid_estimate_weighted
+    - synthdid_plot_weighted
+    - synthdid_placebo_plot_weighted
+
+  - title: Placebo simulations
+    contents:
+      - estimate_dgp
+      - simulate_dgp
+      - lindsey_density_estimate
 
   - title: Data sets
     contents:
       - california_prop99
+      - CPS
+      - PENN

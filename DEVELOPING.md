@@ -1,5 +1,10 @@
 ### Developing
 
+This is a fork of [synth-inference/synthdid](https://github.com/synth-inference/synthdid) that adds
+weighted SDID estimators (`synthdid_estimate_weighted()` and friends) and the accompanying paper in
+`paper/`. Package conventions below are inherited from upstream; after editing roxygen comments,
+re-run `devtools::document()` so `man/` and `NAMESPACE` stay in sync.
+
 Contributions are welcome. To contribute, fork this repository, commit your changes and push them to your fork,
 and submit a pull request explaining your contribution. Ideally, your changes will have a legible commit history.
 To keep us informed about what you're doing, discuss your plans in a github issue here and refer it in your pull request.

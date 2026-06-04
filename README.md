@@ -69,7 +69,3 @@ Mark Borgschulte and Jacob Vogler.
 ### Upstream
 
 This fork is based on [synth-inference/synthdid](https://github.com/synth-inference/synthdid). The original package API is fully preserved; all weighted functions are additive extensions.
-
----
-
-**Note:** The weighted vignette (`vignettes/synthdid_weighted.Rmd`) should be updated to use `library(synthdid)` once the weighted functions are merged into the installed package. Currently it sources `../R/` files directly.
