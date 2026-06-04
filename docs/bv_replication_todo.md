@@ -1,5 +1,49 @@
 # BV2020 thorough-replication TODO
 
+## STATUS UPDATE (2026-06-04 evening, after county re-export + bug 4 fix)
+
+County WONDER re-exports (2005-2011 + 2012-2017, with Suppressed shown) are in
+`paper/data/raw/`; `scripts/rebuild_mortality_panel.R` rebuilds the panel with
+residual-allocation imputation (validated feasible in all 663 state-years) and
+the corrected expansion assignment. **Sample: 2,824 counties vs BV's 2,823.**
+
+**BUG 4 (the big one)**: `state_fips %in% aca` matched character "06" against
+numeric codes — AZ/AR/CA/CO/CT were misclassified as CONTROL and AK escaped
+the drop filter. Fixed in both scripts; analysis_data.csv rebuilt. **All main-
+paper SDID numbers were estimated under the wrong assignment and the paper +
+supplement must be re-knit.**
+
+Current comparison (Rscript scripts/bv_replication_tables.R):
+
+| Table 2 Panel A | ours | BV |
+|---|---|---|
+| (1) Base | -4.32 (7.55) | -14.83 (6.12) |
+| (2) Controls | -5.67 (4.93) | -11.36 (3.59) |
+| (10) High uninsured | **-13.05 (4.30)** | -12.40 (4.22) |
+| (11) Low uninsured | -2.14 (5.17) | -3.96 (4.42) |
+
+Table 1 now matches BV within rounding on mortality (319/355 vs 315/359),
+age shares, % Hispanic (exact), % male, unemployment, poverty, income.
+Remaining gaps = known issues: uninsured (SAHIE bug 3, needs Census key),
+Obama shares (+0.10 level shift both groups, definitional), Dem governor
+(0.50 vs 0.76 expansion — likely CA coding: Schwarzenegger (R) was governor
+when the ACA passed in March 2010 but Brown (D) won Nov 2010; check which
+definition BV use), and trim severity (we trim 31% of control 20-64 pop).
+
+New review items from this run:
+- [ ] `pct_55_64_corrected` (ACS, time-invariant) is dropped by county FE in
+      the DID — BV's control is the time-varying share. Restored when the
+      SEER covariates are rebuilt with the fixed denominator (Mac).
+- [ ] 397 recovered counties lack SEER/LAUS covariates -> excluded from the
+      DLPS complete-case sample (2,426) until the Mac rebuild; SDID gets the
+      full 2,824.
+- [ ] Dem-governor-2010 coding for CA (and any other 2010 transition states).
+- [ ] Obama share definition vs BV (check their Appendix Table A.2).
+
+Original plan below.
+
+---
+
 Status as of 2026-06-04. Goal: replicate the all-cause-mortality parts of
 Borgschulte & Vogler (2020) Tables 1 and 2 (paper: `docs/Borgschulte and
 Vogler (2020).pdf`; extracted text: `docs/bv2020_text.txt`).

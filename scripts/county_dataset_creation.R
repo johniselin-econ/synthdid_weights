@@ -120,7 +120,11 @@ if (impute_suppressed) {
     })
   }
 
-  state_file <- file.path(dir_data_raw, "cdc_wonder_states.csv")
+  ## State-level WONDER export lives in the repo (small, public, unsuppressed);
+  ## fall back to the raw-data directory for older setups.
+  state_file <- here("paper", "data", "raw", "cdc_wonder_states.csv")
+  if (!file.exists(state_file))
+    state_file <- file.path(dir_data_raw, "cdc_wonder_states.csv")
   method_used <- impute_method
   if (impute_method == "residual" && !file.exists(state_file)) {
     message("cdc_wonder_states.csv not found; falling back to poisson imputation")
@@ -323,7 +327,13 @@ df <- df_pop_cov %>%
   ## Merge with Mortality
   left_join(df_mortality, join_by(year, fips)) %>%
 
-  ## Assign ACA variables
+  ## Assign ACA variables.
+  ## BUG FIX (2026-06): state_fips arrives as character with leading zeros
+  ## ("06"), so `state_fips %in% aca` silently failed for every state with a
+  ## single-digit FIPS: AZ, AR, CA, CO, CT were misclassified as control, and
+  ## AK ("02") escaped the late-expansion drop filter. Coerce to numeric
+  ## before matching.
+  mutate(state_fips = as.numeric(state_fips)) %>%
   mutate(expansion = ifelse(state_fips %in% aca,1, 0),
          post = ifelse(year >= 2014,1,0)) %>%
   mutate(treated = post * expansion) %>%
