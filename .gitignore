@@ -39,3 +39,8 @@ vignettes/output/
 # Exceptions: keep data CSVs but not binary artifacts
 !data/*.csv
 !paper/data/*.csv
+
+# Large raw inputs (public; re-downloadable via scripts or browser)
+paper/data/raw/seer_us.*.txt.gz
+paper/data/raw/la.data.64.County
+paper/data/raw/countypres_*.csv

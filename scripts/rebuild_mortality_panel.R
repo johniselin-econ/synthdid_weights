@@ -170,7 +170,10 @@ panel <- mort %>%
          count_year == (END_YEAR - START_YEAR + 1))
 
 # ---------------------------------------------------------------------------
-# 4. Carry over SEER/LAUS covariates from the previous panel
+# 4. Covariates: freshly built SEER/LAUS file when available (covers ALL
+#    counties, fixed definitions; scripts/build_seer_laus_covariates.R),
+#    otherwise carry over from the previous panel. unemp falls back to the
+#    carryover where LAUS is missing (BLS blocks scripted downloads).
 # ---------------------------------------------------------------------------
 
 old <- read_csv(OLD_PANEL, show_col_types = FALSE) %>%
@@ -183,9 +186,23 @@ state_abb_lookup <- old %>%
   filter(!is.na(state_abb)) %>%
   distinct(state_fips = floor(fips / 1000), state_abb)
 
-panel <- panel %>%
-  left_join(old %>% select(-state_abb), by = c("fips", "year")) %>%
-  left_join(state_abb_lookup, by = "state_fips")
+SEER_COV <- "paper/data/seer_laus_covariates.csv"
+if (file.exists(SEER_COV)) {
+  seer <- read_csv(SEER_COV, show_col_types = FALSE)
+  panel <- panel %>%
+    left_join(seer %>% select(-any_of("state_abb")), by = c("fips", "year")) %>%
+    left_join(old %>% select(fips, year, unemp_old = unemp),
+              by = c("fips", "year")) %>%
+    mutate(unemp = coalesce(unemp, unemp_old)) %>%
+    select(-unemp_old) %>%
+    left_join(state_abb_lookup, by = "state_fips")
+  message("Covariates: fresh SEER build (+ LAUS/carryover unemp)")
+} else {
+  panel <- panel %>%
+    left_join(old %>% select(-state_abb), by = c("fips", "year")) %>%
+    left_join(state_abb_lookup, by = "state_fips")
+  message("Covariates: carryover from previous panel (SEER build not found)")
+}
 
 n_no_cov <- panel %>% filter(is.na(pct_white)) %>% distinct(fips) %>% nrow()
 message(sprintf(

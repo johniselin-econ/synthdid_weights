@@ -163,16 +163,71 @@ mort_pre <- panel %>%
 
 # ---------------------------------------------------------------------------
 # 5. Democratic governor 2010 indicator (lookup table at state level)
-#    Source: National Governors Association / Wikipedia, cross-checked
+#    Definition: party of the SITTING governor at ACA passage (March 2010),
+#    per BV2020's "Democratic governors at the time of the passage" (S3.3).
+#    NOTE (2026-06): the previous table had 12 errors against this definition
+#    (e.g., MI Granholm, NM Richardson, OK Henry, WI Doyle, ME Baldacci,
+#    KS Parkinson, WY Freudenthal all D but coded 0; CT Rell, HI Lingle,
+#    RI Carcieri, ND Hoeven, VA McDonnell all R but coded 1). Verified
+#    against NGA records. CAVEAT: BV's published Table 1 weighted means
+#    (0.76 expansion) are only reproducible if CA is coded Democratic
+#    (Brown won Nov 2010 but took office Jan 2011; Schwarzenegger (R) was
+#    governor all of 2010) — see docs/bv_replication_todo.md.
 # ---------------------------------------------------------------------------
 
 dem_gov_2010 <- tribble(
   ~state_fips, ~dem_governor_2010,
-   1, 0,  2, 0,  4, 0,  5, 1,  6, 0,  8, 1,  9, 1, 10, 1, 11, 1, 12, 0,
-  13, 0, 15, 1, 16, 0, 17, 1, 18, 0, 19, 1, 20, 0, 21, 1, 22, 1, 23, 0,
-  24, 1, 25, 1, 26, 0, 27, 0, 28, 0, 29, 1, 30, 1, 31, 0, 32, 0, 33, 1,
-  34, 0, 35, 0, 36, 1, 37, 1, 38, 1, 39, 1, 40, 0, 41, 1, 42, 1, 44, 1,
-  45, 0, 46, 0, 47, 1, 48, 0, 49, 0, 50, 0, 51, 1, 53, 1, 54, 1, 55, 0, 56, 0
+   1, 0,  # AL Riley (R)
+   2, 0,  # AK Parnell (R) - dropped state
+   4, 0,  # AZ Brewer (R)
+   5, 1,  # AR Beebe (D)
+   6, 0,  # CA Schwarzenegger (R)
+   8, 1,  # CO Ritter (D)
+   9, 0,  # CT Rell (R)
+  10, 1,  # DE Markell (D)
+  11, 1,  # DC Fenty (D, mayor)
+  12, 0,  # FL Crist (R)
+  13, 0,  # GA Perdue (R)
+  15, 0,  # HI Lingle (R)
+  16, 0,  # ID Otter (R)
+  17, 1,  # IL Quinn (D)
+  18, 0,  # IN Daniels (R) - dropped state
+  19, 1,  # IA Culver (D)
+  20, 1,  # KS Parkinson (D)
+  21, 1,  # KY Beshear (D)
+  22, 0,  # LA Jindal (R) - dropped state
+  23, 1,  # ME Baldacci (D)
+  24, 1,  # MD O'Malley (D)
+  25, 1,  # MA Patrick (D)
+  26, 1,  # MI Granholm (D)
+  27, 0,  # MN Pawlenty (R)
+  28, 0,  # MS Barbour (R)
+  29, 1,  # MO Nixon (D)
+  30, 1,  # MT Schweitzer (D) - dropped state
+  31, 0,  # NE Heineman (R)
+  32, 0,  # NV Gibbons (R)
+  33, 1,  # NH Lynch (D) - dropped state
+  34, 0,  # NJ Christie (R)
+  35, 1,  # NM Richardson (D)
+  36, 1,  # NY Paterson (D)
+  37, 1,  # NC Perdue (D)
+  38, 0,  # ND Hoeven (R)
+  39, 1,  # OH Strickland (D)
+  40, 1,  # OK Henry (D)
+  41, 1,  # OR Kulongoski (D)
+  42, 1,  # PA Rendell (D) - dropped state
+  44, 0,  # RI Carcieri (R)
+  45, 0,  # SC Sanford (R)
+  46, 0,  # SD Rounds (R)
+  47, 1,  # TN Bredesen (D)
+  48, 0,  # TX Perry (R)
+  49, 0,  # UT Herbert (R)
+  50, 0,  # VT Douglas (R)
+  51, 0,  # VA McDonnell (R, from Jan 16 2010)
+  53, 1,  # WA Gregoire (D)
+  54, 1,  # WV Manchin (D)
+  55, 1,  # WI Doyle (D)
+  56, 1   # WY Freudenthal (D)
 )
 
 # ---------------------------------------------------------------------------

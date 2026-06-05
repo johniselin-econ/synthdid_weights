@@ -64,6 +64,20 @@ bv_cov_vars <- intersect(bv_cov_vars, names(bv_cov))  # tolerate missing pulls
 # 2. County-level baseline frame (2009-2013 means)
 # ---------------------------------------------------------------------------
 
+## Year-by-year pre-expansion mortality 2005-2009 (PS candidates, per BV
+## Appendix Table A.2; 2010-2013 outcomes stay held out). 2005-2008 come from
+## the rebuilt county_mortality_pre.csv, 2009 from the panel itself.
+mort_yearly <- bind_rows(
+  read_csv("paper/data/county_mortality_pre.csv", show_col_types = FALSE) %>%
+    select(fips, year, crude_rate),
+  panel %>% filter(year == 2009) %>% select(fips, year, crude_rate)
+) %>%
+  filter(year >= 2005, year <= 2009) %>%
+  tidyr::pivot_wider(names_from = year, values_from = crude_rate,
+                     names_prefix = "mort_")
+
+MORT_YEARLY_VARS <- paste0("mort_", 2005:2009)
+
 baseline <- panel %>%
   filter(year >= 2009, year <= 2013) %>%
   group_by(fips, state_fips = as.numeric(state_fips), expansion) %>%
@@ -73,6 +87,7 @@ baseline <- panel %>%
             pop_2064_pre   = mean(population, na.rm = TRUE),
             .groups = "drop") %>%
   left_join(bv_cov %>% select(fips, any_of(bv_cov_vars)), by = "fips") %>%
+  left_join(mort_yearly, by = "fips") %>%
   ## ACS 55-64 share (20-64 denominator) replaces the panel's total-pop-share
   mutate(pct_55_64_corrected = pct_5564) %>%
   drop_na()
@@ -84,14 +99,19 @@ message("Complete-case counties: ", nrow(baseline),
 # 3. Double lasso (square-root lasso per BV fn. 8) and propensity score
 # ---------------------------------------------------------------------------
 
+## Candidate set now mirrors BV fn. 8: demographics/economics/politics plus
+## 2005-2009 all-cause mortality year-by-year. The 2009-2013 average
+## (avg_mortality_pre) is excluded -- BV hold out 2010-2013 outcomes.
 control_vars <- unique(c(setdiff(panel_controls, "pct_55_64_corrected"),
-                         "pct_55_64_corrected", bv_cov_vars))
+                         "pct_55_64_corrected",
+                         setdiff(bv_cov_vars, "avg_mortality_pre"),
+                         MORT_YEARLY_VARS))
 X_mat <- scale(as.matrix(baseline[, control_vars]))
 X_mat[!is.finite(X_mat)] <- 0
 D_vec <- baseline$expansion
-Y_vec <- baseline$avg_mortality_pre  # TODO: 2005-2009 average after rebuild
+Y_vec <- rowMeans(baseline[, MORT_YEARLY_VARS])  # 2005-2009 avg, holdout intact
 
-out_keep <- setdiff(control_vars, "avg_mortality_pre")  # target-leakage guard
+out_keep <- control_vars  # mortality target is no longer itself a candidate
 out_idx  <- which(control_vars %in% out_keep)
 
 if (USE_SQRT_LASSO) {
@@ -203,6 +223,17 @@ print(table1 %>%
                   ours_exp = round(our_exp_mean, 2), bv_exp = bv_exp_mean,
                   ours_ctrl = round(our_ctrl_mean, 2), bv_ctrl = bv_ctrl_mean),
       n = 30)
+
+## Diagnostic: BV's expansion-group Dem-governor mean (0.76) equals our
+## UNWEIGHTED share of expansion counties in Dem-governor states, suggesting
+## the political rows of their Table 1 may be unweighted despite the caption.
+cat("\n-- Political variables, unweighted county means (BV exp/ctrl: ",
+    "Obama08 0.46/0.38, Obama12 0.43/0.35, DemGov 0.76/0.49) --\n", sep = "")
+for (v in c("obama_share_2008", "obama_share_2012", "dem_governor_2010")) {
+  cat(sprintf("%-18s exp %.2f  ctrl %.2f\n", v,
+              mean(trimmed[[v]][trimmed$expansion == 1], na.rm = TRUE),
+              mean(trimmed[[v]][trimmed$expansion == 0], na.rm = TRUE)))
+}
 
 # ---------------------------------------------------------------------------
 # 5. Table 2 Panel A: weighted DID, ours vs published
