@@ -13,14 +13,33 @@ the drop filter. Fixed in both scripts; analysis_data.csv rebuilt. **All main-
 paper SDID numbers were estimated under the wrong assignment and the paper +
 supplement must be re-knit.**
 
-Current comparison (Rscript scripts/bv_replication_tables.R):
+Current comparison (Rscript scripts/bv_replication_tables.R, 2026-06-05 after
+SAHIE fix + MIT votes + governor recode + yearly 2005-09 PS mortality + SEER
+covariate rebuild):
 
 | Table 2 Panel A | ours | BV |
 |---|---|---|
-| (1) Base | -4.32 (7.55) | -14.83 (6.12) |
-| (2) Controls | -5.67 (4.93) | -11.36 (3.59) |
-| (10) High uninsured | **-13.05 (4.30)** | -12.40 (4.22) |
-| (11) Low uninsured | -2.14 (5.17) | -3.96 (4.42) |
+| (1) Base | -9.39 (4.88) | -14.83 (6.12) |
+| (2) Controls | -6.18 (4.26) | -11.36 (3.59) |
+| (10) High uninsured | **-11.25 (4.04)** | -12.40 (4.22) |
+| (11) Low uninsured | -3.21 (4.69) | -3.96 (4.42) |
+
+Cols (1), (10), (11) within ~1 SE of BV; pooled-controls gap ~5 deaths.
+Trim now 254 counties vs BV's 563; selected PS covariates mirror BV App. A.2.
+RESOLVED since the first run: BV Table 1 political rows are UNWEIGHTED county
+means (unweighted we match: 0.47/0.40, 0.43/0.37, 0.79/0.47 vs published
+0.46/0.38, 0.43/0.35, 0.76/0.49); expenditures variable descoped (BV's lasso
+never selected it, App. A.2); 2005-09 yearly mortality now in the PS with the
+2010-13 holdout intact.
+
+**Single remaining data item: LAUS unemployment** (BLS 403s all scripted
+access). In a browser: download
+https://download.bls.gov/pub/time.series/la/la.data.64.County
+-> save to paper/data/raw/la.data.64.County, then re-run
+scripts/build_seer_laus_covariates.R, rebuild_mortality_panel.R, and
+bv_replication_tables.R. This brings the ~400 recovered counties (currently
+missing unemp) into the DLPS complete-case sample (2,426 -> ~2,820 vs BV's
+2,823).
 
 Table 1 now matches BV within rounding on mortality (319/355 vs 315/359),
 age shares, % Hispanic (exact), % male, unemployment, poverty, income.
