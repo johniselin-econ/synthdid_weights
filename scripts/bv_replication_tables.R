@@ -50,10 +50,14 @@ bv_cov <- read_csv("paper/data/bv_covariates.csv", show_col_types = FALSE)
 panel_controls <- c("pct_white", "pct_55_64", "log_20_64",
                     "log_35_44", "log_f_20_64", "unemp")
 
+## NOTE: avg_mortality_pre (2009-13 avg from the OLD panel) is deliberately
+## absent -- it isn't used (the outcome lasso targets the 2005-09 yearly
+## average) and joining it would drop_na() away every county recovered by the
+## suppression imputation, since the old panel never contained them.
 bv_cov_vars <- c("pct_male", "pct_black", "pct_hispanic",
                  "pct_2024", "pct_2534", "pct_3544", "pct_4554", "pct_5564",
                  "poverty_rate", "log_median_income", "log_pop_density",
-                 "uninsured_rate", "avg_mortality_pre", "dem_governor_2010",
+                 "uninsured_rate", "dem_governor_2010",
                  "obama_share_2008", "obama_share_2012")
 bv_cov_vars <- intersect(bv_cov_vars, names(bv_cov))  # tolerate missing pulls
 
