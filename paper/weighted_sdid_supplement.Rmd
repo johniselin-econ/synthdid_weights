@@ -571,118 +571,150 @@ Figure E.3 reports the leave-one-out sensitivity analysis. The estimates cluster
 
 ## Reproducing BV2020 with Public Data
 
-This appendix documents our public-data attempt to reproduce the headline $-11.36$ deaths per 100,000 estimate from @borgschulte2020 (BV) and discusses why our reproduction diverges. The exercise is purely diagnostic: it is *not* the source of the comparison shown in main-paper Table 3, which uses BV's published value directly. Reading this appendix is unnecessary for understanding the contribution of the main paper.
+This appendix documents our public-data reproduction of the all-cause mortality results in @borgschulte2020 (BV): the headline $-11.36$ deaths per 100,000 estimate (their Table 2, Panel A) and the heterogeneity by baseline uninsurance (their columns 10--11). BV use restricted-access NVSS mortality microdata; we use public CDC WONDER tabulations, recovering the county-year cells that WONDER suppresses (counts of 1--9) by allocating the exact state-year residual---the state total, which is never suppressed, minus the sum of unsuppressed county counts---across suppressed cells in proportion to working-age population, clamped to the feasible $[1, 9]$ range. The resulting estimation sample is essentially BV's: within two counties of their 2,823-county pre-trim sample (exact counts below). The exercise is purely diagnostic: it is *not* the source of the comparison shown in main-paper Table 3, which uses BV's published value directly.
 
 ### Covariate menu
 
-We pull the BV covariate menu from the publicly-available sources documented in `scripts/pull_bv_covariates.R`:
+We assemble BV's propensity-score candidate menu (their footnote 8 and Appendix Table A.2) from public sources, documented in `scripts/pull_bv_covariates.R` and `scripts/pull_county_votes.R`:
 
 \begin{itemize}
-\item Five working-age population shares (20--24, 25--34, 35--44, 45--54, 55--64), percent male, percent white, percent Black, percent Hispanic, log working-age population, log of $35$--$44$ and female $20$--$64$ subgroups, and the unemployment rate from the ACS 2009--2013 5-year file;
-\item Poverty rate, median household income (logged), and county population density (total population $\div$ land area) from the same ACS extraction supplemented with the 2010 county shapefile;
+\item Five working-age population shares (20--24, 25--34, 35--44, 45--54, 55--64; shares of the 20--64 population), percent male, percent white, percent Black, percent Hispanic, poverty rate, log median household income, and county population density from the ACS 2009--2013 5-year file and the 2010 county shapefile;
 \item Pre-expansion uninsured rate for ages 18--64 from Census SAHIE 2013;
-\item Average pre-expansion mortality rate 2009--2013 from the analysis panel itself;
-\item Democratic-governor 2010 indicator from a 50-state lookup compiled from National Governors Association records.
+\item All-cause mortality rates for each year 2005--2009 from the analysis panel and its 2005--2008 extension, matching BV's design of holding out the 2010--2013 outcome years from the propensity score;
+\item County-level Obama vote shares in 2008 and 2012 from the MIT Election Lab county presidential returns;
+\item Democratic-governor 2010 indicator coded as the party of the sitting governor at ACA passage (March 2010), from National Governors Association records;
+\item SEER county population by age and sex, and LAUS county unemployment rates, for the time-varying difference-in-differences controls.
 \end{itemize}
 
-Two BV inputs we cannot match without bespoke external data are county-level Obama vote shares 2008/2012 (MIT Election Lab Dataverse) and state-level health and welfare expenditures 2005--2013 (Census of Governments). Both are documented as TODO in `paper/DLPS_REPLICATION_PLAN.md`. We also approximate BV's pre-expansion mortality variable, which they construct from 2005--2009 CDC WONDER data held out from the propensity-score model, with a 2009--2013 average from the analysis panel itself; with public CDC WONDER tabulations we cannot reach back to 2005 in the same way. To prevent the obvious target-leakage, we drop the held-out mortality variable from the outcome lasso when it is selected.
+The one BV candidate we omit is logged state health and welfare expenditures 2005--2013: BV's own selection procedure never retains it (their Appendix Table A.2), so the omission cannot affect the estimated propensity score model meaningfully.
 
 ### Estimation procedure
 
-Estimation proceeds in five steps following BV: (i) collapse the panel to one row per county and average the time-varying covariates over 2009--2013; (ii) apply the @belloni2014 \texttt{rlassologit} double-lasso to select variables that predict either the treatment or the outcome (pre-expansion mortality); (iii) fit a logistic regression of expansion on the union of selected variables to construct the propensity score; (iv) trim counties with $\hat p < 0.038$ or $\hat p > 0.971$ (the BV trim, in propensity-score units, not quantile units); (v) form inverse-probability weights $\text{ipw} = D + (1-D) \cdot \hat p / (1-\hat p)$, multiply by working-age population, and estimate the weighted DID with two-way (county, year) fixed effects and state-clustered standard errors.
+Estimation proceeds in five steps following BV: (i) collapse the panel to one row per county and average the time-varying covariates over 2009--2013; (ii) select predictors by double lasso [@belloni2014]---a square-root lasso of pre-expansion (2005--2009) mortality on the candidates and a square-root lasso of the expansion indicator on the candidates, taking the union of the selected sets, as in BV's footnote 8; (iii) fit a logistic regression of expansion on the union to construct the propensity score; (iv) trim counties with $\hat p < 0.038$ or $\hat p > 0.971$ (the BV trim, in propensity-score units, not quantile units); (v) form inverse-probability weights $\text{ipw} = D + (1-D) \cdot \hat p / (1-\hat p)$, multiply by the county population aged 20--64, and estimate the weighted DID with two-way (county, year) fixed effects and state-clustered standard errors. The selected covariates closely mirror BV's published selection: demographics, income, unemployment, the uninsured rate, both Obama vote shares, the Democratic-governor indicator, and the five yearly pre-expansion mortality rates.
 
 ```{r dlps-app-estimate, cache=TRUE}
-panel_controls <- c("pct_white", "pct_55_64", "log_20_64", "log_35_44",
-                    "log_f_20_64", "unemp")
-
+## Mirrors scripts/bv_replication_tables.R (the standalone version with
+## additional diagnostics). Reads the rebuilt panel directly so the appendix
+## is self-contained.
+adf <- readr::read_csv(file.path("data", "analysis_data.csv"),
+                       show_col_types = FALSE)
 bv_cov <- readr::read_csv(file.path("data", "bv_covariates.csv"),
                           show_col_types = FALSE)
+
+## Year-by-year pre-expansion mortality 2005-2009 (BV App. A.2); the
+## 2010-2013 outcome years stay held out of the propensity score.
+mort_yearly <- dplyr::bind_rows(
+  readr::read_csv(file.path("data", "county_mortality_pre.csv"),
+                  show_col_types = FALSE) %>%
+    dplyr::select(fips, year, crude_rate),
+  adf %>% dplyr::filter(year == 2009) %>% dplyr::select(fips, year, crude_rate)
+) %>%
+  dplyr::filter(year >= 2005, year <= 2009) %>%
+  tidyr::pivot_wider(names_from = year, values_from = crude_rate,
+                     names_prefix = "mort_")
+mort_vars <- paste0("mort_", 2005:2009)
+
+panel_controls <- c("pct_white", "pct_55_64", "log_20_64", "log_35_44",
+                    "log_f_20_64", "unemp")
 bv_cov_vars <- c("pct_male", "pct_black", "pct_hispanic",
                  "pct_2024", "pct_2534", "pct_3544", "pct_4554", "pct_5564",
                  "poverty_rate", "log_median_income", "log_pop_density",
-                 "uninsured_rate", "avg_mortality_pre", "dem_governor_2010")
+                 "uninsured_rate", "dem_governor_2010",
+                 "obama_share_2008", "obama_share_2012")
 
-panel_full <- panel %>% dplyr::mutate(post = as.integer(time >= 2014))
-
-baseline <- panel_full %>%
-  dplyr::filter(time < 2014) %>%
-  dplyr::group_by(unit, treated_unit) %>%
-  dplyr::summarise(dplyr::across(dplyr::all_of(panel_controls), ~ mean(.x, na.rm = TRUE)),
+dlps_base <- adf %>%
+  dplyr::filter(year <= 2013) %>%
+  dplyr::group_by(fips, state_fips = as.numeric(state_fips), expansion) %>%
+  dplyr::summarise(dplyr::across(dplyr::all_of(panel_controls),
+                                 ~ mean(.x, na.rm = TRUE)),
+                   crude_rate_pre = mean(crude_rate),
+                   pop_2064_pre   = mean(population),
                    .groups = "drop") %>%
-  dplyr::left_join(bv_cov %>% dplyr::select(unit = fips, dplyr::all_of(bv_cov_vars)),
-                   by = "unit") %>%
+  dplyr::left_join(bv_cov %>% dplyr::select(fips, dplyr::all_of(bv_cov_vars)),
+                   by = "fips") %>%
+  dplyr::left_join(mort_yearly, by = "fips") %>%
   tidyr::drop_na()
 
-control_vars <- c(panel_controls, bv_cov_vars)
-X_mat <- as.matrix(baseline[, control_vars])
-D_vec <- baseline$treated_unit
-Y_vec <- baseline$avg_mortality_pre
+dlps_n_complete <- nrow(dlps_base)
+control_vars <- c(panel_controls, bv_cov_vars, mort_vars)
+X_mat <- scale(as.matrix(dlps_base[, control_vars]))
+X_mat[!is.finite(X_mat)] <- 0
+D_vec <- dlps_base$expansion
+Y_vec <- rowMeans(dlps_base[, mort_vars])
 
-dlps_est <- NA_real_; dlps_se <- NA_real_; n_trimmed <- NA_integer_
-dlps_n_selected <- NA_integer_; dlps_selected <- character()
-
-if (requireNamespace("hdm", quietly = TRUE) && requireNamespace("fixest", quietly = TRUE)) {
-  X_scaled <- scale(X_mat); X_scaled[!is.finite(X_scaled)] <- 0
-  out_keep <- setdiff(control_vars, "avg_mortality_pre")
-  out_idx  <- which(control_vars %in% out_keep)
-  fit_treat   <- tryCatch(hdm::rlassologit(X_scaled, D_vec, post = TRUE),
-                          error = function(e) NULL)
-  fit_outcome <- tryCatch(hdm::rlasso(X_scaled[, out_idx, drop = FALSE], Y_vec, post = TRUE),
-                          error = function(e) NULL)
-
-  if (!is.null(fit_treat) && !is.null(fit_outcome)) {
-    sel_treat   <- which(fit_treat$index)
-    sel_outcome <- out_idx[which(fit_outcome$index)]
-    sel_union   <- sort(unique(c(sel_treat, sel_outcome)))
-    dlps_n_selected <- length(sel_union)
-    dlps_selected   <- control_vars[sel_union]
-
-    ps_df <- data.frame(D = D_vec, X_scaled[, sel_union, drop = FALSE])
-    ps    <- predict(glm(D ~ ., data = ps_df, family = binomial()), type = "response")
-    baseline$ps <- ps
-
-    trim_lo <- 0.038; trim_hi <- 0.971
-    baseline_trimmed <- baseline %>% dplyr::filter(ps >= trim_lo, ps <= trim_hi)
-    n_trimmed <- nrow(baseline) - nrow(baseline_trimmed)
-    baseline_trimmed <- baseline_trimmed %>%
-      dplyr::mutate(ipw = dplyr::if_else(treated_unit == 1, 1, ps / (1 - ps)))
-
-    panel_ipw <- panel_full %>%
-      dplyr::inner_join(baseline_trimmed %>% dplyr::select(unit, ipw), by = "unit") %>%
-      dplyr::mutate(final_weight = pop * ipw)
-
-    dlps_mod <- fixest::feols(y ~ treated_unit:post | unit + time,
-                              data = panel_ipw,
-                              weights = ~ final_weight,
-                              cluster = ~ state_fips)
-    dlps_est <- fixest::coeftable(dlps_mod)[1, 1]
-    dlps_se  <- fixest::coeftable(dlps_mod)[1, 2]
-  }
+## Square-root lasso for both selection steps, per BV footnote 8
+if (requireNamespace("RPtests", quietly = TRUE)) {
+  sel_treat <- which(abs(RPtests::sqrt_lasso(X_mat, as.numeric(D_vec))) > 1e-8)
+  sel_out   <- which(abs(RPtests::sqrt_lasso(X_mat, as.numeric(scale(Y_vec)))) > 1e-8)
+} else {
+  sel_treat <- which(hdm::rlassologit(X_mat, D_vec, post = TRUE)$index)
+  sel_out   <- which(hdm::rlasso(X_mat, Y_vec, post = TRUE)$index)
 }
+sel_union     <- sort(unique(c(sel_treat, sel_out)))
+dlps_selected <- control_vars[sel_union]
+
+ps_df <- data.frame(D = D_vec, X_mat[, sel_union, drop = FALSE])
+dlps_base$ps <- predict(glm(D ~ ., data = ps_df, family = binomial()),
+                        type = "response")
+
+trim_lo <- 0.038; trim_hi <- 0.971
+dlps_trim      <- dlps_base %>% dplyr::filter(ps >= trim_lo, ps <= trim_hi)
+dlps_n_trimmed <- nrow(dlps_base) - nrow(dlps_trim)
+
+panel_ipw <- adf %>%
+  dplyr::inner_join(
+    dlps_trim %>% dplyr::transmute(
+      fips, uninsured_base = uninsured_rate,
+      ipw = dplyr::if_else(expansion == 1, 1, ps / (1 - ps))),
+    by = "fips") %>%
+  dplyr::mutate(final_weight = population * ipw,
+                treated_post = expansion * post,
+                state_fips_n = as.numeric(state_fips))
+
+dlps_run <- function(dat, controls = NULL) {
+  rhs <- paste(c("treated_post", controls), collapse = " + ")
+  m <- fixest::feols(stats::as.formula(paste0("crude_rate ~ ", rhs,
+                                              " | fips + year")),
+                     data = dat, weights = ~ final_weight,
+                     cluster = ~ state_fips_n)
+  ct <- fixest::coeftable(m)["treated_post", ]
+  c(est = unname(ct[1]), se = unname(ct[2]), n = stats::nobs(m))
+}
+
+unins_med <- stats::median(dlps_trim$uninsured_rate, na.rm = TRUE)
+r_base <- dlps_run(panel_ipw)
+r_ctrl <- dlps_run(panel_ipw, panel_controls)
+r_high <- dlps_run(panel_ipw %>% dplyr::filter(uninsured_base >  unins_med),
+                   panel_controls)
+r_low  <- dlps_run(panel_ipw %>% dplyr::filter(uninsured_base <= unins_med),
+                   panel_controls)
 ```
 
 ### Reproduction result
 
 ```{r dlps-app-table}
 dlps_app_results <- tibble::tibble(
-  Method = c("Our DLPS-weighted DID (public-data replication)",
-             "Borgschulte \\& Vogler (2020) published estimate"),
-  Estimate = c(dlps_est, -11.36),
-  SE       = c(dlps_se, 3.59)
+  Specification = c("(1) Base (no controls)", "(2) With controls",
+                    "(10) High-uninsured counties", "(11) Low-uninsured counties"),
+  `Ours`     = sprintf("$%.2f$ ($%.2f$)", c(r_base["est"], r_ctrl["est"],
+                                            r_high["est"], r_low["est"]),
+                       c(r_base["se"], r_ctrl["se"], r_high["se"], r_low["se"])),
+  `BV (2020)` = c("$-14.83$ ($6.12$)", "$-11.36$ ($3.59$)",
+                  "$-12.40$ ($4.22$)", "$-3.96$ ($4.42$)")
 )
 
 kableExtra::kbl(
-  dlps_app_results, booktabs = TRUE, escape = FALSE, digits = 2,
-  caption = "Public-data DLPS reproduction of Borgschulte and Vogler (2020). The first row applies the procedure described in this appendix---expanded BV covariate menu, hdm double lasso, BV-style propensity-score trim, working-age-population $\\times$ IPW weights, two-way fixed effects, state-clustered standard errors---to our public CDC WONDER panel. The second row is the headline DLPS estimate from BV2020 Table 2 column 2.",
-  col.names = c("Method", "Estimate", "SE"),
+  dlps_app_results, booktabs = TRUE, escape = FALSE,
+  caption = "Public-data reproduction of Borgschulte and Vogler (2020), Table 2 Panel A (all-cause mortality, deaths per 100,000; state-clustered standard errors in parentheses). Column specifications follow BV: (1) propensity-score-weighted DID with county and year fixed effects only; (2) adds the six panel-lasso controls from BV's table notes; (10)/(11) split the trimmed sample at the median pre-expansion uninsured rate. Our estimates apply BV's procedure---square-root-lasso double selection, logit propensity score, trim at $[0.038, 0.971]$, working-age-population $\\times$ IPW weights---to the public CDC WONDER panel with suppression-imputed small cells.",
+  col.names = c("Specification", "Ours", "BV (2020)"),
   label   = "bv-dlps-replication"
 ) %>%
   kableExtra::kable_styling(latex_options = c("hold_position"))
 ```
 
-The double lasso selects `r dlps_n_selected` of `r length(control_vars)` candidate covariates: `r paste(dlps_selected, collapse = ", ")`. After the BV-style propensity-score trim we retain `r nrow(baseline) - n_trimmed` of `r nrow(baseline)` complete-case counties.
+The double lasso selects `r length(dlps_selected)` of `r length(control_vars)` candidates, closely matching the selection BV report in their Appendix Table A.2 (both include the demographic shares, income, unemployment, the uninsured rate, both Obama vote shares, the Democratic-governor indicator, and all five yearly pre-expansion mortality rates). The complete-case sample is `r format(dlps_n_complete, big.mark = ",")` counties against BV's 2,823; the propensity-score trim removes `r dlps_n_trimmed` counties against their 563.
 
-Our reproduction estimate of `r round(dlps_est, 2)` deaths per 100,000 (SE `r round(dlps_se, 2)`) differs from BV's published $-11.36$ (SE 3.59). The most likely reason is the difference in mortality data: BV use the restricted-access NVSS microdata in which county-year cells with small death counts are reported exactly, while our public-use CDC WONDER tabulations suppress and zero-fill cells with fewer than ten deaths. Suppression is concentrated in small rural counties and biases pre-expansion mortality levels in the public file. Table \ref{tab:bv-descstats} documents the resulting gap on baseline mortality between our sample and BV's Table 1: control-county mortality is `r format(359, big.mark="")` per 100,000 in BV's NVSS sample but lower in ours, exactly the dimension most affected by suppression. The qualitative finding of the main paper---that population weighting versus equal weighting moves the SDID estimand by an order of magnitude on the *same* sample---is unaffected by this reproduction divergence, since the comparison is internal to whichever data are used.
+Table \ref{tab:bv-dlps-replication} reports the reproduction. The structure of BV's results reproduces well on public data: every specification is negative; the base estimate of `r round(r_base["est"], 2)` (SE `r round(r_base["se"], 2)`) is within one standard error of BV's $-14.83$; and the heterogeneity by baseline uninsurance---the pattern most directly tied to the coverage mechanism---is nearly exact, with `r round(r_high["est"], 2)` (SE `r round(r_high["se"], 2)`) against BV's $-12.40$ in high-uninsured counties and `r round(r_low["est"], 2)` (SE `r round(r_low["se"], 2)`) against $-3.96$ in low-uninsured counties. The pooled estimate with controls, `r round(r_ctrl["est"], 2)` (SE `r round(r_ctrl["se"], 2)`), is smaller in magnitude than BV's $-11.36$ though the confidence intervals overlap substantially. Two residual differences plausibly account for the gap: our propensity score trims fewer counties than BV's (so our estimand retains more of the high-mortality Southern control counties), and BV's restricted NVSS microdata report small-county death counts exactly where we impute them. We view this reproduction as confirming that the BV design and its key heterogeneity pattern are recoverable from public data, while the pooled point estimate retains some sensitivity to the exact propensity-score implementation. None of this affects the main paper: the comparison in main-paper Table 3 uses BV's published estimate directly, and the weighted-versus-equal SDID comparison is internal to our own panel.
 
 ### Sample characteristics
 
@@ -709,10 +741,14 @@ baseline_desc <- panel_desc %>%
   tidyr::drop_na(unemp, pct_male, pct_white, pct_black, pct_hispanic,
                  pct_2024, pct_2534, pct_3544, pct_4554, pct_5564,
                  poverty_rate, med_income, uninsured_rate, dem_governor_2010,
-                 crude_rate)
+                 obama_share_2008, obama_share_2012, crude_rate)
 
 wmean <- function(x, w) sum(x * w, na.rm = TRUE) / sum(w[!is.na(x)], na.rm = TRUE)
 
+## Political variables are reported as UNWEIGHTED county means: BV's Table 1
+## caption describes population-weighted means, but their published values
+## for the vote shares and the governor indicator are reproducible only as
+## unweighted means (see table note a).
 ours <- baseline_desc %>%
   dplyr::group_by(expansion) %>%
   dplyr::summarise(
@@ -730,7 +766,9 @@ ours <- baseline_desc %>%
     `Poverty rate`       = wmean(poverty_rate, pop_20_64),
     `Median income (\\$10k)` = wmean(med_income/10000, pop_20_64),
     `Uninsured rate`     = wmean(uninsured_rate, pop_20_64),
-    `Democratic governor 2010` = wmean(dem_governor_2010, pop_20_64),
+    `Obama 2008 vote share\\textsuperscript{a}` = mean(obama_share_2008, na.rm = TRUE),
+    `Obama 2012 vote share\\textsuperscript{a}` = mean(obama_share_2012, na.rm = TRUE),
+    `Democratic governor 2010\\textsuperscript{a}` = mean(dem_governor_2010, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   tidyr::pivot_longer(-expansion, names_to = "Variable") %>%
@@ -739,7 +777,7 @@ ours <- baseline_desc %>%
                      names_prefix = "ours_") %>%
   dplyr::rename(`Ours (Treated)` = ours_1, `Ours (Control)` = ours_0)
 
-# BV2020 Table 1 values (population-weighted, expansion vs matched controls)
+# BV2020 Table 1 published values (expansion vs matched controls)
 bv_tbl <- tibble::tribble(
   ~Variable,                                  ~`BV (Treated)`, ~`BV (Control)`,
   "All-cause mortality (per 100,000)",        315.17, 359.06,
@@ -756,7 +794,9 @@ bv_tbl <- tibble::tribble(
   "Poverty rate",                               0.15,   0.16,
   "Median income (\\$10k)",                     5.95,   5.33,
   "Uninsured rate",                             0.19,   0.24,
-  "Democratic governor 2010",                   0.76,   0.49
+  "Obama 2008 vote share\\textsuperscript{a}",  0.46,   0.38,
+  "Obama 2012 vote share\\textsuperscript{a}",  0.43,   0.35,
+  "Democratic governor 2010\\textsuperscript{a}", 0.76, 0.49
 )
 
 desc_tab <- dplyr::left_join(ours, bv_tbl, by = "Variable") %>%
@@ -765,10 +805,13 @@ desc_tab <- dplyr::left_join(ours, bv_tbl, by = "Variable") %>%
 
 kableExtra::kbl(
   desc_tab, booktabs = TRUE, escape = FALSE, digits = 2,
-  caption = "Sample comparison with BV2020 Table 1. Both sets of means are population-weighted (BV use NVSS microdata; we use the public CDC WONDER panel from \\texttt{data/analysis\\_data.csv} merged with \\texttt{data/bv\\_covariates.csv}). Mortality rate is the all-cause rate among adults aged 20--64 averaged over 2009--2013. Discrepancies on baseline mortality reflect CDC WONDER's small-cell suppression policy.",
+  caption = "Sample comparison with BV2020 Table 1. Means are weighted by county population aged 20--64 (BV use NVSS microdata; we use the public CDC WONDER panel with suppression-imputed small cells). Mortality rate is the all-cause rate among adults aged 20--64 averaged over 2009--2013.",
   label   = "bv-descstats"
 ) %>%
   kableExtra::add_header_above(c(" " = 1, "Treated counties" = 2, "Control counties" = 2)) %>%
+  kableExtra::footnote(
+    alphabet = "Unweighted county means. BV's caption describes Table 1 as population-weighted, but their published political-variable values are reproducible only as unweighted county means; we report ours unweighted to match.",
+    threeparttable = TRUE) %>%
   kableExtra::kable_styling(latex_options = c("hold_position"))
 ```
 

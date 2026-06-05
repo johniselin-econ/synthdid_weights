@@ -7,6 +7,18 @@
 #           Construct County-Year panel from 2009 through 2017.
 #           The original paper used confidential mortality data, which we do not
 #           have access to. Rather, we use public data via CDC wonder.
+#
+# *** SUPERSEDED (June 2026) ***
+# The canonical build is now fully public-data and machine-independent:
+#   1. scripts/build_seer_laus_covariates.R  (SEER population + LAUS unemp;
+#      raw files in paper/data/raw/, see headers for download notes)
+#   2. scripts/rebuild_mortality_panel.R     (CDC WONDER county exports with
+#      suppression imputation + treatment assignment + covariate merge)
+# Those scripts incorporate all fixes made here (the across() one-column
+# range bug in pop_20_64/log_20_64, the pct_55_64 denominator, the
+# character-vs-numeric state_fips matching bug, suppression imputation).
+# This script is retained for provenance: it documents the original
+# Mac/Dropbox build and the single-file WONDER export it consumed.
 # =============================================================================
 
 ## CLEAR ALL
