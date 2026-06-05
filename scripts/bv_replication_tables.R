@@ -40,17 +40,14 @@ TRIM_HI <- 0.971
 # 1. Load data; corrected control variables
 # ---------------------------------------------------------------------------
 
-panel <- read_csv("paper/data/analysis_data.csv", show_col_types = FALSE) %>%
-  mutate(
-    ## Corrections pending the analysis_data.csv rebuild:
-    ## WONDER `population` is the 20-64 denominator, so log(population) is the
-    ## correct log_20_64; the stored column is log of ages 20-24 only.
-    log_20_64 = log(population)
-  )
+## Panel covariates are correct as of the SEER rebuild (fixed log_20_64 and
+## pct_55_64 definitions, time-varying so they survive the county FE).
+panel <- read_csv("paper/data/analysis_data.csv", show_col_types = FALSE)
 
 bv_cov <- read_csv("paper/data/bv_covariates.csv", show_col_types = FALSE)
 
-panel_controls <- c("pct_white", "pct_55_64_corrected", "log_20_64",
+## BV's six panel-lasso-selected DID controls (their table notes)
+panel_controls <- c("pct_white", "pct_55_64", "log_20_64",
                     "log_35_44", "log_f_20_64", "unemp")
 
 bv_cov_vars <- c("pct_male", "pct_black", "pct_hispanic",
@@ -81,15 +78,14 @@ MORT_YEARLY_VARS <- paste0("mort_", 2005:2009)
 baseline <- panel %>%
   filter(year >= 2009, year <= 2013) %>%
   group_by(fips, state_fips = as.numeric(state_fips), expansion) %>%
-  summarise(across(c(pct_white, log_20_64, log_35_44, log_f_20_64, unemp),
+  summarise(across(c(pct_white, pct_55_64, log_20_64, log_35_44,
+                     log_f_20_64, unemp),
                    ~ mean(.x, na.rm = TRUE)),
             crude_rate_pre = mean(crude_rate, na.rm = TRUE),
             pop_2064_pre   = mean(population, na.rm = TRUE),
             .groups = "drop") %>%
   left_join(bv_cov %>% select(fips, any_of(bv_cov_vars)), by = "fips") %>%
   left_join(mort_yearly, by = "fips") %>%
-  ## ACS 55-64 share (20-64 denominator) replaces the panel's total-pop-share
-  mutate(pct_55_64_corrected = pct_5564) %>%
   drop_na()
 
 message("Complete-case counties: ", nrow(baseline),
@@ -102,8 +98,7 @@ message("Complete-case counties: ", nrow(baseline),
 ## Candidate set now mirrors BV fn. 8: demographics/economics/politics plus
 ## 2005-2009 all-cause mortality year-by-year. The 2009-2013 average
 ## (avg_mortality_pre) is excluded -- BV hold out 2010-2013 outcomes.
-control_vars <- unique(c(setdiff(panel_controls, "pct_55_64_corrected"),
-                         "pct_55_64_corrected",
+control_vars <- unique(c(panel_controls,
                          setdiff(bv_cov_vars, "avg_mortality_pre"),
                          MORT_YEARLY_VARS))
 X_mat <- scale(as.matrix(baseline[, control_vars]))
@@ -243,7 +238,7 @@ stopifnot(requireNamespace("fixest", quietly = TRUE))
 
 panel_ipw <- panel %>%
   inner_join(trimmed %>%
-               transmute(fips, ps, pct_55_64_corrected,
+               transmute(fips, ps,
                          uninsured_rate_base = uninsured_rate,
                          ipw = ifelse(expansion == 1, 1, ps / (1 - ps))),
              by = "fips") %>%
