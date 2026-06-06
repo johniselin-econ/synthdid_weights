@@ -5,6 +5,7 @@ docs/*
 !docs/todo.txt
 !docs/coarse_review_2026-04-17.md
 !docs/bv_replication_todo.md
+!docs/submission_review_checklist.md
 # Keep the BV2020 publisher PDF and extracted text local-only (copyright):
 # they remain ignored by docs/* above.
 tmpclaude-*
