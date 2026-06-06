@@ -2,6 +2,6 @@ Highlights
 
 - We extend SDID to incorporate user-specified treated unit weights.
 - The modification requires changing only the collapsed form matrix.
-- In the ACA application, estimates flip sign with population weighting.
-- Larger counties drive the mortality reduction from Medicaid expansion.
+- In the ACA application, equal weighting gives a precise zero while population weighting gives a mortality reduction of 17 deaths per 100,000.
+- The mortality response is concentrated in the largest counties.
 - An R package implementing the weighted estimator is freely available.

@@ -53,7 +53,7 @@ plot_event_study(es)
 
 John Iselin and Erica Ryan. **Weighted Synthetic Difference-in-Differences**. Working paper, 2026.
 
-The paper applies the weighted estimator to the ACA Medicaid expansion, following Borgschulte and Vogler (2020). The equally-weighted SDID estimate is near zero, while the population-weighted estimate indicates a mortality reduction of approximately 13.5 deaths per 100,000---demonstrating that the weighting choice can be economically consequential.
+The paper applies the weighted estimator to the ACA Medicaid expansion, following Borgschulte and Vogler (2020). The equally-weighted SDID estimate is near zero, while the population-weighted estimate indicates a mortality reduction of approximately 17 deaths per 100,000---demonstrating that the weighting choice can be economically consequential.
 
 ### References
 
@@ -69,3 +69,7 @@ Mark Borgschulte and Jacob Vogler.
 ### Upstream
 
 This fork is based on [synth-inference/synthdid](https://github.com/synth-inference/synthdid). The original package API is fully preserved; all weighted functions are additive extensions.
+
+### Disclosure
+
+The authors used Claude (Anthropic) to assist with code development, data processing, and manuscript editing. All analyses and results were reviewed and verified by the authors.

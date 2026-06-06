@@ -15,6 +15,9 @@
 
 % Formatting
 \setcitestyle{authoryear,round,semicolon}
+% Number sections down to subsubsection only; deeper levels (\paragraph) were
+% rendering as artifacts like "D.2.0.1" with pandoc --number-sections
+\setcounter{secnumdepth}{3}
 
 % Custom commands
 \newcommand{\E}{\mathbb{E}}

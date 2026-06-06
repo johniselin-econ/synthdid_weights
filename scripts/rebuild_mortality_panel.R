@@ -212,6 +212,13 @@ message(sprintf(
   n_distinct(panel$fips[panel$expansion == 0]),
   n_no_cov))
 
+## Drop the deaths count from the public file: WONDER's data-use agreement
+## prohibits publishing sub-national counts of 1-9, and although imputed
+## values are model estimates rather than actual counts, shipping only the
+## rate (death_supp flags which cells are imputed) keeps us clearly inside
+## the agreement. No downstream code uses the count.
+panel <- panel %>% select(-deaths, -death_miss)
+
 write_csv(panel, OUT_PANEL)
 message("Wrote ", OUT_PANEL)
 
@@ -221,7 +228,7 @@ message("Wrote ", OUT_PANEL)
 
 pre <- mort %>%
   filter(year >= 2005, year <= 2008) %>%
-  select(fips, year, crude_rate, deaths, population, death_supp)
+  select(fips, year, crude_rate, population, death_supp)  # no counts (DUA)
 
 write_csv(pre, OUT_PRE)
 message("Wrote ", OUT_PRE, " (", n_distinct(pre$fips), " counties, 2005-2008)")

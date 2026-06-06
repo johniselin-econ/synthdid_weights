@@ -1,65 +1,98 @@
-# Pre-submission review checklist (2026-06-06)
+# Pre-submission review checklist (regenerated 2026-06-06)
 
-From a full read of both built PDFs (paper 19pp, supplement 22pp). Ordered by severity.
+Supersedes the earlier version. Includes status of every item from the April
+coarse review (docs/coarse_review_2026-04-17.md). Legend: [x] done,
+[~] partial / verify, [ ] open.
 
-## Blockers — fix before anyone else sees it
+## Fixed today (commit pending)
 
-1. **Wrong appendix letter, 4×.** The main paper cites "Appendix F" for the BV
-   reproduction (Table 3 caption, Sec. 3.5, data statement ×2), but in the
-   supplement it is **Section E.4**; F is "Alternative Approaches."
-2. **Ghost journal reference.** Supplement D.2 runtime note refers to "the
-   companion *Economics Letters* supplement (weighted_sdid_supplement.pdf,
-   Tables E.1 and E.2 in that document)" — a self-referential leftover from
-   the old dual-version setup, names the wrong journal, and says "for this
-   draft we omit the rendered tables." Decide: render the MC tables or
-   rewrite the note. Kill "for this draft" language everywhere.
-3. **Abstract is ~370 words.** REStat expectation is ~100–150. Cut by two
-   thirds; lead with the finding (−17.5 vs ≈0), not the method genealogy.
-4. **highlights.txt and README still say the old story** ("estimates flip
-   sign…"; README says "approximately 13.5"). Neither is a sign flip anymore
-   (−0.71 vs −17.45, both negative). Update both before pushing anywhere
-   public-facing.
-5. **Numbered paragraph-heading artifacts**: "D.1.0.2", "D.2.0.1", "F.0.0.1"
-   render as deep section numbers. Set `secnumdepth` / use unnumbered
-   `\paragraph{}` styling.
+- [x] "Appendix F" -> "Supplementary Appendix E.4" (4 spots in main paper)
+- [x] Economics Letters ghost reference + "for this draft" language removed
+      from Section D; MC machinery is now REAL: scripts/run_mc_simulations.R
+      (parallelized, seeding identical to sequential) writes
+      paper/data/mc_results.csv; Tables D.1-D.2 render when it exists
+- [x] highlights.txt + README updated (no sign-flip claim; 17 not 13.5)
+- [x] secnumdepth=3 (kills "D.2.0.1"-style heading artifacts)
+- [x] Sign-change/flip language sweep -- clean in both Rmds
+- [x] deaths counts dropped from public CSVs (WONDER DUA); rates + death_supp
+      flag remain; no downstream code used the counts
+- [x] AI-use Disclosure section added to paper + README
 
-## Consistency — things a referee will cross-check
+## Open blockers
 
-6. **Small-county story across Figures 3 and 4.** Sec. 3.3 says bottom
-   quartiles "oscillate around zero (−6 to +15)"; Sec. 3.3's urban figure
-   says the most-rural quintile is **+21**; the Discussion says "near zero or
-   positive." Pick one framing and explain the +21 (imputation noise in tiny
-   counties?) or soften it.
-7. **"Sign change / flip" sweep**: grep both Rmds + README + highlights for
-   residual flip language (intro and abstract are fixed; verify nothing else).
-8. **MC spec**: D reports 18 configs × **100** sims; confirm no stray claim
-   of 500 sims, and decide whether 100 is the final spec (if so, the 50-hour
-   runtime note can shrink to a sentence).
-9. **Old coarse-review punch list** (docs/coarse_review_2026-04-17.md, items
-   M1–M3 / A1–A7 / D1–D11 + docs/todo.txt): confirm each is addressed or
-   consciously dropped. The MC-evidence gap (M-level) is now addressed.
-10. **If any data re-pull happens**, re-run scripts/bv_replication_tables.R
-    and re-knit BOTH docs (knitr caches don't track data changes). Appendix
-    E.4 numbers were verified identical to the script on 2026-06-06.
+- [ ] **MC results**: the parallel run must finish and the supplement re-knit.
+      First smoke test took 2.16h for 18 sims (vs ~105s/sim when profiled
+      solo) -- timing under investigation; full run feasibility TBD. After
+      results land: **verify the three claims in the Section D bullet list
+      against the actual tables** (unbiasedness; boot/placebo coverage with
+      placebo undercoverage at high HHI; conservative jackknife).
+- [ ] **Abstract ~370 words** -> cut to 100-150, finding first (your edit).
+- [ ] **Paper PDF locked by your viewer** -- close it; rebuild is queued.
+- [ ] Small-county framing tension: pop bins "oscillate around zero" vs
+      most-rural urban quintile "+21" vs "near zero or positive" (Discussion).
+      Unify (your call on framing).
 
-## Submission hygiene — decide once
+## April coarse review: major concerns
 
-11. **WONDER DUA**: the public repo's analysis_data.csv now contains imputed
-    1–9 death counts. They're model estimates, not actual counts, but
-    consider shipping crude_rate only (drop the deaths column) to be safe.
-12. **AI-use disclosure**: substantial AI assistance in code, replication, and
-    draft editing this cycle — REStat/AEA policies want this disclosed at
-    submission (not authorship; a disclosure line).
-13. **Setup chunks still `source("../R/*.R")`** instead of
-    `library(synthdid)`. Works, but the replication README must say so, or
-    switch now that the fork installs cleanly.
-14. **Affiliations/thanks**: header.tex hardcodes "Erica Ryan (Amazon)" — confirm
-    she wants the affiliation + add any disclaimer her employer requires.
-15. Cosmetics: float-specifier warnings (`!h`→`!ht`) are benign; lit-counts
-    figure caption is very long (consider moving the OpenAlex/method detail
-    to a footnote); check title page date renders as intended.
+- [x] **Formal identification/asymptotics absent** -> Props 1-3, weight
+      regularity (W2), proofs in Supp B; "when the asymptotics fail" in main
+      text. *Re-read B.5 with fresh eyes.*
+- [~] **Monte Carlo evidence absent** -> infrastructure now real (above), but
+      the reviewer asked for a main-text summary (small coverage table or a
+      results paragraph in Sec 2/Discussion). Decide after results land.
+- [~] **Placebo variance inconsistency** (uniform pseudo-weights vs weighted
+      estimand) -> MC reports placebo coverage; paper recommends cluster
+      bootstrap as primary. Verify Supp C.3 states a clear recommendation
+      and that MC results back the "undercoverage at high HHI" claim.
+- [x] **Effective-N collapse / "modestly larger" SEs** -> N1eff (Kish) in
+      Table 2, dominant-weight discussion, "modestly" wording gone, cluster
+      bootstrap rationale explicit.
+- [x] **Single application, no weight robustness** -> Table 2 (2013/2010/
+      sqrt/log/equal) + leave-one-out (E.3).
+- [ ] **SUTVA / cross-border spillovers** -> still no discussion. Add a
+      paragraph (cite Medicaid spillover lit); optional border-county check.
+- [~] **Staggered adoption / late expanders** -> AK/IN/LA/MT/NH/PA are
+      excluded (now correctly after the state-fips fix). Verify the data
+      section names them; consider a sensitivity footnote (e.g., late
+      expanders as never-treated controls through 2015).
+- [ ] **Worked two-unit parametric example** -> not in draft. Cheap to add
+      (half-page algebra box in Sec 2 or supplement).
+- [~] **Practitioner decision rule** -> the paired-bootstrap divergence test
+      (p < 0.001) IS a Hausman-style diagnostic -- frame it explicitly as
+      the recommended ex-ante check ("estimate both, test the gap").
+- [x] **Relation to heterogeneity-robust DiD** (Callaway-Sant'Anna etc.) ->
+      cited and positioned in intro + supplement. Verify depth satisfies you.
+- [x] **Decompose the divergence** -> corrected Figs 3-4 binscatters, LOO,
+      weight-compression gradient; pop-weighted mean of unit effects
+      recovers tau-w (internal-consistency check in text).
 
-Verified clean: zero undefined references in both PDFs; supplement E.4 table
-matches the standalone replication script exactly; LOO, placebo, event-study
-inline numbers all recomputed on the corrected panel; political-rows footnote
-renders; eq. (1) reference resolves.
+## April coarse review: detailed comments 1-11
+
+1. [~] Asymmetric SE methods in Table 1 (jackknife for equal, bootstrap for
+   weighted) -- still asymmetric; add one rationale sentence or harmonize.
+2. [x] Cluster-robust inference now core (Prop 3), not "future extension."
+3. [~] DiD pre-trend failure vs robustness claim -- now framed as motivation
+   for SDID's time weights (Fig 2 text); confirm you're happy with framing.
+4. [ ] Hat/tilde notation consistency intro vs formal defs -- needs your read.
+5. [ ] tilde-omega used for researcher weights AND control weights -- check
+   Sec 2 notation table.
+6. [x] Sign-change claim -- moot; no sign-change claim remains (-0.71 vs
+   -17.45, framed as divergence).
+7. [x] "Modestly larger" SE wording removed (ratio is now ~2x: 2.32->4.58).
+8. [x] "Order of magnitude" overstatement removed from SE/estimate claims
+   (one remaining literal use re county populations, 185k vs 3.8k, is
+   factually correct).
+9. [x] Sample construction replicability -- public-data pipeline, E.4, data
+   statement.
+10. [~] Clusters now 45 -- check the excluded-state list appears in the data
+    section.
+11. [x] Bootstrap replications 200 -> 500.
+
+## Hygiene (unchanged from previous list)
+
+- [ ] Setup chunks `source("../R/*.R")` -- document in replication README or
+      switch to library(synthdid)
+- [ ] Erica's Amazon affiliation + any employer disclaimer
+- [ ] lit-counts figure caption length (move method detail to a footnote?)
+- [ ] Final knit of BOTH documents after MC results + any text edits
+      (remember: caches don't watch data; clear or use dependson)
