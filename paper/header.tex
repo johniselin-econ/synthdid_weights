@@ -4,6 +4,10 @@
 \usepackage{natbib}
 \usepackage{setspace}
 \usepackage{float}
+% threeparttable: needed by kableExtra::footnote(); declared here explicitly
+% because kableExtra registers it as a chunk side effect, which knitr cache
+% hits do not replay
+\usepackage{threeparttable}
 
 % Theorem environments
 \newtheorem{proposition}{Proposition}

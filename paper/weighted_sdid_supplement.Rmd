@@ -62,7 +62,9 @@ with $U_i, V_t \in \mathbb{R}^r$ low-dimensional factor loadings and $\alpha_i, 
 The standard SDID estimator [@arkhangelsky2021] is the bilinear form
 $$\hat{\tau}^{\text{sdid}} = \begin{pmatrix} -\hat{\omega} \\ \frac{1}{N_1}\mathbf{1}_{N_1} \end{pmatrix}^\top Y \begin{pmatrix} -\hat{\lambda} \\ \frac{1}{T_1}\mathbf{1}_{T_1} \end{pmatrix},$$
 with $\hat\omega \in \Delta^{N_0}$ and $\hat\lambda \in \Delta^{T_0}$ obtained by Frank-Wolfe optimization on the unit simplex against the equally-weighted treated target. The weighted SDID estimator of the main paper replaces the uniform $\frac{1}{N_1}\mathbf{1}_{N_1}$ in both the optimization target and the bilinear form with researcher-specified weights $\tilde\omega \in \Delta^{N_1}$:
-$$\hat{\tau}^{w} = \begin{pmatrix} -\hat{\omega}^w \\ \tilde{\omega} \end{pmatrix}^\top Y \begin{pmatrix} -\hat{\lambda}^w \\ \frac{1}{T_1}\mathbf{1}_{T_1} \end{pmatrix},$$
+\begin{equation}\label{eq:tau-w}
+\hat{\tau}^{w} = \begin{pmatrix} -\hat{\omega}^w \\ \tilde{\omega} \end{pmatrix}^\top Y \begin{pmatrix} -\hat{\lambda}^w \\ \frac{1}{T_1}\mathbf{1}_{T_1} \end{pmatrix},
+\end{equation}
 targeting the weighted average treatment effect
 $$\tau^{(\tilde\omega)} = \sum_{j=1}^{N_1} \tilde\omega_j \,\bar\tau_j, \quad \bar\tau_j = T_1^{-1}\sum_{t = T_0+1}^{T} \tau_{N_0 + j, t}.$$
 
@@ -567,7 +569,7 @@ ggplot(loo_results, aes(x = county_rank, y = estimate)) +
   theme_minimal(base_size = 10)
 ```
 
-Figure E.3 reports the leave-one-out sensitivity analysis. The estimates cluster tightly around the baseline across all 50 counties, ranging from `r round(min(loo_results$estimate, na.rm = TRUE), 1)` to `r round(max(loo_results$estimate, na.rm = TRUE), 1)` deaths per 100,000, and remain negative and statistically distinguishable from zero throughout. No single county drives the result; even Los Angeles County (the largest weight, $\approx 8\%$ of total) does not materially shift the point estimate when removed. This is consistent with the heterogeneity-by-size gradient documented in the main paper: the result reflects a broadly negative relationship between county size and treatment effect, not a spike concentrated in one or two large counties.
+Figure E.3 reports the leave-one-out sensitivity analysis. The estimates cluster tightly around the baseline across all 50 counties, ranging from `r round(min(loo_results$estimate, na.rm = TRUE), 1)` to `r round(max(loo_results$estimate, na.rm = TRUE), 1)` deaths per 100,000, and remain negative and statistically distinguishable from zero throughout. No single county drives the result; even Los Angeles County (the largest weight, $\approx 6\%$ of total) does not materially shift the point estimate when removed. This is consistent with the heterogeneity-by-size gradient documented in the main paper: the result reflects a broadly negative relationship between county size and treatment effect, not a spike concentrated in one or two large counties.
 
 ## Reproducing BV2020 with Public Data
 
