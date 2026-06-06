@@ -96,36 +96,60 @@ if (N_SIM < 100) OUT_CSV <- sub("\\.csv$", "_smoke.csv", OUT_CSV)
 
 tasks <- merge(configs, data.frame(sim = seq_len(N_SIM)))
 tasks <- tasks[order(tasks$config, tasks$sim), ]
-message(sprintf("MC sweep: %d configs x %d sims = %d tasks, B = %d",
+
+## Resume support: skip (config, sim) pairs already in the output file, so a
+## crash or shutdown only costs the in-flight batch.
+if (file.exists(OUT_CSV)) {
+  done <- read.csv(OUT_CSV)[, c("config", "sim")]
+  before <- nrow(tasks)
+  tasks <- tasks[!paste(tasks$config, tasks$sim) %in%
+                   paste(done$config, done$sim), ]
+  message(sprintf("Resuming: %d of %d tasks already done", before - nrow(tasks),
+                  before))
+}
+
+message(sprintf("MC sweep: %d configs x %d sims; %d tasks remaining, B = %d",
                 nrow(configs), N_SIM, nrow(tasks), B_SE))
 
-n_cores <- max(1, detectCores() - 2)
-message("Workers: ", n_cores)
-cl <- makeCluster(n_cores)
-on.exit(stopCluster(cl), add = TRUE)
-invisible(clusterEvalQ(cl, suppressPackageStartupMessages(library(synthdid))))
-clusterExport(cl, c("generate_sizes", "run_one_sim", "N0", "T0", "T1", "B_SE"))
+if (nrow(tasks) > 0) {
+  n_cores <- max(1, detectCores() - 2)
+  message("Workers: ", n_cores)
+  cl <- makeCluster(n_cores)
+  on.exit(stopCluster(cl), add = TRUE)
+  invisible(clusterEvalQ(cl, suppressPackageStartupMessages(library(synthdid))))
+  clusterExport(cl, c("generate_sizes", "run_one_sim", "N0", "T0", "T1", "B_SE"))
 
-progress_file <- "paper/_mc_progress.log"
-cat(sprintf("[%s] parallel MC start: %d tasks on %d workers\n",
-            format(Sys.time()), nrow(tasks), n_cores),
-    file = progress_file, append = FALSE)
+  progress_file <- "paper/_mc_progress.log"
+  cat(sprintf("[%s] parallel MC start: %d tasks on %d workers\n",
+              format(Sys.time()), nrow(tasks), n_cores),
+      file = progress_file, append = TRUE)
 
-t0 <- Sys.time()
-results <- parLapply(cl, split(tasks, seq_len(nrow(tasks))), function(tk) {
-  set.seed(20240101 + tk$sim)   # matches the original sequential seeding
-  out <- run_one_sim(N0, tk$N1, T0, T1, tk$gamma, tk$hhi, B = B_SE)
-  out$config <- tk$config; out$N1 <- tk$N1
-  out$gamma <- tk$gamma; out$hhi <- tk$hhi; out$sim <- tk$sim
-  out
-})
+  ## Run in batches: progress + incremental checkpointing
+  batch_size <- n_cores * 9
+  batches <- split(seq_len(nrow(tasks)), ceiling(seq_len(nrow(tasks)) / batch_size))
+  t0 <- Sys.time()
+  for (b in seq_along(batches)) {
+    idx <- batches[[b]]
+    results <- parLapply(cl, split(tasks[idx, ], seq_along(idx)), function(tk) {
+      set.seed(20240101 + tk$sim)   # matches the original sequential seeding
+      out <- run_one_sim(N0, tk$N1, T0, T1, tk$gamma, tk$hhi, B = B_SE)
+      out$config <- tk$config; out$N1 <- tk$N1
+      out$gamma <- tk$gamma; out$hhi <- tk$hhi; out$sim <- tk$sim
+      out
+    })
+    batch_df <- do.call(rbind, results)
+    write.table(batch_df, OUT_CSV, sep = ",", row.names = FALSE,
+                col.names = !file.exists(OUT_CSV), append = file.exists(OUT_CSV))
+    el <- as.numeric(difftime(Sys.time(), t0, units = "hours"))
+    eta <- el / b * (length(batches) - b)
+    cat(sprintf("[%s] batch %d/%d done (%.2f h elapsed, ~%.1f h remaining)\n",
+                format(Sys.time()), b, length(batches), el, eta),
+        file = progress_file, append = TRUE)
+  }
+  cat(sprintf("[%s] parallel MC complete\n", format(Sys.time())),
+      file = progress_file, append = TRUE)
+}
 
-mc_df <- do.call(rbind, results)
-elapsed <- difftime(Sys.time(), t0, units = "hours")
-cat(sprintf("[%s] parallel MC complete in %.2f hours\n",
-            format(Sys.time()), as.numeric(elapsed)),
-    file = progress_file, append = TRUE)
-
-write.csv(mc_df, OUT_CSV, row.names = FALSE)
-message(sprintf("Wrote %s (%d rows) in %.2f hours", OUT_CSV, nrow(mc_df),
-                as.numeric(elapsed)))
+mc_df <- read.csv(OUT_CSV)
+message(sprintf("%s now has %d rows (%d complete configs x sims)",
+                OUT_CSV, nrow(mc_df), nrow(unique(mc_df[, c("config", "sim")]))))
