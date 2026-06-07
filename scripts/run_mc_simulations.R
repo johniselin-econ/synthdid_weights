@@ -112,7 +112,9 @@ message(sprintf("MC sweep: %d configs x %d sims; %d tasks remaining, B = %d",
                 nrow(configs), N_SIM, nrow(tasks), B_SE))
 
 if (nrow(tasks) > 0) {
-  n_cores <- max(1, detectCores() - 2)
+  ## Respect a Slurm allocation when present; fall back to physical cores
+  n_cores <- max(1, as.integer(Sys.getenv("SLURM_CPUS_PER_TASK",
+                                          detectCores() - 2)))
   message("Workers: ", n_cores)
   cl <- makeCluster(n_cores)
   on.exit(stopCluster(cl), add = TRUE)

@@ -8,6 +8,10 @@
 % because kableExtra registers it as a chunk side effect, which knitr cache
 % hits do not replay
 \usepackage{threeparttable}
+% caption: supports line breaks inside \caption{}, used for the
+% one-line-title-plus-Notes figure caption convention
+\usepackage{caption}
+\captionsetup{font=small, justification=justified, singlelinecheck=false}
 
 % Theorem environments
 \newtheorem{proposition}{Proposition}

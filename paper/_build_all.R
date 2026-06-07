@@ -4,11 +4,15 @@
 #   Rscript _build_all.R              # knit both
 #   Rscript _build_all.R paper        # knit only the paper
 #   Rscript _build_all.R supplement   # knit only the supplement
-setwd("C:/Users/ji252/Documents/GitHub/synthdid_weights/paper")
+# Run from the paper/ directory regardless of where the script is invoked
+args0    <- commandArgs(trailingOnly = FALSE)
+file_arg <- sub("^--file=", "", grep("^--file=", args0, value = TRUE))
+if (length(file_arg) == 1) setwd(dirname(normalizePath(file_arg)))
 stopifnot(file.exists("weighted_sdid_paper.Rmd"),
           file.exists("weighted_sdid_supplement.Rmd"))
 
-# Point rmarkdown at RStudio's bundled pandoc (no system-wide pandoc installed)
+# Point rmarkdown at RStudio's bundled pandoc when no system pandoc exists
+# (the Windows build machine has no system-wide pandoc)
 pandoc_dir <- "C:/Program Files/RStudio/resources/app/bin/quarto/bin/tools"
 if (file.exists(file.path(pandoc_dir, "pandoc.exe"))) {
   Sys.setenv(RSTUDIO_PANDOC = pandoc_dir)
