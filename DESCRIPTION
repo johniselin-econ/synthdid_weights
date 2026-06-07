@@ -29,6 +29,19 @@ Suggests:
     testthat,
     ggplot2,
     kableExtra,
-    CVXR
+    CVXR,
+    rmarkdown,
+    tinytex,
+    knitr,
+    dplyr,
+    tidyr,
+    tibble,
+    purrr,
+    readr,
+    scales,
+    patchwork,
+    fixest,
+    hdm,
+    RPtests
 URL: https://github.com/johniselin-econ/synthdid_weights
 BugReports: https://github.com/johniselin-econ/synthdid_weights/issues

@@ -11,16 +11,65 @@ if (length(file_arg) == 1) setwd(dirname(normalizePath(file_arg)))
 stopifnot(file.exists("weighted_sdid_paper.Rmd"),
           file.exists("weighted_sdid_supplement.Rmd"))
 
-# Point rmarkdown at RStudio's bundled pandoc when no system pandoc exists
-# (the Windows build machine has no system-wide pandoc)
-pandoc_dir <- "C:/Program Files/RStudio/resources/app/bin/quarto/bin/tools"
-if (file.exists(file.path(pandoc_dir, "pandoc.exe"))) {
-  Sys.setenv(RSTUDIO_PANDOC = pandoc_dir)
-  rmarkdown::find_pandoc(dir = pandoc_dir)
+# Locate pandoc on any OS. rmarkdown::render() needs a pandoc binary; it is a
+# system tool, not an R package, so renv cannot provide it. We try, in order:
+#   1. RSTUDIO_PANDOC, if already set to a valid directory
+#   2. pandoc on the system PATH (e.g. a static binary dropped in ~/bin)
+#   3. quarto's bundled pandoc tools directory
+#   4. known bundled locations on Windows / macOS
+# and fail with an actionable message if none is found.
+locate_pandoc_dir <- function() {
+  has_pandoc <- function(d) nzchar(d) &&
+    (file.exists(file.path(d, "pandoc")) ||
+     file.exists(file.path(d, "pandoc.exe")))
+  # 1. honour an existing RSTUDIO_PANDOC
+  env_dir <- Sys.getenv("RSTUDIO_PANDOC")
+  if (has_pandoc(env_dir)) return(env_dir)
+  # 2. pandoc on PATH
+  on_path <- Sys.which("pandoc")
+  if (nzchar(on_path)) return(dirname(on_path))
+  # 3. quarto bundles pandoc under <quarto>/../tools (or tools/<arch>)
+  quarto <- Sys.which("quarto")
+  if (nzchar(quarto)) {
+    cand <- file.path(dirname(dirname(quarto)), "tools")
+    hits <- list.files(cand, pattern = "^pandoc(\\.exe)?$",
+                       recursive = TRUE, full.names = TRUE)
+    if (length(hits)) return(dirname(hits[1]))
+  }
+  # 4. known bundled locations
+  candidates <- c(
+    "C:/Program Files/RStudio/resources/app/bin/quarto/bin/tools",
+    "/Applications/RStudio.app/Contents/Resources/app/bin/quarto/bin/tools",
+    "/usr/local/bin"
+  )
+  for (d in candidates) if (has_pandoc(d)) return(d)
+  NA_character_
 }
+
+pandoc_dir <- locate_pandoc_dir()
+if (is.na(pandoc_dir)) {
+  stop(
+    "No pandoc binary found. rmarkdown::render() cannot run without pandoc.\n",
+    "Fix this one of these ways:\n",
+    "  * Install pandoc (https://pandoc.org/installing.html) or quarto, OR\n",
+    "  * Set RSTUDIO_PANDOC to a directory containing the pandoc binary.\n",
+    "On a cluster with no system pandoc (and where you lack root), download a\n",
+    "static pandoc binary into ~/bin and ensure ~/bin is on your PATH.\n",
+    call. = FALSE
+  )
+}
+Sys.setenv(RSTUDIO_PANDOC = pandoc_dir)
+rmarkdown::find_pandoc(dir = pandoc_dir)
 cat(sprintf("pandoc: %s (version %s)\n",
             rmarkdown::pandoc_exec(),
             as.character(rmarkdown::pandoc_version())))
+
+# Ensure a LaTeX engine exists; bootstrap TinyTeX if neither system TeX nor
+# an existing TinyTeX install is present.
+if (!nzchar(Sys.which("pdflatex")) && !tinytex::is_tinytex()) {
+  cat("No LaTeX engine found; installing TinyTeX (one-time)...\n")
+  tinytex::install_tinytex()
+}
 
 knit_one <- function(rmd) {
   cat(sprintf("\n==== Knitting %s ====\n", rmd))
