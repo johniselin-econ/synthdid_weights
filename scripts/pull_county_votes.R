@@ -1,6 +1,6 @@
 ## Pull county-level Obama vote shares 2008/2012, a propensity-score candidate
-## in Borgschulte & Vogler (2020) previously missing from our replication
-## (see paper/DLPS_REPLICATION_PLAN.md).
+## used by Borgschulte & Vogler (2020) in the DLPS replication
+## (supplement Appendix E.5; pipeline order in scripts/README.md).
 ##
 ## Preferred source: MIT Election Data and Science Lab, "County Presidential
 ## Election Returns" (Harvard Dataverse, doi:10.7910/DVN/VOQCHQ). That file is

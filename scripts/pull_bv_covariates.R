@@ -172,7 +172,7 @@ mort_pre <- panel %>%
 #    against NGA records. CAVEAT: BV's published Table 1 weighted means
 #    (0.76 expansion) are only reproducible if CA is coded Democratic
 #    (Brown won Nov 2010 but took office Jan 2011; Schwarzenegger (R) was
-#    governor all of 2010) — see docs/bv_replication_todo.md.
+#    governor all of 2010) — see the supplement Appendix E.5 table notes.
 # ---------------------------------------------------------------------------
 
 dem_gov_2010 <- tribble(

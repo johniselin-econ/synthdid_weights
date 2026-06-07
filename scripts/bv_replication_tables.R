@@ -12,7 +12,7 @@
 ##   (v)   weighted DID with county + year FE, state-clustered SEs, weights =
 ##         county population 20-64 x [T + (1-T) p/(1-p)].
 ##
-## Known remaining deviations from BV (see docs/bv_replication_todo.md):
+## Known remaining deviations from BV (documented in supplement Appendix E.5):
 ##   - Public CDC WONDER mortality (suppression) vs restricted NVSS.
 ##   - Outcome-lasso DV uses avg 2009-2013 mortality until the panel is
 ##     rebuilt with 2005-2009 data (BV hold out 2010-2013 and use 2005-2009).
@@ -294,5 +294,5 @@ cat("\nNotes:\n",
     "- BV columns (10)/(11) split at the median baseline uninsured rate for\n",
     "  ages 19-64; we use SAHIE 18-64 and an unweighted county median.\n",
     "- Gender/age columns (3)-(9) require by-sex/by-age WONDER exports.\n",
-    "- Rebuild analysis_data.csv (suppression imputation + covariate fixes)\n",
-    "  before quoting these numbers; see docs/bv_replication_todo.md.\n")
+    "- analysis_data.csv must be current (suppression imputation + covariate\n",
+    "  fixes); pipeline run order in scripts/README.md.\n")

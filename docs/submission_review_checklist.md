@@ -93,6 +93,7 @@ coarse review (docs/coarse_review_2026-04-17.md). Legend: [x] done,
 - [ ] Setup chunks `source("../R/*.R")` -- document in replication README or
       switch to library(synthdid)
 - [ ] Erica's Amazon affiliation + any employer disclaimer
-- [ ] lit-counts figure caption length (move method detail to a footnote?)
+- [x] lit-counts figure caption length — moot: figure dropped from the paper
+      (2026-06-07); script + CSV removed
 - [ ] Final knit of BOTH documents after MC results + any text edits
       (remember: caches don't watch data; clear or use dependson)
