@@ -783,7 +783,7 @@ Tables \ref{tab:mc-bias} and \ref{tab:mc-coverage} report bias, RMSE, and 95\% c
 \begin{itemize}
 \item Both the equally-weighted and population-weighted SDID estimators are approximately unbiased for their respective targets, with RMSE differences favoring the equally-weighted variant for the obvious reason that it has a larger effective sample.
 \item The bootstrap and placebo variance estimators achieve approximately nominal 95\% coverage, with undercoverage at high HHI for the placebo (which uses uniform pseudo-treated weights, as discussed in Section 2.4).
-\item The jackknife is conservative with few treated units but adequate otherwise.
+\item The jackknife is near-nominal with few treated units and grows conservative as the number of treated units increases, over-covering at $N_1 = 20$.
 \end{itemize}
 These patterns validate Propositions 1--3 in finite samples within the regime where Assumptions W2--W3 are quantitatively reasonable.
 
