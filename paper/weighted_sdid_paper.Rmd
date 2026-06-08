@@ -174,175 +174,59 @@ We apply the weighted SDID estimator to the county-level mortality effects of th
 
 ## Setting and Data
 
-```{r load-data}
-panel <- readr::read_csv(
-  file.path("data", "analysis_data.csv"),
-  show_col_types = FALSE
-) %>%
-  select(
-    unit = fips, time = year, y = crude_rate,
-    treated_unit = expansion, pop = population,
-    state_fips,
-    pct_white, pct_55_64, log_20_64, log_35_44, log_f_20_64, unemp
-  ) %>%
-  mutate(post = as.integer(time >= 2014))
+```{r load-results}
+## All heavy computation is precomputed by scripts/analyze_application.R and
+## committed to results/ (see results/_manifest.csv for the seed, git SHA, and
+## replication counts). This build only reads and formats those tables, so it
+## renders in seconds. The objects reconstructed below carry the names the rest
+## of the document already references.
+rd <- function(f) readr::read_csv(file.path("..", "results", f), show_col_types = FALSE)
+.est     <- rd("app_estimates.csv")
+.sc      <- rd("app_scalars.csv"); sc <- setNames(.sc$value, .sc$name)
+ev       <- rd("event_studies.csv")
+het      <- rd("heterogeneity.csv")
+rob      <- rd("robustness.csv")
+headline <- rd("headline_comparison.csv")
+pintime  <- rd("placebo_intime.csv")
+pdist    <- rd("placebo_distribution.csv")
 
-n_counties <- n_distinct(panel$unit)
-n_treated  <- n_distinct(panel$unit[panel$treated_unit == 1])
-n_control  <- n_distinct(panel$unit[panel$treated_unit == 0])
-year_range <- range(panel$time)
-n_years    <- n_distinct(panel$time)
-T0 <- sum(sort(unique(panel$time)) < 2014)
-T1 <- n_years - T0
+## Descriptive scalars
+n_counties <- as.integer(sc[["n_counties"]]); n_treated <- as.integer(sc[["n_treated"]])
+n_control  <- as.integer(sc[["n_control"]])
+year_range <- c(sc[["year_min"]], sc[["year_max"]]); n_years <- as.integer(sc[["n_years"]])
+T0 <- as.integer(sc[["T0"]]); T1 <- as.integer(sc[["T1"]])
+treated_pop <- list(total = sc[["treated_pop_total"]], median = sc[["treated_pop_median"]],
+                    p10 = sc[["treated_pop_p10"]], p90 = sc[["treated_pop_p90"]])
+hhi <- sc[["hhi"]]; n1_eff <- sc[["n1_eff"]]; N1 <- as.integer(sc[["N1"]])
+top1_share <- sc[["top1_share"]]; top10_share <- sc[["top10_share"]]
+n_states <- as.integer(sc[["n_states"]])
+obs_diff <- sc[["obs_diff"]]; p_diverge <- sc[["p_diverge"]]; p_placebo <- sc[["p_placebo"]]
+p_diverge_text <- ifelse(p_diverge < 0.001, "$p < 0.001$", paste0("$p = ", round(p_diverge, 3), "$"))
 
-treated_pop <- panel %>%
-  filter(treated_unit == 1, time == 2013) %>%
-  summarise(
-    total  = sum(pop, na.rm = TRUE),
-    median = median(pop, na.rm = TRUE),
-    p10    = quantile(pop, 0.10, na.rm = TRUE),
-    p90    = quantile(pop, 0.90, na.rm = TRUE)
-  )
+## Estimates and SEs as named vectors. Point estimates are deterministic; the
+## state-clustered (se_cluster) and county-level (se_unit) bootstrap SEs are
+## from the committed run. tau_sdid is the *standard* synthdid_estimate (the
+## robustness "equal" row), which the heterogeneity decomposition averages to
+## by construction; the Table-1 "equally weighted" cell (sdid_eq) is the
+## weighted-uniform variant and differs by ~2e-5 (Proposition 0).
+est_val    <- setNames(.est$estimate,   .est$spec)
+se_unit    <- setNames(.est$se_unit,    .est$spec)
+se_cluster <- setNames(.est$se_cluster, .est$spec)
+estimates_t1 <- as.list(est_val)          # cell()/as.numeric() work on plain numbers
+tau_did <- est_val[["did_eq"]]
+tau_sdid <- rob$estimate[rob$spec == "equal"]
+tau_did_w <- est_val[["did_w"]]; tau_sdid_w <- est_val[["sdid_w"]]
+tau_did_eq_x <- est_val[["did_eq_x"]]; tau_sdid_eq_x <- est_val[["sdid_eq_x"]]
+tau_did_w_x  <- est_val[["did_w_x"]];  tau_sdid_w_x  <- est_val[["sdid_w_x"]]
+se_sdid <- se_cluster[["sdid_eq"]]; se_did <- se_cluster[["did_eq"]]
+se_sdid_w <- se_cluster[["sdid_w"]]; se_did_w <- se_cluster[["did_w"]]
 ```
 
 The sample is a balanced county-year panel covering `r year_range[1]`--`r year_range[2]` with `r format(n_counties, big.mark = ",")` counties (`r format(n_treated, big.mark = ",")` treated, `r format(n_control, big.mark = ",")` control). The outcome is the all-cause mortality rate per 100,000 among adults aged 20--64, drawn from CDC WONDER's Underlying Cause of Death file [@cdcwonder]. We use these public-use tabulations rather than the restricted-access National Vital Statistics System microdata used by @borgschulte2020; both derive from the same NCHS underlying records. The treated counties are those in states that expanded Medicaid coverage to childless adults effective January 1, 2014 under the ACA. We follow @borgschulte2020 in excluding states with substantial pre-2014 Medicaid expansions (so the comparison is between counties newly exposed to expanded coverage and counties never so exposed). Treated-unit weights $\tilde{\omega}_j$ are each county's share of total treated-county population as of 2013. The population distribution is highly skewed: the 90th percentile county (`r format(round(treated_pop$p90), big.mark = ",")` residents) is an order of magnitude larger than the 10th percentile (`r format(round(treated_pop$p10), big.mark = ",")`).
 
-```{r prepare-sdid-panel}
-panel_sdid <- panel %>%
-  arrange(unit, time) %>%
-  select(unit, time, y, treated_unit, pop, state_fips) %>%
-  mutate(.unit = as.factor(unit), .time = time,
-         .W = as.integer(treated_unit == 1 & time >= 2014))
-
-dfp   <- panel_sdid %>% select(.unit, .time, y, .W) %>% as.data.frame()
-setup <- panel.matrices(dfp)
-
-# Build population weights ordered to match setup$Y rows
-pop_2013      <- panel %>% filter(treated_unit == 1, time == 2013) %>% select(unit, pop)
-treated_names <- rownames(setup$Y)[(setup$N0 + 1):nrow(setup$Y)]
-pop_ordered   <- pop_2013 %>% mutate(unit_char = as.character(unit))
-weight_order  <- match(treated_names, pop_ordered$unit_char)
-treated_weights <- pop_ordered$pop[weight_order]
-treated_weights <- treated_weights / sum(treated_weights, na.rm = TRUE)
-
-# State cluster vector matching setup$Y row order
-unit_state  <- panel_sdid %>% distinct(unit, state_fips) %>% mutate(unit_char = as.character(unit))
-all_names   <- rownames(setup$Y)
-cluster_vec <- unit_state$state_fips[match(all_names, unit_state$unit_char)]
-n_states    <- n_distinct(cluster_vec)
-
-# Alternative weight specifications for robustness
-pop_2010              <- panel %>% filter(treated_unit == 1, time == 2010) %>% select(unit, pop)
-pop_ordered_2010      <- pop_2010 %>% mutate(unit_char = as.character(unit))
-weight_order_2010     <- match(treated_names, pop_ordered_2010$unit_char)
-treated_weights_2010  <- pop_ordered_2010$pop[weight_order_2010]
-treated_weights_2010  <- treated_weights_2010 / sum(treated_weights_2010, na.rm = TRUE)
-treated_weights_log   <- log(pop_ordered$pop[weight_order])
-treated_weights_log   <- treated_weights_log / sum(treated_weights_log, na.rm = TRUE)
-treated_weights_sqrt  <- sqrt(pop_ordered$pop[weight_order])
-treated_weights_sqrt  <- treated_weights_sqrt / sum(treated_weights_sqrt, na.rm = TRUE)
-
-# Time-varying covariates (the six panel controls of BV2020) as an
-# N x T x C array aligned with setup$Y, for the with-covariates
-# specifications in Table 1
-covar_names <- c("pct_white", "pct_55_64", "log_20_64", "log_35_44",
-                 "log_f_20_64", "unemp")
-X_arr <- array(NA_real_,
-               dim = c(nrow(setup$Y), ncol(setup$Y), length(covar_names)),
-               dimnames = list(rownames(setup$Y), colnames(setup$Y), covar_names))
-for (k in seq_along(covar_names)) {
-  Xk_wide <- panel %>%
-    select(unit, time, val = dplyr::all_of(covar_names[k])) %>%
-    tidyr::pivot_wider(names_from = time, values_from = val)
-  Xk_mat <- as.matrix(Xk_wide[, -1])
-  rownames(Xk_mat) <- as.character(Xk_wide$unit)
-  X_arr[, , k] <- Xk_mat[rownames(setup$Y), colnames(setup$Y)]
-}
-
-## Three FIPS-change counties (15005 Kalawao HI, 46113 Shannon/Oglala
-## Lakota SD, 51019 Bedford VA) have structurally missing covariates in
-## every year. Impute with the state-year mean so the with-covariates rows
-## of Table 1 use the same county sample as the no-covariates rows.
-if (anyNA(X_arr)) {
-  state_of <- unit_state$state_fips[match(rownames(setup$Y), unit_state$unit_char)]
-  for (k in seq_along(covar_names)) {
-    Xk <- X_arr[, , k]
-    na_idx <- which(is.na(Xk), arr.ind = TRUE)
-    for (r in seq_len(nrow(na_idx))) {
-      i <- na_idx[r, 1]; t <- na_idx[r, 2]
-      Xk[i, t] <- mean(X_arr[state_of == state_of[i], t, k], na.rm = TRUE)
-    }
-    X_arr[, , k] <- Xk
-  }
-}
-stopifnot(!anyNA(X_arr))
-```
-
-```{r weight-stats}
-hhi          <- sum(treated_weights^2)
-n1_eff       <- 1 / hhi
-top10_share  <- sum(sort(treated_weights, decreasing = TRUE)[1:10])
-top1_share   <- max(treated_weights)
-```
-
-The skewness of the weight distribution is consequential for inference. The Herfindahl index of the population weights is $H = `r round(hhi, 4)`$, implying an effective number of treated units $N_1^{\text{eff}} = `r round(n1_eff, 0)`$ relative to the raw $N_1 = `r nrow(setup$Y) - setup$N0`$. A single county---Los Angeles County---accounts for roughly `r round(top1_share * 100, 1)`\% of total population-weighted treated mass; the ten largest counties account for `r round(top10_share * 100, 0)`\%. Condition (W2) of Proposition 1 fails in the limiting sense, so we rely on cluster-robust bootstrap inference at the state level (where treatment is assigned, and where the no-dominant-cluster condition of Proposition 3 plausibly holds across $`r n_states`$ states).
+The skewness of the weight distribution is consequential for inference. The Herfindahl index of the population weights is $H = `r round(hhi, 4)`$, implying an effective number of treated units $N_1^{\text{eff}} = `r round(n1_eff, 0)`$ relative to the raw $N_1 = `r N1`$. A single county---Los Angeles County---accounts for roughly `r round(top1_share * 100, 1)`\% of total population-weighted treated mass; the ten largest counties account for `r round(top10_share * 100, 0)`\%. Condition (W2) of Proposition 1 fails in the limiting sense, so we rely on cluster-robust bootstrap inference at the state level (where treatment is assigned, and where the no-dominant-cluster condition of Proposition 3 plausibly holds across $`r n_states`$ states).
 
 ## Main Results
-
-```{r run-estimates, cache=TRUE}
-N1 <- nrow(setup$Y) - setup$N0
-uniform_weights <- rep(1 / N1, N1)
-
-## Equal weighting is estimated through the weighted functions with uniform
-## treated weights (identical point estimates to the standard estimators by
-## Proposition 0 of the supplement) so that state-clustered bootstrap SEs are
-## available for every cell of Table 1.
-tau_did_eq    <- did_estimate_weighted(setup$Y, setup$N0, setup$T0,
-                                        treated.weights = uniform_weights, cluster = cluster_vec)
-tau_did_eq_x  <- did_estimate_weighted(setup$Y, setup$N0, setup$T0, X = X_arr,
-                                        treated.weights = uniform_weights, cluster = cluster_vec)
-tau_sdid_eq   <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
-                                             treated.weights = uniform_weights, cluster = cluster_vec)
-tau_sdid_eq_x <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, X = X_arr,
-                                             treated.weights = uniform_weights, cluster = cluster_vec)
-
-tau_did_w     <- did_estimate_weighted(setup$Y, setup$N0, setup$T0,
-                                        treated.weights = treated_weights, cluster = cluster_vec)
-tau_did_w_x   <- did_estimate_weighted(setup$Y, setup$N0, setup$T0, X = X_arr,
-                                        treated.weights = treated_weights, cluster = cluster_vec)
-tau_sdid_w    <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
-                                             treated.weights = treated_weights, cluster = cluster_vec)
-tau_sdid_w_x  <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, X = X_arr,
-                                             treated.weights = treated_weights, cluster = cluster_vec)
-
-## Standard-class versions used by downstream diagnostics (event study,
-## unit-level effects). Point estimates identical to tau_*_eq.
-tau_sdid <- synthdid_estimate(setup$Y, setup$N0, setup$T0)
-tau_did  <- did_estimate(setup$Y, setup$N0, setup$T0)
-```
-
-```{r compute-ses, cache=TRUE}
-boot_se <- function(est, B = 500, cl = NULL) {
-  tryCatch(suppressWarnings(sqrt(vcov(est, method = "bootstrap",
-                                       replications = B, cluster = cl))),
-           error = function(e) NA)
-}
-estimates_t1 <- list(
-  did_eq  = tau_did_eq,  did_eq_x  = tau_did_eq_x,
-  sdid_eq = tau_sdid_eq, sdid_eq_x = tau_sdid_eq_x,
-  did_w   = tau_did_w,   did_w_x   = tau_did_w_x,
-  sdid_w  = tau_sdid_w,  sdid_w_x  = tau_sdid_w_x)
-
-se_unit    <- sapply(estimates_t1, function(e) boot_se(e, cl = NULL))
-se_cluster <- sapply(estimates_t1, function(e) boot_se(e, cl = cluster_vec))
-
-## Aliases used by later sections; inference throughout uses the
-## state-clustered bootstrap (treatment is assigned at the state level)
-se_sdid   <- se_cluster[["sdid_eq"]]
-se_did    <- se_cluster[["did_eq"]]
-se_sdid_w <- se_cluster[["sdid_w"]]
-se_did_w  <- se_cluster[["did_w"]]
-```
 
 ```{r main-results-table}
 stars <- function(est, se) {
@@ -390,58 +274,16 @@ kableExtra::kbl(
       "counties (15005, 46113, 51019) are imputed with state-year means so all rows share the same sample.",
       "Significance stars use the state-clustered bootstrap SE: * p$<$0.10, ** p$<$0.05, *** p$<$0.01.",
       "Synthetic control results are reported and diagnosed in Supplementary Appendix E.1."),
-      format(nrow(setup$Y), big.mark = ","), year_range[1], year_range[2], n_states),
+      format(n_counties, big.mark = ","), year_range[1], year_range[2], n_states),
     general_title = "Notes:", threeparttable = TRUE, escape = FALSE)
 ```
 
 Table 1 reports the main results. Across both estimators, with and without covariate adjustment, the equally-weighted and population-weighted estimates diverge sharply: the equally-weighted estimates are statistically indistinguishable from zero while their population-weighted counterparts are large and negative. The equally-weighted SDID estimate is `r fmt(as.numeric(tau_sdid))` deaths per 100,000 (state-clustered bootstrap SE `r fmt(se_sdid)`), statistically indistinguishable from zero. The population-weighted SDID estimate is `r fmt(as.numeric(tau_sdid_w))` deaths per 100,000 (SE `r fmt(se_sdid_w)`), significant at the 1\% level. The DID estimates show the same pattern. Adjusting for the six time-varying county covariates used by @borgschulte2020 leaves both conclusions essentially unchanged (`r fmt(as.numeric(tau_sdid_eq_x))` equally weighted, `r fmt(as.numeric(tau_sdid_w_x))` population weighted for SDID), confirming that the divergence is a property of the weighting choice rather than of omitted time-varying confounders. For every specification we report both the county-level bootstrap and the state-clustered bootstrap standard error; clustering at the state level---the level at which treatment is assigned---increases the standard errors but does not change any qualitative conclusion. We exclude synthetic control from Table 1: its estimates are a notable outlier relative to the DID--SDID family in this application, and we report them, together with the standard battery of post-estimation diagnostics that explains their magnitude, in Supplementary Appendix E.1.
 
-```{r paired-bootstrap-divergence, cache=TRUE}
-paired_bootstrap <- function(Y, N0, T0, treated.weights, replications = 500, seed = 42) {
-  set.seed(seed)
-  N <- nrow(Y)
-  diffs <- rep(NA, replications)
-  count <- 0
-  while (count < replications) {
-    ind <- sample(1:N, replace = TRUE)
-    if (all(ind <= N0) || all(ind > N0)) next
-    ind_s <- sort(ind)
-    N0_b  <- sum(ind <= N0)
-    Y_b   <- Y[ind_s, ]
-    tw_b  <- sum_normalize(treated.weights[sort(ind[ind > N0]) - N0])
-    est_eq <- tryCatch(as.numeric(synthdid_estimate(Y_b, N0_b, T0)), error = function(e) NA)
-    est_wt <- tryCatch(as.numeric(synthdid_estimate_weighted(Y_b, N0_b, T0, treated.weights = tw_b)),
-                        error = function(e) NA)
-    if (is.na(est_eq) || is.na(est_wt)) next
-    diffs[count + 1] <- est_wt - est_eq
-    count <- count + 1
-  }
-  diffs
-}
-
-boot_diffs     <- paired_bootstrap(setup$Y, setup$N0, setup$T0, treated_weights, replications = 500)
-obs_diff       <- as.numeric(tau_sdid_w) - as.numeric(tau_sdid)
-boot_null      <- boot_diffs - mean(boot_diffs)
-p_diverge      <- mean(abs(boot_null) >= abs(obs_diff))
-p_diverge_text <- ifelse(p_diverge < 0.001, "$p < 0.001$", paste0("$p = ", round(p_diverge, 3), "$"))
-```
-
 To confirm that the divergence between the equally-weighted and population-weighted SDID estimates is not attributable to sampling variability, we conduct a paired bootstrap test. On each of $B = 500$ bootstrap replications we apply identical unit resamples to both estimators and compute $\Delta_b = \hat{\tau}^w_b - \hat{\tau}_b$. Recentering the bootstrap distribution to the null of no difference, the two-sided $p$-value for the observed gap of $|\Delta_{\text{obs}}| = `r abs(round(as.numeric(tau_sdid_w) - as.numeric(tau_sdid), 1))`$ deaths per 100,000 is `r p_diverge_text`. The two estimands are sharply distinguishable.
 
 ```{r event-study-both, fig.cap="Event-study decomposition under equal and population weighting.\\newline \\footnotesize\\textit{Notes:} DID (left) and SDID (right). Points are year-specific effects under equal (blue circles) and population (red triangles) weighting of treated counties; shaded bands are 95\\% bootstrap confidence intervals (500 replications). The vertical dashed line marks treatment onset (2014).", fig.height=4, fig.width=8, cache=TRUE}
-es_sdid   <- synthdid_event_study(tau_sdid,   se.method = "bootstrap", replications = 500)
-es_sdid_w <- synthdid_event_study(tau_sdid_w, se.method = "bootstrap", replications = 500)
-es_did    <- synthdid_event_study(tau_did,    se.method = "bootstrap", replications = 500)
-es_did_w  <- synthdid_event_study(tau_did_w,  se.method = "bootstrap", replications = 500)
-
-es_df <- bind_rows(
-  es_did    %>% mutate(Weighting = "Equally weighted",    Estimator = "DID"),
-  es_did_w  %>% mutate(Weighting = "Population weighted", Estimator = "DID"),
-  es_sdid   %>% mutate(Weighting = "Equally weighted",    Estimator = "SDID"),
-  es_sdid_w %>% mutate(Weighting = "Population weighted", Estimator = "SDID")
-) %>%
-  mutate(year = as.numeric(time),
-         Estimator = factor(Estimator, levels = c("DID", "SDID")))
+es_df <- ev %>% mutate(Estimator = factor(Estimator, levels = c("DID", "SDID")))
 
 rmspe_did_pre  <- es_df %>% filter(Estimator == "DID",  Weighting == "Equally weighted", year < 2014) %>% summarise(rmspe = sqrt(mean(estimate^2))) %>% pull(rmspe)
 rmspe_sdid_pre <- es_df %>% filter(Estimator == "SDID", Weighting == "Equally weighted", year < 2014) %>% summarise(rmspe = sqrt(mean(estimate^2))) %>% pull(rmspe)
@@ -466,32 +308,17 @@ Figure 1 displays the event-study decomposition. Under equal weighting (blue), p
 ## Mechanism: Heterogeneity by County Size
 
 ```{r heterogeneity-plot, fig.cap="Treatment-effect heterogeneity by county population.\\newline \\footnotesize\\textit{Notes:} Binned scatter of unit-level SDID treatment effects against log county population (2013), in 20 quantile bins of log population. Point size is proportional to the total 2013 population of counties in the bin (so larger-population deciles render as larger points even though each bin holds the same number of counties). Unit-level effects use the equally-weighted SDID control weights $\\hat{\\omega}$ and time weights $\\hat{\\lambda}$ (the post-period gap relative to the synthetic control minus the $\\hat{\\lambda}$-weighted pre-period gap), isolating heterogeneity in the treatment effect from heterogeneity in the weighting scheme; the equally-weighted average of the unit-level effects recovers the SDID estimate exactly. The dashed line is a population-weighted OLS fit through the bin means.", fig.height=3.8}
-omega   <- attr(tau_sdid, 'weights')$omega
-lambda  <- attr(tau_sdid, 'weights')$lambda
-Y       <- attr(tau_sdid, 'setup')$Y
-N0_loc  <- attr(tau_sdid, 'setup')$N0
-T0_loc  <- attr(tau_sdid, 'setup')$T0
-
-Y_control <- Y[1:N0_loc, ]
-Y_treated <- Y[(N0_loc + 1):nrow(Y), ]
-Y_hat     <- matrix(rep(as.vector(omega %*% Y_control), nrow(Y_treated)),
-                    nrow = nrow(Y_treated), byrow = TRUE)
-
-## Unit-level SDID effect: post-period gap minus lambda-weighted pre-period
-## gap. SDID permits level differences between treated units and the
-## synthetic control, so the pre-period adjustment is essential -- the raw
-## post-period gap confounds treatment effects with mortality-LEVEL gaps.
-## By construction mean(unit_effects) equals the SDID point estimate.
-gap          <- Y_treated - Y_hat
-post_cols    <- (T0_loc + 1):ncol(Y)
-unit_effects <- rowMeans(gap[, post_cols]) -
-  as.vector(gap[, 1:T0_loc, drop = FALSE] %*% lambda)
-stopifnot(abs(mean(unit_effects) - as.numeric(tau_sdid)) < 1e-8)
+## Per-county SDID unit-level effects are precomputed in
+## results/heterogeneity.csv: the post-period gap relative to the synthetic
+## control minus the lambda-weighted pre-period gap, using the equally-weighted
+## control/time weights. By construction mean(effect) equals the SDID estimate.
+unit_effects <- het$effect
+stopifnot(abs(mean(unit_effects) - as.numeric(tau_sdid)) < 1e-6)
 
 n_bins <- 20
 
 unit_effect_df <- tibble::tibble(
-  effect = unit_effects, pop = pop_ordered$pop[weight_order]
+  effect = het$effect, pop = het$pop
 ) %>%
   mutate(log_pop = log(pop),
          pop_bin = dplyr::ntile(log_pop, n_bins)) %>%
@@ -504,7 +331,7 @@ unit_effect_df <- tibble::tibble(
 
 bin_cor         <- cov.wt(unit_effect_df[, c("mean_log_pop", "mean_effect")],
                           wt = unit_effect_df$bin_pop, cor = TRUE)$cor[1, 2]
-ind_cor         <- cor(unit_effects, log(pop_ordered$pop[weight_order]))
+ind_cor         <- cor(het$effect, log(het$pop))
 smallest_effect <- unit_effect_df$mean_effect[1]
 largest_effect  <- unit_effect_df$mean_effect[nrow(unit_effect_df)]
 smallest_logpop <- unit_effect_df$mean_log_pop[1]
@@ -512,8 +339,7 @@ largest_logpop  <- unit_effect_df$mean_log_pop[nrow(unit_effect_df)]
 ## Population-weighted mean of the unit-level effects: approximately recovers
 ## the weighted SDID estimate (omega-hat/lambda-hat are held at their
 ## equally-weighted values, so the recovery is not mechanical)
-popw_unit_mean  <- sum(unit_effects * pop_ordered$pop[weight_order]) /
-  sum(pop_ordered$pop[weight_order])
+popw_unit_mean  <- sum(het$effect * het$pop) / sum(het$pop)
 
 ggplot(unit_effect_df, aes(x = mean_log_pop, y = mean_effect)) +
   geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
@@ -534,15 +360,12 @@ The divergence between estimands is not a statistical artifact: it reflects subs
 ```{r urban-binscatter, dependson="heterogeneity-plot", fig.cap="Treatment-effect heterogeneity by urban-population share.\\newline \\footnotesize\\textit{Notes:} Binned scatter of unit-level SDID treatment effects against the urban-population share of each county, in 20 quantile bins of pct.\\ urban (2010 Decennial Census, P002002 / P002001). Point area is proportional to the total 2013 population of counties in the bin; the dashed line is a population-weighted OLS fit through the bin means. Urban share is fixed at its 2010 (pre-treatment) value, so the gradient reflects pre-existing county composition rather than any post-2014 reclassification.", fig.height=3.4}
 urban_share <- readr::read_csv("data/urban_share.csv", show_col_types = FALSE)
 
-unit_effect_urban <- tibble::tibble(
-  fips   = as.numeric(pop_ordered$unit_char[weight_order]),
-  effect = unit_effects,
-  pop    = pop_ordered$pop[weight_order]
-) %>%
+unit_effect_urban <- het %>%
+  dplyr::transmute(fips = as.numeric(fips), effect, pop) %>%
   dplyr::left_join(urban_share, by = "fips") %>%
   dplyr::filter(!is.na(pct_urban))
 
-n_urban_dropped <- length(unit_effects) - nrow(unit_effect_urban)
+n_urban_dropped <- nrow(het) - nrow(unit_effect_urban)
 
 urban_bin_df <- unit_effect_urban %>%
   ## ntile() rather than cut(quantile(...)): the suppression-recovered small
@@ -585,33 +408,13 @@ This pattern is consistent with the mechanism literature on Medicaid expansion: 
 ## Robustness to Alternative Weight Specifications
 
 ```{r robustness-table, cache=TRUE}
-tau_sdid_log_app  <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
-                                                 treated.weights = treated_weights_log,  cluster = cluster_vec)
-tau_sdid_sqrt_app <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
-                                                 treated.weights = treated_weights_sqrt, cluster = cluster_vec)
-tau_sdid_2010_app <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
-                                                 treated.weights = treated_weights_2010, cluster = cluster_vec)
-
-se_sdid_log_app  <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_log_app,  method = "bootstrap", replications = 500))), error = function(e) NA)
-se_sdid_sqrt_app <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_sqrt_app, method = "bootstrap", replications = 500))), error = function(e) NA)
-se_sdid_2010_app <- tryCatch(suppressWarnings(sqrt(vcov(tau_sdid_2010_app, method = "bootstrap", replications = 500))), error = function(e) NA)
-
 robust_results <- tibble::tibble(
-  `Weight specification` = c("Population (2013, baseline)",
-                              "Population (2010 base year)",
-                              "Square root of population",
-                              "Log population",
-                              "Equal ($1/N_1$)"),
-  Estimate = c(as.numeric(tau_sdid_w), as.numeric(tau_sdid_2010_app),
-               as.numeric(tau_sdid_sqrt_app), as.numeric(tau_sdid_log_app),
-               as.numeric(tau_sdid)),
-  SE = c(se_sdid_w, se_sdid_2010_app, se_sdid_sqrt_app, se_sdid_log_app, se_sdid),
-  `$N_1^{\\text{eff}}$` = c(round(1/sum(treated_weights^2), 0),
-                              round(1/sum(treated_weights_2010^2), 0),
-                              round(1/sum(treated_weights_sqrt^2), 0),
-                              round(1/sum(treated_weights_log^2), 0),
-                              nrow(setup$Y) - setup$N0)
+  `Weight specification` = rob$label,
+  Estimate = rob$estimate,
+  SE = rob$se,
+  `$N_1^{\\text{eff}}$` = rob$n1_eff
 )
+tau_sdid_2010_app <- rob$estimate[rob$spec == "pop_2010"]  # referenced in the prose below
 
 kableExtra::kbl(
   robust_results, digits = 2, booktabs = TRUE, escape = FALSE,
@@ -623,7 +426,7 @@ kableExtra::kbl(
     general_title = "Notes:", threeparttable = TRUE, escape = FALSE)
 ```
 
-Table 2 examines the sensitivity of the population-weighted SDID estimate to alternative weight specifications. Replacing 2013 population with 2010 population shares yields an estimate of similar magnitude (`r round(as.numeric(tau_sdid_2010_app), 1)` deaths per 100,000), confirming that the result does not depend on the choice of base year. As the weight distribution is compressed---square-root population, log population, equal weighting---the estimate moves monotonically toward zero. The effective sample size grows correspondingly, from $N_1^{\text{eff}} \approx `r round(1/sum(treated_weights^2), 0)`$ under linear population weights to $N_1 = `r nrow(setup$Y) - setup$N0`$ under equal weights. The substantive lesson is that the large negative effect requires giving substantial weight to the largest counties: log compression alone is sufficient to eliminate it. This is not an artifact of the specific 2013 linear-population specification, but it does pinpoint *which* aggregation choices produce the result.
+Table 2 examines the sensitivity of the population-weighted SDID estimate to alternative weight specifications. Replacing 2013 population with 2010 population shares yields an estimate of similar magnitude (`r round(as.numeric(tau_sdid_2010_app), 1)` deaths per 100,000), confirming that the result does not depend on the choice of base year. As the weight distribution is compressed---square-root population, log population, equal weighting---the estimate moves monotonically toward zero. The effective sample size grows correspondingly, from $N_1^{\text{eff}} \approx `r round(n1_eff, 0)`$ under linear population weights to $N_1 = `r N1`$ under equal weights. The substantive lesson is that the large negative effect requires giving substantial weight to the largest counties: log compression alone is sufficient to eliminate it. This is not an artifact of the specific 2013 linear-population specification, but it does pinpoint *which* aggregation choices produce the result.
 
 ## Comparison with the Published Estimate
 
@@ -654,60 +457,15 @@ Table 3 places our population-weighted SDID estimate alongside the headline esti
 
 ## Placebo Tests
 
-```{r placebo-intime-app, cache=TRUE}
-run_intime_placebo <- function(placebo_year, B = 200) {
-  panel_pb <- panel %>% filter(time <= 2013) %>%
-    arrange(unit, time) %>%
-    mutate(.unit = as.factor(unit), .time = time,
-           .W = as.integer(treated_unit == 1 & time >= placebo_year)) %>%
-    select(.unit, .time, y, .W) %>%
-    as.data.frame()
-  setup_pb   <- panel.matrices(panel_pb)
-  cl_pb      <- unit_state$state_fips[match(rownames(setup_pb$Y), unit_state$unit_char)]
-  treated_pb <- rownames(setup_pb$Y)[(setup_pb$N0 + 1):nrow(setup_pb$Y)]
-  N1_pb      <- nrow(setup_pb$Y) - setup_pb$N0
-  tw_pb      <- pop_ordered$pop[match(treated_pb, pop_ordered$unit_char)]
-  tw_pb      <- tw_pb / sum(tw_pb)
-  ## Equal weights estimated through the weighted function (uniform weights)
-  ## so that state-clustered bootstrap SEs are available, as in Table 1
-  fit_eq <- tryCatch(synthdid_estimate_weighted(setup_pb$Y, setup_pb$N0, setup_pb$T0,
-                                                 treated.weights = rep(1 / N1_pb, N1_pb),
-                                                 cluster = cl_pb),
-                      error = function(e) NULL)
-  fit_wt <- tryCatch(synthdid_estimate_weighted(setup_pb$Y, setup_pb$N0, setup_pb$T0,
-                                                 treated.weights = tw_pb, cluster = cl_pb),
-                      error = function(e) NULL)
-  se_of <- function(fit) {
-    if (is.null(fit)) return(NA_real_)
-    tryCatch(suppressWarnings(sqrt(vcov(fit, method = "bootstrap", replications = B))),
-             error = function(e) NA_real_)
-  }
-  tibble::tibble(placebo_year = as.character(placebo_year),
-                 estimate_eq  = if (is.null(fit_eq)) NA_real_ else as.numeric(fit_eq),
-                 se_eq        = se_of(fit_eq),
-                 estimate_wt  = if (is.null(fit_wt)) NA_real_ else as.numeric(fit_wt),
-                 se_wt        = se_of(fit_wt))
-}
-intime_results <- purrr::map_dfr(c(2011L, 2012L), run_intime_placebo)
+```{r placebo-intime-app}
+## In-time placebo estimates/SEs precomputed in results/placebo_intime.csv.
+intime_results <- pintime
 ```
 
-```{r placebo-inspace-app, cache=TRUE}
-set.seed(20240101)
-n_placebo    <- 500
-N1           <- nrow(setup$Y) - setup$N0
-placebo_ests <- rep(NA_real_, n_placebo)
-for (i in seq_len(n_placebo)) {
-  placebo_treated <- sample(seq_len(setup$N0), N1, replace = FALSE)
-  placebo_control <- setdiff(seq_len(setup$N0), placebo_treated)
-  Y_placebo  <- setup$Y[c(placebo_control, placebo_treated), ]
-  N0_placebo <- length(placebo_control)
-  tw_placebo <- rep(1/N1, N1)
-  placebo_ests[i] <- tryCatch(
-    as.numeric(synthdid_estimate_weighted(Y_placebo, N0_placebo, setup$T0,
-                                           treated.weights = tw_placebo)),
-    error = function(e) NA_real_)
-}
-p_placebo <- mean(abs(placebo_ests) >= abs(as.numeric(tau_sdid_w)), na.rm = TRUE)
+```{r placebo-inspace-app}
+## In-space placebo distribution precomputed in results/placebo_distribution.csv;
+## p_placebo (randomization-inference p-value) is read in load-results.
+placebo_ests <- pdist$est
 ```
 
 ```{r placebo-figure, fig.cap="Placebo tests.\\newline \\footnotesize\\textit{Notes:} Left: in-time placebo with simulated treatment dates of 2011 and 2012, restricting to pre-treatment data (2009--2013); circles are equally-weighted and triangles population-weighted SDID estimates, with whiskers marking 95\\% state-clustered bootstrap confidence intervals (200 replications). Right: in-space placebo distribution from 500 random re-assignments of treatment to control counties, with the dashed vertical line marking the observed population-weighted estimate.", fig.height=3.6, fig.width=8}
