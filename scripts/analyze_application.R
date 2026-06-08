@@ -100,8 +100,10 @@ on.exit(stopCluster(CL), add = TRUE)
 # the repo root explicitly and source R/ from there (else workers lack the
 # synthdid functions and every bootstrap rep silently fails).
 ROOT_ <- normalizePath(getwd())
-clusterExport(CL, "ROOT_")
+LIBS_ <- .libPaths()   # so workers use the same (renv) library as the master
+clusterExport(CL, c("ROOT_", "LIBS_"))
 worker_ok <- clusterEvalQ(CL, {
+  .libPaths(LIBS_)
   setwd(ROOT_)
   suppressPackageStartupMessages({library(dplyr)})
   invisible(lapply(list.files("R", pattern = "[.][Rr]$", full.names = TRUE), source))
