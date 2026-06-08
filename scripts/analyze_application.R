@@ -456,6 +456,184 @@ app_scalars <- tibble::tribble(
 out(app_scalars, "app_scalars")
 
 # =============================================================================
+# SUPPLEMENT (Appendix E): SC results/diagnostics, all-estimator event studies,
+# control-weight diagnostics, leave-one-out, and the DLPS reproduction.
+# Reuses setup / tau_sdid / tau_sdid_w / weights / cluster_vec from above.
+# All SC work is no-X; boot_rep reproduces SC because the SC options ride along
+# in attr(estimate, 'opts'), exactly as vcov.R does.
+# =============================================================================
+message("\n== supplement extraction ==")
+
+tau_sc    <- sc_estimate(setup$Y, setup$N0, setup$T0)
+tau_sc_eq <- sc_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = uniform_weights, cluster = cluster_vec)
+tau_sc_w  <- sc_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = treated_weights, cluster = cluster_vec)
+
+## SC dual bootstrap SEs (parallel)
+sc_results <- tibble(
+  weighting  = c("eq", "w"),
+  estimate   = c(as.numeric(tau_sc_eq), as.numeric(tau_sc_w)),
+  se_unit    = c(par_boot_se(tau_sc_eq, "unit",    NULL,        B_SE, 20240101L + 200000L),
+                 par_boot_se(tau_sc_w,  "unit",    NULL,        B_SE, 20240101L + 202000L)),
+  se_cluster = c(par_boot_se(tau_sc_eq, "cluster", cluster_vec, B_SE, 20240101L + 201000L),
+                 par_boot_se(tau_sc_w,  "cluster", cluster_vec, B_SE, 20240101L + 203000L))
+)
+out(sc_results, "sc_results")
+
+## Pre-fit / donor-concentration diagnostics (deterministic)
+pre_gap <- function(est) {
+  st <- attr(est, 'setup'); w <- attr(est, 'weights'); tw <- attr(est, 'treated.weights')
+  if (is.null(tw)) tw <- rep(1 / (nrow(st$Y) - st$N0), nrow(st$Y) - st$N0)
+  treated_traj <- as.vector(tw %*% st$Y[(st$N0 + 1):nrow(st$Y), , drop = FALSE])
+  synth_traj   <- as.vector(w$omega %*% st$Y[1:st$N0, , drop = FALSE])
+  (treated_traj - synth_traj)[1:st$T0]
+}
+rmspe_raw <- function(e) sqrt(mean(pre_gap(e)^2))
+rmspe_adj <- function(e) { g <- pre_gap(e); sqrt(mean((g - mean(g))^2)) }
+omega_diag <- function(e) { om <- attr(e, 'weights')$omega
+  c(eff_n0 = 1 / sum(om^2), top10 = sum(sort(om, decreasing = TRUE)[1:10])) }
+diag_models <- list(`SC, equally weighted` = tau_sc_eq, `SC, population weighted` = tau_sc_w,
+                    `SDID, equally weighted` = tau_sdid, `SDID, population weighted` = tau_sdid_w)
+sc_diagnostics <- purrr::map_dfr(names(diag_models), function(nm) {
+  m <- diag_models[[nm]]; od <- omega_diag(m)
+  tibble(model = nm, pre_rmspe_level = rmspe_raw(m), pre_rmspe_adj = rmspe_adj(m),
+         mean_pre_gap = mean(pre_gap(m)), eff_n0 = od[["eff_n0"]], top10_omega = od[["top10"]])
+})
+out(sc_diagnostics, "sc_diagnostics")
+
+## SC leave-one-out over the 15 largest-weight donor counties
+top_n_donors <- 15
+sc_loo_one <- function(est, label) {
+  om <- attr(est, 'weights')$omega; tw <- attr(est, 'treated.weights')
+  top <- order(om, decreasing = TRUE)[1:top_n_donors]
+  purrr::map_dfr(seq_along(top), function(r) {
+    i <- top[r]
+    fit <- tryCatch(sc_estimate_weighted(setup$Y[-i, ], setup$N0 - 1, setup$T0,
+                                         treated.weights = tw, cluster = cluster_vec[-i]),
+                    error = function(e) NULL)
+    tibble(weighting = label, rank = r, fips = rownames(setup$Y)[i], omega = om[i],
+           estimate = if (is.null(fit)) NA_real_ else as.numeric(fit))
+  })
+}
+out(bind_rows(sc_loo_one(tau_sc_eq, "Equally weighted"),
+              sc_loo_one(tau_sc_w,  "Population weighted")), "sc_loo")
+
+## SC in-time placebos (pre-2013 sample, simulated onset)
+run_intime_sc <- function(py) {
+  ppb <- panel %>% filter(time <= 2013) %>% arrange(unit, time) %>%
+    mutate(.unit = as.factor(unit), .time = time,
+           .W = as.integer(treated_unit == 1 & time >= py)) %>%
+    select(.unit, .time, y, .W) %>% as.data.frame()
+  spb <- panel.matrices(ppb); clpb <- unit_state$state_fips[match(rownames(spb$Y), unit_state$unit_char)]
+  tpb <- rownames(spb$Y)[(spb$N0 + 1):nrow(spb$Y)]; n1 <- nrow(spb$Y) - spb$N0
+  twp <- pop_ordered$pop[match(tpb, pop_ordered$unit_char)]; twp <- twp / sum(twp)
+  feq <- tryCatch(sc_estimate_weighted(spb$Y, spb$N0, spb$T0, treated.weights = rep(1 / n1, n1), cluster = clpb), error = function(e) NULL)
+  fwt <- tryCatch(sc_estimate_weighted(spb$Y, spb$N0, spb$T0, treated.weights = twp, cluster = clpb), error = function(e) NULL)
+  sef <- function(f, sb) if (is.null(f)) NA_real_ else tryCatch(par_boot_se(f, "cluster", clpb, B_IT, sb), error = function(e) NA_real_)
+  tibble(placebo_year = py,
+         estimate_eq = if (is.null(feq)) NA_real_ else as.numeric(feq), se_eq = sef(feq, 20240101L + 210000L + py * 10L),
+         estimate_wt = if (is.null(fwt)) NA_real_ else as.numeric(fwt), se_wt = sef(fwt, 20240101L + 210000L + py * 10L + 5L))
+}
+out(purrr::map_dfr(c(2011L, 2012L), run_intime_sc), "sc_intime")
+
+## All-estimator event studies (equally weighted DID / SC / SDID)
+es_sc_all <- bind_rows(
+  synthdid_event_study(tau_did,  se.method = "bootstrap", replications = B_SE) %>% mutate(Estimator = "DID"),
+  synthdid_event_study(tau_sc,   se.method = "bootstrap", replications = B_SE) %>% mutate(Estimator = "SC"),
+  synthdid_event_study(tau_sdid, se.method = "bootstrap", replications = B_SE) %>% mutate(Estimator = "SDID")
+) %>% mutate(year = as.numeric(time))
+out(es_sc_all, "sc_event_studies")
+
+## Control-unit weight distributions
+omega_unwt <- attr(tau_sdid, 'weights')$omega; omega_wt <- attr(tau_sdid_w, 'weights')$omega
+out(bind_rows(tibble(omega = omega_unwt[omega_unwt > 0], weighting = "Equally weighted"),
+              tibble(omega = omega_wt[omega_wt > 0],     weighting = "Population weighted")), "omega_weights")
+
+## Main leave-one-out: drop each of the 50 largest treated counties, re-estimate
+## the population-weighted SDID, state-clustered bootstrap SE each (the heavy one)
+top_n_loo <- 50
+top_counties <- order(treated_weights, decreasing = TRUE)[1:top_n_loo]
+loo_results <- purrr::map_dfr(seq_along(top_counties), function(r) {
+  j <- top_counties[r]; jf <- setup$N0 + j
+  Yl <- setup$Y[-jf, ]; twl <- treated_weights[-j]; twl <- twl / sum(twl); cll <- cluster_vec[-jf]
+  m <- tryCatch(synthdid_estimate_weighted(Yl, setup$N0, setup$T0, treated.weights = twl, cluster = cll), error = function(e) NULL)
+  if (is.null(m)) return(tibble(county_rank = r, county_fips = treated_names[j],
+                                pop_weight = treated_weights[j], estimate = NA_real_, se = NA_real_))
+  se <- tryCatch(par_boot_se(m, "cluster", cll, B_SE, 20240101L + 300000L + r * 100L), error = function(e) NA_real_)
+  tibble(county_rank = r, county_fips = treated_names[j], pop_weight = treated_weights[j],
+         estimate = as.numeric(m), se = se)
+})
+out(loo_results, "loo_results")
+
+## DLPS reproduction of Borgschulte & Vogler (2020), Table 2 Panel A
+## (self-contained; mirrors scripts/bv_replication_tables.R). All cheap.
+adf    <- read_csv(file.path("paper", "data", "analysis_data.csv"), show_col_types = FALSE)
+bv_cov <- read_csv(file.path("paper", "data", "bv_covariates.csv"), show_col_types = FALSE)
+mort_yearly <- bind_rows(
+  read_csv(file.path("paper", "data", "county_mortality_pre.csv"), show_col_types = FALSE) %>% select(fips, year, crude_rate),
+  adf %>% filter(year == 2009) %>% select(fips, year, crude_rate)
+) %>% filter(year >= 2005, year <= 2009) %>%
+  tidyr::pivot_wider(names_from = year, values_from = crude_rate, names_prefix = "mort_")
+mort_vars      <- paste0("mort_", 2005:2009)
+panel_controls <- c("pct_white", "pct_55_64", "log_20_64", "log_35_44", "log_f_20_64", "unemp")
+bv_cov_vars    <- c("pct_male", "pct_black", "pct_hispanic", "pct_2024", "pct_2534", "pct_3544",
+                    "pct_4554", "pct_5564", "poverty_rate", "log_median_income", "log_pop_density",
+                    "uninsured_rate", "dem_governor_2010", "obama_share_2008", "obama_share_2012")
+dlps_base <- adf %>% filter(year <= 2013) %>%
+  group_by(fips, state_fips = as.numeric(state_fips), expansion) %>%
+  summarise(across(all_of(panel_controls), ~ mean(.x, na.rm = TRUE)),
+            crude_rate_pre = mean(crude_rate), pop_2064_pre = mean(population), .groups = "drop") %>%
+  left_join(bv_cov %>% select(fips, all_of(bv_cov_vars)), by = "fips") %>%
+  left_join(mort_yearly, by = "fips") %>% tidyr::drop_na()
+control_vars <- c(panel_controls, bv_cov_vars, mort_vars)
+X_mat <- scale(as.matrix(dlps_base[, control_vars])); X_mat[!is.finite(X_mat)] <- 0
+D_vec <- dlps_base$expansion; Y_vec <- rowMeans(dlps_base[, mort_vars])
+if (requireNamespace("RPtests", quietly = TRUE)) {
+  sel_treat <- which(abs(RPtests::sqrt_lasso(X_mat, as.numeric(D_vec))) > 1e-8)
+  sel_out   <- which(abs(RPtests::sqrt_lasso(X_mat, as.numeric(scale(Y_vec)))) > 1e-8)
+} else {
+  sel_treat <- which(hdm::rlassologit(X_mat, D_vec, post = TRUE)$index)
+  sel_out   <- which(hdm::rlasso(X_mat, Y_vec, post = TRUE)$index)
+}
+sel_union <- sort(unique(c(sel_treat, sel_out))); dlps_selected <- control_vars[sel_union]
+ps_df <- data.frame(D = D_vec, X_mat[, sel_union, drop = FALSE])
+dlps_base$ps <- predict(glm(D ~ ., data = ps_df, family = binomial()), type = "response")
+dlps_trim <- dlps_base %>% filter(ps >= 0.038, ps <= 0.971)
+panel_ipw <- adf %>%
+  inner_join(dlps_trim %>% transmute(fips, uninsured_base = uninsured_rate,
+                                     ipw = if_else(expansion == 1, 1, ps / (1 - ps))), by = "fips") %>%
+  mutate(final_weight = population * ipw, treated_post = expansion * as.integer(year >= 2014),
+         state_fips_n = as.numeric(state_fips))
+dlps_run <- function(dat, controls = NULL) {
+  rhs <- paste(c("treated_post", controls), collapse = " + ")
+  m <- fixest::feols(stats::as.formula(paste0("crude_rate ~ ", rhs, " | fips + year")),
+                     data = dat, weights = ~ final_weight, cluster = ~ state_fips_n)
+  ct <- fixest::coeftable(m)["treated_post", ]
+  c(est = unname(ct[1]), se = unname(ct[2]), n = stats::nobs(m))
+}
+unins_med <- stats::median(dlps_trim$uninsured_rate, na.rm = TRUE)
+r_base <- dlps_run(panel_ipw); r_ctrl <- dlps_run(panel_ipw, panel_controls)
+r_high <- dlps_run(panel_ipw %>% filter(uninsured_base >  unins_med), panel_controls)
+r_low  <- dlps_run(panel_ipw %>% filter(uninsured_base <= unins_med), panel_controls)
+out(tibble(spec = c("base", "controls", "high_uninsured", "low_uninsured"),
+           estimate = c(r_base["est"], r_ctrl["est"], r_high["est"], r_low["est"]),
+           se = c(r_base["se"], r_ctrl["se"], r_high["se"], r_low["se"]),
+           n = c(r_base["n"], r_ctrl["n"], r_high["n"], r_low["n"])), "dlps_results")
+
+## Supplement scalars (inline numbers that need setup/weights/heavy compute)
+out(tibble::tribble(
+  ~name, ~value,
+  "eff_N0_unwt",     1 / sum(omega_unwt^2),
+  "eff_N0_wt",       1 / sum(omega_wt^2),
+  "n_nonzero_unwt",  sum(omega_unwt > 1e-6),
+  "n_nonzero_wt",    sum(omega_wt > 1e-6),
+  "dlps_n_complete", nrow(dlps_base),
+  "dlps_n_trimmed",  nrow(dlps_base) - nrow(dlps_trim),
+  "dlps_n_selected", length(dlps_selected),
+  "dlps_n_candidates", length(control_vars),
+  "unins_med",       unins_med
+), "sc_scalars")
+
+# =============================================================================
 # manifest: seed, git SHA, build date, replication counts
 # =============================================================================
 git_sha <- tryCatch(system2("git", c("rev-parse", "--short", "HEAD"), stdout = TRUE),

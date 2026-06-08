@@ -65,12 +65,15 @@ STAGES <- list(
   ),
   analysis = list(
     scripts = file.path("scripts", "analyze_application.R"),
-    # Terminal artifacts of the application analysis (see analyze_application.R).
+    # Terminal artifacts of the application analysis (see analyze_application.R):
+    # paper (app_*) and supplement (sc_*, loo_results, dlps_results).
     outputs = file.path("results", c(
-      "app_estimates.csv", "event_studies.csv", "paired_bootstrap.csv",
-      "placebo_distribution.csv", "placebo_intime.csv", "robustness.csv",
-      "leave_one_out.csv", "heterogeneity.csv", "dlps_benchmark.csv",
-      "sc_diagnostics.csv"
+      "app_estimates.csv", "app_scalars.csv", "event_studies.csv",
+      "heterogeneity.csv", "robustness.csv", "headline_comparison.csv",
+      "placebo_intime.csv", "placebo_distribution.csv",
+      "sc_results.csv", "sc_diagnostics.csv", "sc_loo.csv", "sc_intime.csv",
+      "sc_event_studies.csv", "omega_weights.csv", "loo_results.csv",
+      "dlps_results.csv", "sc_scalars.csv"
     ))
   ),
   mc = list(
