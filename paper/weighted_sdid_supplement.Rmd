@@ -331,33 +331,31 @@ panel <- readr::read_csv(
   mutate(post = as.integer(time >= 2014))
 ```
 
-```{r prepare-app, cache=TRUE}
-panel_sdid <- panel %>%
-  arrange(unit, time) %>%
-  select(unit, time, y, treated_unit, pop, state_fips) %>%
-  mutate(.unit = as.factor(unit), .time = time,
-         .W = as.integer(treated_unit == 1 & time >= 2014))
-dfp   <- panel_sdid %>% select(.unit, .time, y, .W) %>% as.data.frame()
-setup <- panel.matrices(dfp)
+```{r load-app-results}
+## All heavy computation is precomputed by scripts/analyze_application.R and
+## committed to results/ (see results/_manifest.csv). This appendix only reads
+## and formats those tables. The objects below carry the names the rest of the
+## document references.
+rd <- function(f) readr::read_csv(file.path("..", "results", f), show_col_types = FALSE)
+.appest <- rd("app_estimates.csv"); .rob <- rd("robustness.csv")
+scr        <- rd("sc_results.csv")
+scd        <- rd("sc_diagnostics.csv")
+sc_loo_df  <- rd("sc_loo.csv")
+sc_intime_df <- rd("sc_intime.csv")
+es_all_df  <- rd("sc_event_studies.csv")
+omega_w_df <- rd("omega_weights.csv")
+loo_df     <- rd("loo_results.csv")
+dlps_df    <- rd("dlps_results.csv")
+scsv       <- { s <- rd("sc_scalars.csv"); setNames(s$value, s$name) }
 
-pop_2013      <- panel %>% filter(treated_unit == 1, time == 2013) %>% select(unit, pop)
-treated_names <- rownames(setup$Y)[(setup$N0 + 1):nrow(setup$Y)]
-pop_ordered   <- pop_2013 %>% mutate(unit_char = as.character(unit))
-weight_order  <- match(treated_names, pop_ordered$unit_char)
-treated_weights <- pop_ordered$pop[weight_order]
-treated_weights <- treated_weights / sum(treated_weights, na.rm = TRUE)
-
-unit_state  <- panel_sdid %>% distinct(unit, state_fips) %>% mutate(unit_char = as.character(unit))
-all_names   <- rownames(setup$Y)
-cluster_vec <- unit_state$state_fips[match(all_names, unit_state$unit_char)]
-
-tau_sdid    <- synthdid_estimate(setup$Y, setup$N0, setup$T0)
-tau_sc      <- sc_estimate(setup$Y, setup$N0, setup$T0)
-tau_did     <- did_estimate(setup$Y, setup$N0, setup$T0)
-tau_sdid_w  <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
-                                           treated.weights = treated_weights, cluster = cluster_vec)
-tau_did_w   <- did_estimate_weighted(setup$Y, setup$N0, setup$T0,
-                                      treated.weights = treated_weights, cluster = cluster_vec)
+## Point estimates (deterministic). tau_sdid is the standard synthdid_estimate
+## (robustness "equal" row); tau_sc_eq/tau_sc_w are the SC estimates.
+tau_sdid   <- .rob$estimate[.rob$spec == "equal"]
+tau_sdid_w <- .appest$estimate[.appest$spec == "sdid_w"]
+tau_did    <- .appest$estimate[.appest$spec == "did_eq"]
+tau_did_w  <- .appest$estimate[.appest$spec == "did_w"]
+tau_sc_eq  <- scr$estimate[scr$weighting == "eq"]
+tau_sc_w   <- scr$estimate[scr$weighting == "w"]
 ```
 
 ## Synthetic Control Results and Diagnostics {#app:sc}
@@ -366,58 +364,19 @@ Earlier drafts of the main paper reported synthetic control (SC) estimates along
 
 As implemented here (following @arkhangelsky2021), SC sets the time weights to zero and omits the unit intercept: the estimator compares post-treatment *levels* of the (weighted) treated average against a convex combination of control-county levels, with no allowance for a permanent level difference between the treated average and its synthetic control. Any level gap that the simplex-constrained match cannot close therefore loads directly into the post-treatment difference and is read as a treatment effect. DID and SDID, by contrast, difference out unit-specific levels.
 
-```{r sc-estimates-app, cache=TRUE}
-N1_app <- nrow(setup$Y) - setup$N0
-uniform_weights_app <- rep(1 / N1_app, N1_app)
+```{r sc-estimates-app}
+## SC estimates, dual bootstrap SEs, and pre-fit/donor diagnostics are
+## precomputed in results/sc_results.csv and results/sc_diagnostics.csv.
+se_sc_eq_unit <- scr$se_unit[scr$weighting == "eq"]; se_sc_eq_cl <- scr$se_cluster[scr$weighting == "eq"]
+se_sc_w_unit  <- scr$se_unit[scr$weighting == "w"];  se_sc_w_cl  <- scr$se_cluster[scr$weighting == "w"]
 
-tau_sc_eq <- sc_estimate_weighted(setup$Y, setup$N0, setup$T0,
-                                   treated.weights = uniform_weights_app, cluster = cluster_vec)
-tau_sc_w  <- sc_estimate_weighted(setup$Y, setup$N0, setup$T0,
-                                   treated.weights = treated_weights, cluster = cluster_vec)
-
-boot_se_app <- function(est, B = 500, cl = NULL) {
-  tryCatch(suppressWarnings(sqrt(vcov(est, method = "bootstrap",
-                                       replications = B, cluster = cl))),
-           error = function(e) NA)
-}
-se_sc_eq_unit <- boot_se_app(tau_sc_eq, cl = NULL)
-se_sc_eq_cl   <- boot_se_app(tau_sc_eq, cl = cluster_vec)
-se_sc_w_unit  <- boot_se_app(tau_sc_w,  cl = NULL)
-se_sc_w_cl    <- boot_se_app(tau_sc_w,  cl = cluster_vec)
-
-## Pre-treatment fit diagnostics. pre_gap() is the gap between the
-## (weighted) treated trajectory and the synthetic-control trajectory in
-## pre-treatment years. The raw RMSPE is the relevant fit measure for SC
-## (which matches levels); the intercept-adjusted RMSPE nets out the mean
-## pre-period gap and is the relevant measure for SDID.
-pre_gap <- function(est) {
-  st <- attr(est, 'setup'); w <- attr(est, 'weights')
-  tw <- attr(est, 'treated.weights')
-  if (is.null(tw)) tw <- rep(1 / (nrow(st$Y) - st$N0), nrow(st$Y) - st$N0)
-  treated_traj <- as.vector(tw %*% st$Y[(st$N0 + 1):nrow(st$Y), , drop = FALSE])
-  synth_traj   <- as.vector(w$omega %*% st$Y[1:st$N0, , drop = FALSE])
-  (treated_traj - synth_traj)[1:st$T0]
-}
-rmspe_raw <- function(est) sqrt(mean(pre_gap(est)^2))
-rmspe_adj <- function(est) { g <- pre_gap(est); sqrt(mean((g - mean(g))^2)) }
-omega_diag <- function(est) {
-  om <- attr(est, 'weights')$omega
-  c(eff_n0 = 1 / sum(om^2), top10 = sum(sort(om, decreasing = TRUE)[1:10]))
-}
-
-diag_models <- list(`SC, equally weighted`     = tau_sc_eq,
-                    `SC, population weighted`  = tau_sc_w,
-                    `SDID, equally weighted`   = tau_sdid,
-                    `SDID, population weighted`= tau_sdid_w)
-diag_tbl <- purrr::map_dfr(names(diag_models), function(nm) {
-  m <- diag_models[[nm]]; od <- omega_diag(m)
-  tibble::tibble(Model = nm,
-                 `Pre-RMSPE (level)` = rmspe_raw(m),
-                 `Pre-RMSPE (intercept-adj.)` = rmspe_adj(m),
-                 `Mean pre-period gap` = mean(pre_gap(m)),
-                 `Effective $N_0$` = od["eff_n0"],
-                 `Top-10 $\\hat\\omega$ share` = od["top10"])
-})
+diag_tbl <- scd %>%
+  dplyr::transmute(Model = model,
+                   `Pre-RMSPE (level)` = pre_rmspe_level,
+                   `Pre-RMSPE (intercept-adj.)` = pre_rmspe_adj,
+                   `Mean pre-period gap` = mean_pre_gap,
+                   `Effective $N_0$` = eff_n0,
+                   `Top-10 $\\hat\\omega$ share` = top10_omega)
 ```
 
 ```{r sc-results-table}
@@ -446,37 +405,16 @@ kableExtra::kbl(
 ) %>%
   kableExtra::kable_styling(latex_options = c("hold_position", "scale_down")) %>%
   kableExtra::footnote(
-    general = "Pre-RMSPE (level) is the root mean squared gap between the weighted treated trajectory and the synthetic-control trajectory over pre-treatment years; the intercept-adjusted version nets out the mean pre-period gap and is the fit measure relevant for SDID, which permits level differences. The mean pre-period gap is the level difference the estimator carries into the post-period comparison: for SC it enters the estimate one-for-one, for SDID it is absorbed by the intercept. Effective $N_0$ is the Kish effective number of donor counties $(\\\\sum_i \\\\hat\\\\omega_i^2)^{-1}$; the last column is the share of donor weight on the ten largest-$\\\\hat\\\\omega$ counties.",
+    general = "Pre-RMSPE (level) is the root mean squared gap between the weighted treated trajectory and the synthetic-control trajectory over pre-treatment years; the intercept-adjusted version nets out the mean pre-period gap and is the fit measure relevant for SDID, which permits level differences. The mean pre-period gap is the level difference between the weighted treated trajectory and the synthetic control; SDID absorbs it through the unit intercept (hence its large raw gap), whereas SC, lacking an intercept, drives it to zero through the donor weights---at the cost of a very low effective $N_0$. Effective $N_0$ is the Kish effective number of donor counties $(\\\\sum_i \\\\hat\\\\omega_i^2)^{-1}$; the last column is the share of donor weight on the ten largest-$\\\\hat\\\\omega$ counties.",
     general_title = "Notes:", threeparttable = TRUE, escape = FALSE)
 ```
 
-Table \ref{tab:sc-results} reports the SC estimates under both weightings with the same dual standard errors as main-paper Table 1: the equally-weighted SC estimate is `r fmt_sc(as.numeric(tau_sc_eq))` and the population-weighted estimate `r fmt_sc(as.numeric(tau_sc_w))` deaths per 100,000---both substantially larger in magnitude than the corresponding SDID estimates of `r fmt_sc(as.numeric(tau_sdid))` and `r fmt_sc(as.numeric(tau_sdid_w))`. The fit diagnostics in the second table show why. The mean pre-period level gap between the treated average and the synthetic control is `r fmt_sc(diag_tbl[["Mean pre-period gap"]][1])` (equally weighted) and `r fmt_sc(diag_tbl[["Mean pre-period gap"]][2])` (population weighted) deaths per 100,000: the simplex-constrained donor match cannot fully close the level difference between treated counties and the control pool, and under SC this residual gap enters the post-treatment comparison one-for-one. Once the mean gap is netted out, the intercept-adjusted pre-RMSPE of the SC fit (`r fmt_sc(diag_tbl[["Pre-RMSPE (intercept-adj.)"]][2])` population weighted) is comparable to SDID's (`r fmt_sc(diag_tbl[["Pre-RMSPE (intercept-adj.)"]][4])`), confirming that the divergence between the estimators is a *level* phenomenon, not a trends one.
+Table \ref{tab:sc-results} reports the SC estimates under both weightings with the same dual standard errors as main-paper Table 1: the equally-weighted SC estimate is `r fmt_sc(as.numeric(tau_sc_eq))` and the population-weighted estimate `r fmt_sc(as.numeric(tau_sc_w))` deaths per 100,000---both substantially larger in magnitude than the corresponding SDID estimates of `r fmt_sc(as.numeric(tau_sdid))` and `r fmt_sc(as.numeric(tau_sdid_w))`. The fit diagnostics in the second table show why---and the mechanism is donor concentration, not an unclosed level gap. Because SC uses no time weights and no unit intercept, it matches the pre-treatment treated trajectory in levels by loading almost all weight onto a handful of donors: the effective number of donor counties is just `r round(scd$eff_n0[2], 0)` (population weighted), with roughly `r round(100 * scd$top10_omega[2])`\% of the weight on its ten largest donors. So sparse a donor set interpolates the short pre-period almost exactly (level pre-RMSPE `r fmt_sc(scd$pre_rmspe_level[2])`), but the match does not generalize: post-treatment the few donors diverge from the treated average, and with no intercept to absorb the difference the divergence is read directly as an enormous effect. SDID, by contrast, spreads weight across roughly `r format(round(scd$eff_n0[4]), big.mark = ",")` effective donors and permits a unit intercept: it carries a large *raw* pre-period level gap (`r fmt_sc(scd$mean_pre_gap[4])`, absorbed by the intercept) yet achieves a robust regularized fit (intercept-adjusted pre-RMSPE `r fmt_sc(scd$pre_rmspe_adj[4])`). The SC outlier is therefore a symptom of sparse, un-regularized level matching on a short pre-period, which is why we report it only here and exclude it from the main-paper comparison.
 
-```{r sc-loo-app, cache=TRUE}
-## Leave-one-out over the largest-weight donor counties: the classic
-## SC sensitivity exercise (Abadie et al. 2010)
+```{r sc-loo-app}
+## SC donor leave-one-out precomputed in results/sc_loo.csv.
 top_n_donors <- 15
-loo_one <- function(est, label) {
-  om <- attr(est, 'weights')$omega
-  tw <- attr(est, 'treated.weights')
-  top_controls <- order(om, decreasing = TRUE)[1:top_n_donors]
-  purrr::map_dfr(seq_along(top_controls), function(r) {
-    i <- top_controls[r]
-    Y_loo  <- setup$Y[-i, ]
-    cl_loo <- cluster_vec[-i]
-    fit <- tryCatch(
-      sc_estimate_weighted(Y_loo, setup$N0 - 1, setup$T0,
-                            treated.weights = tw, cluster = cl_loo),
-      error = function(e) NULL)
-    tibble::tibble(Weighting = label, rank = r,
-                   fips = rownames(setup$Y)[i], omega = om[i],
-                   estimate = if (is.null(fit)) NA_real_ else as.numeric(fit))
-  })
-}
-loo_sc <- dplyr::bind_rows(
-  loo_one(tau_sc_eq, "Equally weighted"),
-  loo_one(tau_sc_w,  "Population weighted")
-)
+loo_sc <- sc_loo_df %>% dplyr::rename(Weighting = weighting)
 ```
 
 ```{r sc-loo-plot, fig.cap="Leave-one-out donor sensitivity of the SC estimates.\\newline \\footnotesize\\textit{Notes:} Each point re-estimates the synthetic control after dropping one of the 15 largest-weight donor (control) counties, ranked by $\\hat\\omega$ within each weighting scheme. Horizontal dashed lines mark the full-sample SC estimates; the dotted line marks zero. Circles: equally weighted; triangles: population weighted.", fig.height=3.5}
@@ -498,38 +436,12 @@ ggplot(loo_sc, aes(x = rank, y = estimate, color = Weighting, shape = Weighting)
   theme(legend.position = "bottom")
 ```
 
-```{r sc-intime-app, cache=TRUE}
-run_intime_placebo_sc <- function(placebo_year, B = 200) {
-  panel_pb <- panel %>% filter(time <= 2013) %>%
-    arrange(unit, time) %>%
-    mutate(.unit = as.factor(unit), .time = time,
-           .W = as.integer(treated_unit == 1 & time >= placebo_year)) %>%
-    select(.unit, .time, y, .W) %>%
-    as.data.frame()
-  setup_pb   <- panel.matrices(panel_pb)
-  cl_pb      <- unit_state$state_fips[match(rownames(setup_pb$Y), unit_state$unit_char)]
-  treated_pb <- rownames(setup_pb$Y)[(setup_pb$N0 + 1):nrow(setup_pb$Y)]
-  N1_pb      <- nrow(setup_pb$Y) - setup_pb$N0
-  tw_pb      <- pop_ordered$pop[match(treated_pb, pop_ordered$unit_char)]
-  tw_pb      <- tw_pb / sum(tw_pb)
-  fit_eq <- tryCatch(sc_estimate_weighted(setup_pb$Y, setup_pb$N0, setup_pb$T0,
-                                           treated.weights = rep(1 / N1_pb, N1_pb), cluster = cl_pb),
-                      error = function(e) NULL)
-  fit_wt <- tryCatch(sc_estimate_weighted(setup_pb$Y, setup_pb$N0, setup_pb$T0,
-                                           treated.weights = tw_pb, cluster = cl_pb),
-                      error = function(e) NULL)
-  se_of <- function(fit) {
-    if (is.null(fit)) return(NA_real_)
-    tryCatch(suppressWarnings(sqrt(vcov(fit, method = "bootstrap", replications = B))),
-             error = function(e) NA_real_)
-  }
-  tibble::tibble(`Placebo year` = placebo_year,
-                 `Eq. estimate` = if (is.null(fit_eq)) NA_real_ else as.numeric(fit_eq),
-                 `Eq. SE`       = se_of(fit_eq),
-                 `Pop. estimate`= if (is.null(fit_wt)) NA_real_ else as.numeric(fit_wt),
-                 `Pop. SE`      = se_of(fit_wt))
-}
-intime_sc <- purrr::map_dfr(c(2011L, 2012L), run_intime_placebo_sc)
+```{r sc-intime-app}
+## SC in-time placebos precomputed in results/sc_intime.csv.
+intime_sc <- sc_intime_df %>%
+  dplyr::transmute(`Placebo year` = placebo_year,
+                   `Eq. estimate` = estimate_eq, `Eq. SE` = se_eq,
+                   `Pop. estimate` = estimate_wt, `Pop. SE` = se_wt)
 ```
 
 ```{r sc-intime-table}
@@ -544,21 +456,13 @@ kableExtra::kbl(
     general_title = "Notes:", threeparttable = TRUE)
 ```
 
-The leave-one-out exercise shows that the SC estimates are `r if (diff(range(loo_sc$estimate[loo_sc$Weighting == "Population weighted"], na.rm = TRUE)) < 0.5 * abs(as.numeric(tau_sc_w))) "not driven by any single donor county: dropping each of the 15 largest-weight donors moves the estimate only modestly" else "sensitive to the donor pool: dropping individual large-weight donors moves the estimate materially"`. The in-time placebos are the more diagnostic test: where the SDID in-time placebos in the main paper are tightly centered on zero, the SC placebo estimates of `r fmt_sc(intime_sc[["Pop. estimate"]][1])` (2011) and `r fmt_sc(intime_sc[["Pop. estimate"]][2])` (2012, population weighted) indicate the degree to which the uncorrected level gap masquerades as a treatment effect even in years when no treatment occurred. Taken together, the diagnostics attribute the outsized SC estimates to the estimator's level-matching target rather than to information about the policy: SC answers a different question than DID and SDID in this application, and we therefore exclude it from the main-paper comparison.
+The leave-one-out exercise shows that the SC estimates are `r if (diff(range(loo_sc$estimate[loo_sc$Weighting == "Population weighted"], na.rm = TRUE)) < 0.5 * abs(as.numeric(tau_sc_w))) "not driven by any single donor county: dropping each of the 15 largest-weight donors moves the estimate only modestly" else "sensitive to the donor pool: dropping individual large-weight donors moves the estimate materially"`. The in-time placebos are the more diagnostic test: where the SDID in-time placebos in the main paper are tightly centered on zero, the SC placebo estimates of `r fmt_sc(intime_sc[["Pop. estimate"]][1])` (2011) and `r fmt_sc(intime_sc[["Pop. estimate"]][2])` (2012, population weighted) indicate how readily SC's sparse, over-fit donor match generates a spurious effect even in years when no treatment occurred. Taken together, the diagnostics attribute the outsized SC estimates to the estimator's sparse, un-regularized level matching rather than to information about the policy: SC answers a different question than DID and SDID in this application, and we therefore exclude it from the main-paper comparison.
 
 ## All-Estimator Event-Study Comparison
 
 ```{r event-study-all-app, fig.cap="Event-study comparison across estimators.\\newline \\footnotesize\\textit{Notes:} Event-study decomposition for DID, SC, and SDID, all equally weighted. Shaded bands show 95\\% bootstrap confidence intervals (500 replications); the vertical dashed line marks treatment onset (2014).", fig.height=4.2, cache=TRUE}
-es_sdid <- synthdid_event_study(tau_sdid, se.method = "bootstrap", replications = 500)
-es_sc   <- synthdid_event_study(tau_sc,   se.method = "bootstrap", replications = 500)
-es_did  <- synthdid_event_study(tau_did,  se.method = "bootstrap", replications = 500)
-es_all <- bind_rows(
-  es_did  %>% mutate(Estimator = "DID"),
-  es_sc   %>% mutate(Estimator = "SC"),
-  es_sdid %>% mutate(Estimator = "SDID")
-) %>%
-  mutate(year = as.numeric(time),
-         Estimator = factor(Estimator, levels = c("DID", "SC", "SDID")))
+## All-estimator event studies precomputed in results/sc_event_studies.csv.
+es_all <- es_all_df %>% mutate(Estimator = factor(Estimator, levels = c("DID", "SC", "SDID")))
 
 ggplot(es_all, aes(x = year, y = estimate, color = Estimator, fill = Estimator)) +
   geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.12, color = NA) +
@@ -578,12 +482,8 @@ Figure E.2 compares the event-study paths across all three estimators under equa
 ## Control Unit Weight Diagnostics
 
 ```{r omega-weights-app, fig.cap="Distribution of SDID control-unit weights.\\newline \\footnotesize\\textit{Notes:} Histogram of the estimated control weights $\\hat{\\omega}_i$ under equal vs.\\ population weighting of treated counties. Counties with zero weight excluded; the x-axis is on a log scale.", fig.height=3.6}
-omega_unwt <- attr(tau_sdid,   'weights')$omega
-omega_wt   <- attr(tau_sdid_w, 'weights')$omega
-omega_df <- bind_rows(
-  tibble(omega = omega_unwt[omega_unwt > 0], Weighting = "Equally weighted"),
-  tibble(omega = omega_wt[omega_wt > 0],     Weighting = "Population weighted")
-)
+## Control-weight distributions precomputed in results/omega_weights.csv.
+omega_df <- omega_w_df %>% dplyr::rename(Weighting = weighting)
 ggplot(omega_df, aes(x = omega, fill = Weighting)) +
   geom_histogram(alpha = 0.6, position = "identity", bins = 40) +
   scale_x_log10() +
@@ -594,42 +494,18 @@ ggplot(omega_df, aes(x = omega, fill = Weighting)) +
 ```
 
 ```{r effective-units-app}
-eff_N0_unwt <- 1 / sum(omega_unwt^2)
-eff_N0_wt   <- 1 / sum(omega_wt^2)
-n_nonzero_unwt <- sum(omega_unwt > 1e-6)
-n_nonzero_wt   <- sum(omega_wt > 1e-6)
+eff_N0_unwt <- scsv[["eff_N0_unwt"]]; eff_N0_wt <- scsv[["eff_N0_wt"]]
+n_nonzero_unwt <- scsv[["n_nonzero_unwt"]]; n_nonzero_wt <- scsv[["n_nonzero_wt"]]
 ```
 
 Figure E.3 shows the distribution of control unit weights under both specifications. The equally-weighted SDID places nonzero weight on `r n_nonzero_unwt` control counties (effective $N_0$ = `r round(eff_N0_unwt, 1)`); the population-weighted SDID uses `r n_nonzero_wt` counties (effective $N_0$ = `r round(eff_N0_wt, 1)`). Both spread weight broadly across the control pool, with similar effective sample sizes, reflecting the regularization built into the SDID algorithm. The *identity* of which controls receive the most weight shifts: under population weighting, the Frank-Wolfe algorithm matches the population-weighted treated trajectory, which is dominated by large urban counties, pulling the synthetic control toward urban-similar control counties.
 
 ## Leave-One-Out Sensitivity
 
-```{r leave-one-out, cache=TRUE}
+```{r leave-one-out}
+## 50-county leave-one-out precomputed in results/loo_results.csv.
 top_n_loo <- 50
-top_counties <- order(treated_weights, decreasing = TRUE)[1:top_n_loo]
-## Iterate over the rank (1 = largest weight), not the raw treated-block
-## index: the raw index runs into the hundreds and previously leaked into
-## the plot's x axis, leaving most points beyond the axis breaks.
-loo_results <- purrr::map_dfr(seq_along(top_counties), function(r) {
-  j      <- top_counties[r]
-  j_full <- setup$N0 + j
-  Y_loo  <- setup$Y[-j_full, ]
-  tw_loo <- treated_weights[-j]; tw_loo <- tw_loo / sum(tw_loo)
-  cl_loo <- cluster_vec[-j_full]
-  model <- tryCatch(
-    synthdid_estimate_weighted(Y_loo, setup$N0, setup$T0,
-                                treated.weights = tw_loo, cluster = cl_loo),
-    error = function(e) NULL)
-  if (is.null(model)) {
-    return(tibble::tibble(county_rank = r, county_fips = treated_names[j],
-                          pop_weight = treated_weights[j], estimate = NA, se = NA))
-  }
-  se <- tryCatch(suppressWarnings(sqrt(vcov(model, method = "bootstrap", replications = 500))),
-                  error = function(e) NA)
-  tibble::tibble(county_rank = r, county_fips = treated_names[j],
-                 pop_weight = treated_weights[j],
-                 estimate = as.numeric(model), se = se)
-})
+loo_results <- loo_df
 ```
 
 ```{r leave-one-out-plot, fig.cap="Leave-one-out sensitivity of the population-weighted SDID estimate.\\newline \\footnotesize\\textit{Notes:} Each point re-estimates the population-weighted SDID after dropping one of the 50 largest treated counties by population weight (1 = largest). The dashed blue line is the baseline estimate using all treated counties; shaded bands are 95\\% state-clustered bootstrap confidence intervals (500 replications).", fig.height=3.5}
@@ -671,102 +547,17 @@ The one BV candidate we omit is logged state health and welfare expenditures 200
 
 Estimation proceeds in five steps following BV: (i) collapse the panel to one row per county and average the time-varying covariates over 2009--2013; (ii) select predictors by double lasso [@belloni2014]---a square-root lasso of pre-expansion (2005--2009) mortality on the candidates and a square-root lasso of the expansion indicator on the candidates, taking the union of the selected sets, as in BV's footnote 8; (iii) fit a logistic regression of expansion on the union to construct the propensity score; (iv) trim counties with $\hat p < 0.038$ or $\hat p > 0.971$ (the BV trim, in propensity-score units, not quantile units); (v) form inverse-probability weights $\text{ipw} = D + (1-D) \cdot \hat p / (1-\hat p)$, multiply by the county population aged 20--64, and estimate the weighted DID with two-way (county, year) fixed effects and state-clustered standard errors. The selected covariates closely mirror BV's published selection: demographics, income, unemployment, the uninsured rate, both Obama vote shares, the Democratic-governor indicator, and the five yearly pre-expansion mortality rates.
 
-```{r dlps-app-estimate, cache=TRUE}
-## Mirrors scripts/bv_replication_tables.R (the standalone version with
-## additional diagnostics). Reads the rebuilt panel directly so the appendix
-## is self-contained.
-adf <- readr::read_csv(file.path("data", "analysis_data.csv"),
-                       show_col_types = FALSE)
-bv_cov <- readr::read_csv(file.path("data", "bv_covariates.csv"),
-                          show_col_types = FALSE)
-
-## Year-by-year pre-expansion mortality 2005-2009 (BV App. A.2); the
-## 2010-2013 outcome years stay held out of the propensity score.
-mort_yearly <- dplyr::bind_rows(
-  readr::read_csv(file.path("data", "county_mortality_pre.csv"),
-                  show_col_types = FALSE) %>%
-    dplyr::select(fips, year, crude_rate),
-  adf %>% dplyr::filter(year == 2009) %>% dplyr::select(fips, year, crude_rate)
-) %>%
-  dplyr::filter(year >= 2005, year <= 2009) %>%
-  tidyr::pivot_wider(names_from = year, values_from = crude_rate,
-                     names_prefix = "mort_")
-mort_vars <- paste0("mort_", 2005:2009)
-
-panel_controls <- c("pct_white", "pct_55_64", "log_20_64", "log_35_44",
-                    "log_f_20_64", "unemp")
-bv_cov_vars <- c("pct_male", "pct_black", "pct_hispanic",
-                 "pct_2024", "pct_2534", "pct_3544", "pct_4554", "pct_5564",
-                 "poverty_rate", "log_median_income", "log_pop_density",
-                 "uninsured_rate", "dem_governor_2010",
-                 "obama_share_2008", "obama_share_2012")
-
-dlps_base <- adf %>%
-  dplyr::filter(year <= 2013) %>%
-  dplyr::group_by(fips, state_fips = as.numeric(state_fips), expansion) %>%
-  dplyr::summarise(dplyr::across(dplyr::all_of(panel_controls),
-                                 ~ mean(.x, na.rm = TRUE)),
-                   crude_rate_pre = mean(crude_rate),
-                   pop_2064_pre   = mean(population),
-                   .groups = "drop") %>%
-  dplyr::left_join(bv_cov %>% dplyr::select(fips, dplyr::all_of(bv_cov_vars)),
-                   by = "fips") %>%
-  dplyr::left_join(mort_yearly, by = "fips") %>%
-  tidyr::drop_na()
-
-dlps_n_complete <- nrow(dlps_base)
-control_vars <- c(panel_controls, bv_cov_vars, mort_vars)
-X_mat <- scale(as.matrix(dlps_base[, control_vars]))
-X_mat[!is.finite(X_mat)] <- 0
-D_vec <- dlps_base$expansion
-Y_vec <- rowMeans(dlps_base[, mort_vars])
-
-## Square-root lasso for both selection steps, per BV footnote 8
-if (requireNamespace("RPtests", quietly = TRUE)) {
-  sel_treat <- which(abs(RPtests::sqrt_lasso(X_mat, as.numeric(D_vec))) > 1e-8)
-  sel_out   <- which(abs(RPtests::sqrt_lasso(X_mat, as.numeric(scale(Y_vec)))) > 1e-8)
-} else {
-  sel_treat <- which(hdm::rlassologit(X_mat, D_vec, post = TRUE)$index)
-  sel_out   <- which(hdm::rlasso(X_mat, Y_vec, post = TRUE)$index)
-}
-sel_union     <- sort(unique(c(sel_treat, sel_out)))
-dlps_selected <- control_vars[sel_union]
-
-ps_df <- data.frame(D = D_vec, X_mat[, sel_union, drop = FALSE])
-dlps_base$ps <- predict(glm(D ~ ., data = ps_df, family = binomial()),
-                        type = "response")
-
-trim_lo <- 0.038; trim_hi <- 0.971
-dlps_trim      <- dlps_base %>% dplyr::filter(ps >= trim_lo, ps <= trim_hi)
-dlps_n_trimmed <- nrow(dlps_base) - nrow(dlps_trim)
-
-panel_ipw <- adf %>%
-  dplyr::inner_join(
-    dlps_trim %>% dplyr::transmute(
-      fips, uninsured_base = uninsured_rate,
-      ipw = dplyr::if_else(expansion == 1, 1, ps / (1 - ps))),
-    by = "fips") %>%
-  dplyr::mutate(final_weight = population * ipw,
-                treated_post = expansion * post,
-                state_fips_n = as.numeric(state_fips))
-
-dlps_run <- function(dat, controls = NULL) {
-  rhs <- paste(c("treated_post", controls), collapse = " + ")
-  m <- fixest::feols(stats::as.formula(paste0("crude_rate ~ ", rhs,
-                                              " | fips + year")),
-                     data = dat, weights = ~ final_weight,
-                     cluster = ~ state_fips_n)
-  ct <- fixest::coeftable(m)["treated_post", ]
-  c(est = unname(ct[1]), se = unname(ct[2]), n = stats::nobs(m))
-}
-
-unins_med <- stats::median(dlps_trim$uninsured_rate, na.rm = TRUE)
-r_base <- dlps_run(panel_ipw)
-r_ctrl <- dlps_run(panel_ipw, panel_controls)
-r_high <- dlps_run(panel_ipw %>% dplyr::filter(uninsured_base >  unins_med),
-                   panel_controls)
-r_low  <- dlps_run(panel_ipw %>% dplyr::filter(uninsured_base <= unins_med),
-                   panel_controls)
+```{r dlps-app-estimate}
+## DLPS reproduction precomputed in results/dlps_results.csv (estimates/SEs)
+## and results/sc_scalars.csv (selection and trim counts). See
+## scripts/analyze_application.R.
+.gd <- function(s) { row <- dlps_df[dlps_df$spec == s, ]; c(est = row$estimate, se = row$se, n = row$n) }
+r_base <- .gd("base"); r_ctrl <- .gd("controls")
+r_high <- .gd("high_uninsured"); r_low <- .gd("low_uninsured")
+dlps_n_complete <- scsv[["dlps_n_complete"]]
+dlps_n_trimmed  <- scsv[["dlps_n_trimmed"]]
+dlps_selected <- character(scsv[["dlps_n_selected"]])    # only length() is used below
+control_vars  <- character(scsv[["dlps_n_candidates"]])
 ```
 
 ### Reproduction result
