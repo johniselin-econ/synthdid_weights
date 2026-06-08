@@ -36,6 +36,11 @@ paper/_build*.txt
 *.rds
 vignettes/output/
 
+# ...but track the two canonical rendered papers (the submission artifacts).
+# The BV2020 PDFs under docs/ stay ignored via the docs/* rule above (copyright).
+!paper/weighted_sdid_paper.pdf
+!paper/weighted_sdid_supplement.pdf
+
 # Exceptions: keep data CSVs but not binary artifacts
 !data/*.csv
 !paper/data/*.csv

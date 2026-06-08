@@ -34,14 +34,15 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(kableExtra)
-library(synthdid)
 
-source("../R/utils.R")
-source("../R/solver.R")
-source("../R/synthdid.R")
-source("../R/vcov.R")
-source("../R/summary.R")
-source("../R/print.R")
+# Load the synthdid package extension directly from source, so the build never
+# depends on the package being installed (pure source-based loading). Sourcing
+# every file in ../R/ mirrors what library(synthdid) would attach, including S3
+# methods such as format.synthdid_estimate that other sourced files dispatch to.
+invisible(lapply(
+  list.files(file.path("..", "R"), pattern = "[.][Rr]$", full.names = TRUE),
+  source
+))
 
 set.seed(20240101)
 ```
@@ -337,7 +338,7 @@ panel_sdid <- panel %>%
   mutate(.unit = as.factor(unit), .time = time,
          .W = as.integer(treated_unit == 1 & time >= 2014))
 dfp   <- panel_sdid %>% select(.unit, .time, y, .W) %>% as.data.frame()
-setup <- synthdid::panel.matrices(dfp)
+setup <- panel.matrices(dfp)
 
 pop_2013      <- panel %>% filter(treated_unit == 1, time == 2013) %>% select(unit, pop)
 treated_names <- rownames(setup$Y)[(setup$N0 + 1):nrow(setup$Y)]
@@ -505,7 +506,7 @@ run_intime_placebo_sc <- function(placebo_year, B = 200) {
            .W = as.integer(treated_unit == 1 & time >= placebo_year)) %>%
     select(.unit, .time, y, .W) %>%
     as.data.frame()
-  setup_pb   <- synthdid::panel.matrices(panel_pb)
+  setup_pb   <- panel.matrices(panel_pb)
   cl_pb      <- unit_state$state_fips[match(rownames(setup_pb$Y), unit_state$unit_char)]
   treated_pb <- rownames(setup_pb$Y)[(setup_pb$N0 + 1):nrow(setup_pb$Y)]
   N1_pb      <- nrow(setup_pb$Y) - setup_pb$N0
