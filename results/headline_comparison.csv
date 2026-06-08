@@ -1,0 +1,5 @@
+method,estimate,se
+Standard SDID (equally weighted),-0.7100753504505732,3.4479985181221844
+Weighted SDID (population),-17.4514031424778,4.66294335958413
+Weighted DID (population),-18.391813182268663,4.752906064778242
+"Borgschulte \& Vogler (2020), Table 2 col.\ 2",-11.36,3.59
