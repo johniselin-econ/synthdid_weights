@@ -41,7 +41,7 @@ set.seed(20240101)  # matches the Rmd setup chunk
 FAST   <- nzchar(Sys.getenv("ANALYZE_FAST"))
 B_SE   <- if (FAST)   5L else 500L   # bootstrap reps for SEs / event studies
 B_PB   <- if (FAST)  10L else 500L   # paired-bootstrap reps
-B_IT   <- if (FAST)   5L else 200L   # in-time placebo bootstrap reps
+B_IT   <- if (FAST)   5L else 500L   # in-time placebo bootstrap reps
 N_PLAC <- if (FAST)  20L else 500L   # in-space placebo draws
 if (FAST) message("** ANALYZE_FAST: reduced replications; SEs/p-values are rough **")
 
@@ -56,7 +56,9 @@ FORCE <- nzchar(Sys.getenv("ANALYZE_FORCE"))
 have_all <- function(names)
   !FORCE && all(file.exists(file.path("results", paste0(names, ".csv"))))
 PAPER_OUT <- c("app_estimates", "app_scalars", "event_studies", "heterogeneity",
-               "robustness", "headline_comparison", "placebo_intime", "placebo_distribution")
+               "robustness", "headline_comparison", "placebo_distribution")
+# placebo_intime is guarded on its own (cheap, self-contained) so it can be
+# regenerated without recomputing the expensive paper SE block.
 SUPP_OUT  <- c("sc_results", "sc_diagnostics", "sc_loo", "sc_intime",
                "sc_event_studies", "omega_weights", "loo_results", "dlps_results", "sc_scalars")
 
@@ -408,30 +410,11 @@ headline_comparison <- tibble(
 out(headline_comparison, "headline_comparison")
 
 # =============================================================================
-# 9. Placebo tests  (paper chunks: placebo-intime-app, placebo-inspace-app)
+# 9. In-space placebo  (paper chunk: placebo-inspace-app)
+#    The in-time placebo is computed separately below, outside run_paper, on its
+#    own guard (cheap + self-contained), so its bootstrap-rep count can change
+#    without re-running the expensive paper SE block.
 # =============================================================================
-run_intime_placebo <- function(placebo_year, B = B_IT) {
-  panel_pb <- panel %>% filter(time <= 2013) %>% arrange(unit, time) %>%
-    mutate(.unit = as.factor(unit), .time = time,
-           .W = as.integer(treated_unit == 1 & time >= placebo_year)) %>%
-    select(.unit, .time, y, .W) %>% as.data.frame()
-  setup_pb   <- panel.matrices(panel_pb)
-  cl_pb      <- unit_state$state_fips[match(rownames(setup_pb$Y), unit_state$unit_char)]
-  treated_pb <- rownames(setup_pb$Y)[(setup_pb$N0 + 1):nrow(setup_pb$Y)]
-  N1_pb      <- nrow(setup_pb$Y) - setup_pb$N0
-  tw_pb      <- pop_ordered$pop[match(treated_pb, pop_ordered$unit_char)]; tw_pb <- tw_pb / sum(tw_pb)
-  fit_eq <- tryCatch(synthdid_estimate_weighted(setup_pb$Y, setup_pb$N0, setup_pb$T0, treated.weights = rep(1 / N1_pb, N1_pb), cluster = cl_pb), error = function(e) NULL)
-  fit_wt <- tryCatch(synthdid_estimate_weighted(setup_pb$Y, setup_pb$N0, setup_pb$T0, treated.weights = tw_pb, cluster = cl_pb), error = function(e) NULL)
-  se_of <- function(fit, sb) if (is.null(fit)) NA_real_ else
-    tryCatch(par_boot_se(fit, "cluster", cl_pb, B, seed_base = sb), error = function(e) NA_real_)
-  yr <- as.integer(placebo_year)
-  tibble(placebo_year = as.character(placebo_year),
-         estimate_eq = if (is.null(fit_eq)) NA_real_ else as.numeric(fit_eq), se_eq = se_of(fit_eq, 20240101L + 80000L + yr * 10L),
-         estimate_wt = if (is.null(fit_wt)) NA_real_ else as.numeric(fit_wt), se_wt = se_of(fit_wt, 20240101L + 80000L + yr * 10L + 5L))
-}
-placebo_intime <- purrr::map_dfr(c(2011L, 2012L), run_intime_placebo)
-out(placebo_intime, "placebo_intime")
-
 set.seed(20240101)
 placebo_ests <- rep(NA_real_, N_PLAC)
 for (i in seq_len(N_PLAC)) {
@@ -475,6 +458,34 @@ app_scalars <- tibble::tribble(
 )
 out(app_scalars, "app_scalars")
 }  # end PAPER RESULTS (run_paper)
+
+# =============================================================================
+# In-time placebo (main-text Fig 4, left). Own guard so its bootstrap-rep count
+# (B_IT) can change without recomputing the expensive paper SE block. The point
+# estimates are deterministic; B_IT only affects the state-clustered SEs.
+# =============================================================================
+if (!have_all("placebo_intime")) {
+run_intime_placebo <- function(placebo_year, B = B_IT) {
+  panel_pb <- panel %>% filter(time <= 2013) %>% arrange(unit, time) %>%
+    mutate(.unit = as.factor(unit), .time = time,
+           .W = as.integer(treated_unit == 1 & time >= placebo_year)) %>%
+    select(.unit, .time, y, .W) %>% as.data.frame()
+  setup_pb   <- panel.matrices(panel_pb)
+  cl_pb      <- unit_state$state_fips[match(rownames(setup_pb$Y), unit_state$unit_char)]
+  treated_pb <- rownames(setup_pb$Y)[(setup_pb$N0 + 1):nrow(setup_pb$Y)]
+  N1_pb      <- nrow(setup_pb$Y) - setup_pb$N0
+  tw_pb      <- pop_ordered$pop[match(treated_pb, pop_ordered$unit_char)]; tw_pb <- tw_pb / sum(tw_pb)
+  fit_eq <- tryCatch(synthdid_estimate_weighted(setup_pb$Y, setup_pb$N0, setup_pb$T0, treated.weights = rep(1 / N1_pb, N1_pb), cluster = cl_pb), error = function(e) NULL)
+  fit_wt <- tryCatch(synthdid_estimate_weighted(setup_pb$Y, setup_pb$N0, setup_pb$T0, treated.weights = tw_pb, cluster = cl_pb), error = function(e) NULL)
+  se_of <- function(fit, sb) if (is.null(fit)) NA_real_ else
+    tryCatch(par_boot_se(fit, "cluster", cl_pb, B, seed_base = sb), error = function(e) NA_real_)
+  yr <- as.integer(placebo_year)
+  tibble(placebo_year = as.integer(placebo_year),
+         estimate_eq = if (is.null(fit_eq)) NA_real_ else as.numeric(fit_eq), se_eq = se_of(fit_eq, 20240101L + 80000L + yr * 10L),
+         estimate_wt = if (is.null(fit_wt)) NA_real_ else as.numeric(fit_wt), se_wt = se_of(fit_wt, 20240101L + 80000L + yr * 10L + 5L))
+}
+out(purrr::map_dfr(c(2011L, 2012L), run_intime_placebo), "placebo_intime")
+}
 
 # =============================================================================
 # SUPPLEMENT (Appendix E): SC results/diagnostics, all-estimator event studies,
@@ -560,33 +571,43 @@ run_intime_sc <- function(py) {
 }
 out(purrr::map_dfr(c(2011L, 2012L), run_intime_sc), "sc_intime")
 
-## All-estimator event studies (equally weighted DID / SC / SDID)
-es_sc_all <- bind_rows(
-  synthdid_event_study(tau_did,  se.method = "bootstrap", replications = B_SE) %>% mutate(Estimator = "DID"),
-  synthdid_event_study(tau_sc,   se.method = "bootstrap", replications = B_SE) %>% mutate(Estimator = "SC"),
-  synthdid_event_study(tau_sdid, se.method = "bootstrap", replications = B_SE) %>% mutate(Estimator = "SDID")
+## SC event studies (equally- and population-weighted), shown on their own in
+## Appendix E.1 (replaces the former all-estimator comparison figure, whose
+## DID/SDID curves duplicated main-text Figure 1).
+es_sc_eq <- synthdid_event_study(tau_sc_eq, se.method = "bootstrap", replications = B_SE)
+es_sc_w  <- synthdid_event_study(tau_sc_w,  se.method = "bootstrap", replications = B_SE)
+sc_event_studies <- bind_rows(
+  es_sc_eq %>% mutate(Weighting = "Equally weighted"),
+  es_sc_w  %>% mutate(Weighting = "Population weighted")
 ) %>% mutate(year = as.numeric(time))
-out(es_sc_all, "sc_event_studies")
+out(sc_event_studies, "sc_event_studies")
 
 ## Control-unit weight distributions
 omega_unwt <- attr(tau_sdid, 'weights')$omega; omega_wt <- attr(tau_sdid_w, 'weights')$omega
 out(bind_rows(tibble(omega = omega_unwt[omega_unwt > 0], weighting = "Equally weighted"),
               tibble(omega = omega_wt[omega_wt > 0],     weighting = "Population weighted")), "omega_weights")
 
-## Main leave-one-out: drop each of the 50 largest treated counties, re-estimate
-## the population-weighted SDID, state-clustered bootstrap SE each (the heavy one)
+## Main leave-one-out: drop each of the 50 largest treated counties (by pop
+## weight) and re-estimate SDID under BOTH equal and population weighting, with
+## a state-clustered bootstrap SE each. The heaviest block (100 x B_SE refits).
 top_n_loo <- 50
 top_counties <- order(treated_weights, decreasing = TRUE)[1:top_n_loo]
-loo_results <- purrr::map_dfr(seq_along(top_counties), function(r) {
-  j <- top_counties[r]; jf <- setup$N0 + j
-  Yl <- setup$Y[-jf, ]; twl <- treated_weights[-j]; twl <- twl / sum(twl); cll <- cluster_vec[-jf]
-  m <- tryCatch(synthdid_estimate_weighted(Yl, setup$N0, setup$T0, treated.weights = twl, cluster = cll), error = function(e) NULL)
-  if (is.null(m)) return(tibble(county_rank = r, county_fips = treated_names[j],
-                                pop_weight = treated_weights[j], estimate = NA_real_, se = NA_real_))
-  se <- tryCatch(par_boot_se(m, "cluster", cll, B_SE, 20240101L + 300000L + r * 100L), error = function(e) NA_real_)
-  tibble(county_rank = r, county_fips = treated_names[j], pop_weight = treated_weights[j],
-         estimate = as.numeric(m), se = se)
-})
+loo_one_weighting <- function(tw_full, label, seed0) {
+  purrr::map_dfr(seq_along(top_counties), function(r) {
+    j <- top_counties[r]; jf <- setup$N0 + j
+    Yl <- setup$Y[-jf, ]; twl <- tw_full[-j]; twl <- twl / sum(twl); cll <- cluster_vec[-jf]
+    m <- tryCatch(synthdid_estimate_weighted(Yl, setup$N0, setup$T0, treated.weights = twl, cluster = cll), error = function(e) NULL)
+    if (is.null(m)) return(tibble(weighting = label, county_rank = r, county_fips = treated_names[j],
+                                  pop_weight = treated_weights[j], estimate = NA_real_, se = NA_real_))
+    se <- tryCatch(par_boot_se(m, "cluster", cll, B_SE, seed0 + r * 100L), error = function(e) NA_real_)
+    tibble(weighting = label, county_rank = r, county_fips = treated_names[j],
+           pop_weight = treated_weights[j], estimate = as.numeric(m), se = se)
+  })
+}
+loo_results <- bind_rows(
+  loo_one_weighting(treated_weights, "Population weighted", 20240101L + 300000L),
+  loo_one_weighting(rep(1 / N1, N1),  "Equally weighted",   20240101L + 400000L)
+)
 out(loo_results, "loo_results")
 
 ## DLPS reproduction of Borgschulte & Vogler (2020), Table 2 Panel A

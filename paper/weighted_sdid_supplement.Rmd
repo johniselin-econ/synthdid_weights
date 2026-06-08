@@ -324,7 +324,7 @@ scr        <- rd("sc_results.csv")
 scd        <- rd("sc_diagnostics.csv")
 sc_loo_df  <- rd("sc_loo.csv")
 sc_intime_df <- rd("sc_intime.csv")
-es_all_df  <- rd("sc_event_studies.csv")
+sc_es_df   <- rd("sc_event_studies.csv")   # SC event studies, equal + population weighted
 omega_w_df <- rd("omega_weights.csv")
 loo_df     <- rd("loo_results.csv")
 dlps_df    <- rd("dlps_results.csv")
@@ -393,6 +393,25 @@ kableExtra::kbl(
 
 Table \ref{tab:sc-results} reports the SC estimates under both weightings with the same dual standard errors as main-paper Table 1: the equally-weighted SC estimate is `r fmt_sc(as.numeric(tau_sc_eq))` and the population-weighted estimate `r fmt_sc(as.numeric(tau_sc_w))` deaths per 100,000---both substantially larger in magnitude than the corresponding SDID estimates of `r fmt_sc(as.numeric(tau_sdid))` and `r fmt_sc(as.numeric(tau_sdid_w))`. The fit diagnostics in the second table show why---and the mechanism is donor concentration, not an unclosed level gap. Because SC uses no time weights and no unit intercept, it matches the pre-treatment treated trajectory in levels by loading almost all weight onto a handful of donors: the effective number of donor counties is just `r round(scd$eff_n0[2], 0)` (population weighted), with roughly `r round(100 * scd$top10_omega[2])`\% of the weight on its ten largest donors. So sparse a donor set interpolates the short pre-period almost exactly (level pre-RMSPE `r fmt_sc(scd$pre_rmspe_level[2])`), but the match does not generalize: post-treatment the few donors diverge from the treated average, and with no intercept to absorb the difference the divergence is read directly as an enormous effect. SDID, by contrast, spreads weight across roughly `r format(round(scd$eff_n0[4]), big.mark = ",")` effective donors and permits a unit intercept: it carries a large *raw* pre-period level gap (`r fmt_sc(scd$mean_pre_gap[4])`, absorbed by the intercept) yet achieves a robust regularized fit (intercept-adjusted pre-RMSPE `r fmt_sc(scd$pre_rmspe_adj[4])`). The SC outlier is therefore a symptom of sparse, un-regularized level matching on a short pre-period, which is why we report it only here and exclude it from the main-paper comparison.
 
+```{r sc-event-study-app, fig.cap="Synthetic-control event study.\\newline \\footnotesize\\textit{Notes:} Year-specific SC effects under equal (blue circles) and population (red triangles) weighting of treated counties; shaded bands are 95\\% bootstrap confidence intervals (500 replications). The vertical dashed line marks treatment onset (2014). SC matches pre-treatment levels by construction, so pre-period coefficients sit near zero; the population-weighted post-treatment path diverges sharply, reflecting the donor-concentration over-fit documented above.", fig.height=3.6}
+es_sc_plot <- sc_es_df %>%
+  mutate(Weighting = factor(Weighting, levels = c("Equally weighted", "Population weighted")))
+ggplot(es_sc_plot, aes(x = year, y = estimate, color = Weighting, fill = Weighting, shape = Weighting)) +
+  geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.15, color = NA) +
+  geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
+  geom_vline(xintercept = 2013.5, linetype = "dashed", color = "gray30") +
+  geom_point(size = 1.3) +
+  geom_line(linewidth = 0.5) +
+  scale_color_manual(values = c("Equally weighted" = "steelblue", "Population weighted" = "firebrick")) +
+  scale_fill_manual(values  = c("Equally weighted" = "steelblue", "Population weighted" = "firebrick")) +
+  scale_shape_manual(values = c("Equally weighted" = 16, "Population weighted" = 17)) +
+  labs(x = NULL, y = "Effect on mortality\n(deaths per 100,000)", color = NULL, fill = NULL, shape = NULL) +
+  theme_minimal(base_size = 10) +
+  theme(legend.position = "bottom")
+```
+
+Figure E.1 plots the SC event-study path under both weightings. Because SC matches pre-treatment *levels* with no time weights or intercept, the pre-treatment coefficients are pinned near zero by construction---a near-perfect in-sample fit on the handful of donors it selects. Post-treatment, the equally-weighted path stays close to zero while the population-weighted path drops steeply to the `r fmt_sc(as.numeric(tau_sc_w))` reported in Table \ref{tab:sc-results}: the sparse donor set that fit the pre-period does not track the (population-weighted) treated average after 2014, and with no intercept to absorb the resulting gap the divergence is read entirely as a treatment effect. The event study thus visualizes the over-fit diagnosed above, and motivates excluding SC from the main-paper comparison.
+
 ```{r sc-loo-app}
 ## SC donor leave-one-out precomputed in results/sc_loo.csv.
 top_n_donors <- 15
@@ -440,27 +459,6 @@ kableExtra::kbl(
 
 The leave-one-out exercise shows that the SC estimates are `r if (diff(range(loo_sc$estimate[loo_sc$Weighting == "Population weighted"], na.rm = TRUE)) < 0.5 * abs(as.numeric(tau_sc_w))) "not driven by any single donor county: dropping each of the 15 largest-weight donors moves the estimate only modestly" else "sensitive to the donor pool: dropping individual large-weight donors moves the estimate materially"`. The in-time placebos are the more diagnostic test: where the SDID in-time placebos in the main paper are tightly centered on zero, the SC placebo estimates of `r fmt_sc(intime_sc[["Pop. estimate"]][1])` (2011) and `r fmt_sc(intime_sc[["Pop. estimate"]][2])` (2012, population weighted) indicate how readily SC's sparse, over-fit donor match generates a spurious effect even in years when no treatment occurred. Taken together, the diagnostics attribute the outsized SC estimates to the estimator's sparse, un-regularized level matching rather than to information about the policy: SC answers a different question than DID and SDID in this application, and we therefore exclude it from the main-paper comparison.
 
-## All-Estimator Event-Study Comparison
-
-```{r event-study-all-app, fig.cap="Event-study comparison across estimators.\\newline \\footnotesize\\textit{Notes:} Event-study decomposition for DID, SC, and SDID, all equally weighted. Shaded bands show 95\\% bootstrap confidence intervals (500 replications); the vertical dashed line marks treatment onset (2014).", fig.height=4.2, cache=TRUE}
-## All-estimator event studies precomputed in results/sc_event_studies.csv.
-es_all <- es_all_df %>% mutate(Estimator = factor(Estimator, levels = c("DID", "SC", "SDID")))
-
-ggplot(es_all, aes(x = year, y = estimate, color = Estimator, fill = Estimator)) +
-  geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.12, color = NA) +
-  geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
-  geom_vline(xintercept = 2013.5, linetype = "dashed", color = "gray30") +
-  geom_point(size = 1.5) +
-  geom_line(linewidth = 0.6) +
-  scale_color_manual(values = c("DID" = "gray40", "SC" = "darkorange", "SDID" = "steelblue")) +
-  scale_fill_manual(values  = c("DID" = "gray40", "SC" = "darkorange", "SDID" = "steelblue")) +
-  labs(x = NULL, y = "Effect on mortality\n(deaths per 100,000)", color = NULL, fill = NULL) +
-  theme_minimal(base_size = 11) +
-  theme(legend.position = "bottom")
-```
-
-Figure E.2 compares the event-study paths across all three estimators under equal weighting. SC achieves the tightest pre-treatment balance by construction (all pre-treatment coefficients near zero). DID, which uses uniform time weights, shows pre-treatment fluctuations that average to zero. SDID falls between these extremes. Post-treatment, the three estimators tell broadly similar stories under equal weighting, with all estimates fluctuating near zero. The SC intervals are wider, reflecting greater estimation uncertainty from a small effective number of contributing control units. The similarity of post-treatment paths across estimators under equal weighting---contrasted with the dramatic divergence under population weighting documented in the main paper---reinforces the main paper's conclusion that the *weighting choice*, not the *estimator choice*, drives the headline result.
-
 ## Control Unit Weight Diagnostics
 
 ```{r omega-weights-app, fig.cap="Distribution of SDID control-unit weights.\\newline \\footnotesize\\textit{Notes:} Histogram of the estimated control weights $\\hat{\\omega}_i$ under equal vs.\\ population weighting of treated counties. Counties with zero weight excluded; the x-axis is on a log scale.", fig.height=3.6}
@@ -485,26 +483,37 @@ Figure E.3 shows the distribution of control unit weights under both specificati
 ## Leave-One-Out Sensitivity
 
 ```{r leave-one-out}
-## 50-county leave-one-out precomputed in results/loo_results.csv.
+## 50-county leave-one-out (equal + population weighted) precomputed in
+## results/loo_results.csv.
 top_n_loo <- 50
-loo_results <- loo_df
+wlev <- c("Population weighted", "Equally weighted")
+loo_results <- loo_df %>% mutate(weighting = factor(weighting, levels = wlev))
+loo_base <- tibble(weighting = factor(wlev, levels = wlev),
+                   base = c(as.numeric(tau_sdid_w), as.numeric(tau_sdid)))
 ```
 
-```{r leave-one-out-plot, fig.cap="Leave-one-out sensitivity of the population-weighted SDID estimate.\\newline \\footnotesize\\textit{Notes:} Each point re-estimates the population-weighted SDID after dropping one of the 50 largest treated counties by population weight (1 = largest). The dashed blue line is the baseline estimate using all treated counties; shaded bands are 95\\% state-clustered bootstrap confidence intervals (500 replications).", fig.height=3.5}
+```{r leave-one-out-plot, fig.cap="Leave-one-out sensitivity of the SDID estimate, by weighting.\\newline \\footnotesize\\textit{Notes:} Each point re-estimates SDID after dropping one of the 50 largest treated counties by population weight (1 = largest), under population weighting (left) and equal weighting (right). Dashed blue lines are the full-sample baselines; shaded bands are 95\\% state-clustered bootstrap confidence intervals (500 replications). The shared vertical scale shows both estimands are individually stable yet far apart.", fig.height=3.6, fig.width=8}
 ggplot(loo_results, aes(x = county_rank, y = estimate)) +
-  geom_hline(yintercept = as.numeric(tau_sdid_w), linetype = "dashed", color = "steelblue", linewidth = 0.6) +
+  geom_hline(data = loo_base, aes(yintercept = base),
+             linetype = "dashed", color = "steelblue", linewidth = 0.6) +
   geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
   geom_ribbon(aes(ymin = estimate - 1.96 * se, ymax = estimate + 1.96 * se),
               alpha = 0.15, fill = "firebrick") +
-  geom_point(color = "firebrick", size = 1.5) +
+  geom_point(color = "firebrick", size = 1.3) +
   geom_line(color  = "firebrick", linewidth = 0.5) +
-  scale_x_continuous(breaks = seq(1, top_n_loo, by = 5)) +
+  facet_wrap(~ weighting) +
+  scale_x_continuous(breaks = seq(1, top_n_loo, by = 10)) +
   labs(x = "County dropped (ranked by population weight, 1 = largest)",
        y = "SDID estimate\n(deaths per 100,000)") +
   theme_minimal(base_size = 10)
 ```
 
-Figure E.4 reports the leave-one-out sensitivity analysis. The estimates cluster tightly around the baseline across all 50 counties, ranging from `r round(min(loo_results$estimate, na.rm = TRUE), 1)` to `r round(max(loo_results$estimate, na.rm = TRUE), 1)` deaths per 100,000, and remain negative and statistically distinguishable from zero throughout. No single county drives the result; even Los Angeles County (the largest weight, $\approx 6\%$ of total) does not materially shift the point estimate when removed. This is consistent with the heterogeneity-by-size gradient documented in the main paper: the result reflects a broadly negative relationship between county size and treatment effect, not a spike concentrated in one or two large counties.
+```{r loo-ranges, include=FALSE}
+loo_rng <- function(w) range(loo_results$estimate[loo_results$weighting == w], na.rm = TRUE)
+rng_w <- loo_rng("Population weighted"); rng_e <- loo_rng("Equally weighted")
+```
+
+Figure E.4 reports the leave-one-out sensitivity under both weightings. The population-weighted estimate clusters tightly around its baseline across all 50 counties (ranging from `r round(rng_w[1], 1)` to `r round(rng_w[2], 1)` deaths per 100,000) and remains negative and statistically distinguishable from zero throughout; even Los Angeles County (the largest weight, $\approx 6\%$ of total) does not materially shift it when removed. The equally-weighted estimate is likewise stable, hovering near zero (`r round(rng_e[1], 1)` to `r round(rng_e[2], 1)`). Neither estimand is driven by any single county---each is individually robust, yet they sit far apart. This is the leave-one-out analogue of the main-paper point: the gap between the two estimates is a property of the *weighting* (a broadly negative county-size gradient that population weighting emphasizes), not of one or two influential counties.
 
 ## Reproducing BV2020 with Public Data
 

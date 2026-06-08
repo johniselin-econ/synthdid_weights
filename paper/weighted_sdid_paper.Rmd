@@ -461,7 +461,7 @@ intime_results <- pintime
 placebo_ests <- pdist$est
 ```
 
-```{r placebo-figure, fig.cap="Placebo tests.\\newline \\footnotesize\\textit{Notes:} Left: in-time placebo with simulated treatment dates of 2011 and 2012, restricting to pre-treatment data (2009--2013); circles are equally-weighted and triangles population-weighted SDID estimates, with whiskers marking 95\\% state-clustered bootstrap confidence intervals (200 replications). Right: in-space placebo distribution from 500 random re-assignments of treatment to control counties, with the dashed vertical line marking the observed population-weighted estimate.", fig.height=3.6, fig.width=8}
+```{r placebo-figure, fig.cap="Placebo tests.\\newline \\footnotesize\\textit{Notes:} Left: in-time placebo with simulated treatment dates of 2011 and 2012, restricting to pre-treatment data (2009--2013); circles are equally-weighted and triangles population-weighted SDID estimates, with whiskers marking 95\\% state-clustered bootstrap confidence intervals (500 replications). Right: in-space placebo distribution from 500 random re-assignments of treatment to control counties, with the dashed vertical line marking the observed population-weighted estimate.", fig.height=3.6, fig.width=8}
 intime_long <- bind_rows(
   intime_results %>%
     transmute(placebo_year, weighting = "Equally weighted",
@@ -481,6 +481,7 @@ p_intime <- ggplot(intime_long,
   geom_point(size = 3, position = pd) +
   scale_color_manual(values = c("Equally weighted" = "steelblue", "Population weighted" = "firebrick")) +
   scale_shape_manual(values = c("Equally weighted" = 16, "Population weighted" = 17)) +
+  scale_x_continuous(breaks = c(2011, 2012)) +   # integer years, no decimal ticks
   labs(x = "Placebo year", y = "Estimate (deaths per 100,000)",
        color = NULL, shape = NULL, title = "In-time") +
   theme_minimal(base_size = 10) +
