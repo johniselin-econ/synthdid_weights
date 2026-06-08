@@ -35,15 +35,10 @@ library(tidyr)
 library(ggplot2)
 library(kableExtra)
 
-# Load the synthdid package extension directly from source, so the build never
-# depends on the package being installed (pure source-based loading). Sourcing
-# every file in ../R/ mirrors what library(synthdid) would attach, including S3
-# methods such as format.synthdid_estimate that other sourced files dispatch to.
-invisible(lapply(
-  list.files(file.path("..", "R"), pattern = "[.][Rr]$", full.names = TRUE),
-  source
-))
-
+# This appendix only reads and formats the committed results/ tables (see the
+# load-app-results chunk); it computes nothing from the synthdid functions, so
+# the package/source is not loaded here. (The eval=FALSE mc-functions chunk
+# below references them for documentation only.)
 set.seed(20240101)
 ```
 
@@ -317,19 +312,6 @@ run_one_sim <- function(N0, N1, T0, T1, gamma, target_hhi,
 # Additional Empirical Results {#app:additional}
 
 This appendix contains additional empirical results for the ACA application that supplement the main paper.
-
-```{r load-data-app}
-panel <- readr::read_csv(
-  file.path("data", "analysis_data.csv"), show_col_types = FALSE
-) %>%
-  select(
-    unit = fips, time = year, y = crude_rate,
-    treated_unit = expansion, pop = population,
-    state_fips,
-    pct_white, pct_55_64, log_20_64, log_35_44, log_f_20_64, unemp
-  ) %>%
-  mutate(post = as.integer(time >= 2014))
-```
 
 ```{r load-app-results}
 ## All heavy computation is precomputed by scripts/analyze_application.R and

@@ -43,16 +43,9 @@ library(tidyr)
 library(ggplot2)
 library(kableExtra)
 
-# Load the synthdid package extension directly from source, so the build never
-# depends on the package being installed (pure source-based loading). Sourcing
-# every file in ../R/ mirrors what library(synthdid) would attach, including S3
-# methods such as format.synthdid_estimate that other sourced files dispatch to.
-invisible(lapply(
-  list.files(file.path("..", "R"), pattern = "[.][Rr]$", full.names = TRUE),
-  source
-))
-
-# Reproducibility
+# This build only reads and formats the committed results/ tables (see the
+# load-results chunk); it computes nothing from the synthdid functions, so the
+# package/source is not loaded here.
 set.seed(20240101)
 ```
 
