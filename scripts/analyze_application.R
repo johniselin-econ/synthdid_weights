@@ -48,6 +48,18 @@ if (FAST) message("** ANALYZE_FAST: reduced replications; SEs/p-values are rough
 dir.create("results", showWarnings = FALSE)
 out <- function(x, name) write_csv(x, file.path("results", paste0(name, ".csv")))
 
+# Block-level idempotency: skip a group of result blocks when all of its output
+# CSVs already exist, so a re-run only fills in what is missing (e.g. the
+# committed paper results stay put while the supplement is computed). Set
+# ANALYZE_FORCE=1 to recompute everything.
+FORCE <- nzchar(Sys.getenv("ANALYZE_FORCE"))
+have_all <- function(names)
+  !FORCE && all(file.exists(file.path("results", paste0(names, ".csv"))))
+PAPER_OUT <- c("app_estimates", "app_scalars", "event_studies", "heterogeneity",
+               "robustness", "headline_comparison", "placebo_intime", "placebo_distribution")
+SUPP_OUT  <- c("sc_results", "sc_diagnostics", "sc_loo", "sc_intime",
+               "sc_event_studies", "omega_weights", "loo_results", "dlps_results", "sc_scalars")
+
 # =============================================================================
 # Parallel bootstrap machinery
 # =============================================================================
@@ -226,16 +238,24 @@ N1          <- nrow(setup$Y) - setup$N0
 # 2. Estimates  (paper chunk: run-estimates)
 # =============================================================================
 uniform_weights <- rep(1 / N1, N1)
-tau_did_eq    <- did_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = uniform_weights, cluster = cluster_vec)
-tau_did_eq_x  <- did_estimate_weighted(setup$Y, setup$N0, setup$T0, X = X_arr, treated.weights = uniform_weights, cluster = cluster_vec)
-tau_sdid_eq   <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = uniform_weights, cluster = cluster_vec)
-tau_sdid_eq_x <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, X = X_arr, treated.weights = uniform_weights, cluster = cluster_vec)
-tau_did_w     <- did_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = treated_weights, cluster = cluster_vec)
-tau_did_w_x   <- did_estimate_weighted(setup$Y, setup$N0, setup$T0, X = X_arr, treated.weights = treated_weights, cluster = cluster_vec)
-tau_sdid_w    <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = treated_weights, cluster = cluster_vec)
-tau_sdid_w_x  <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, X = X_arr, treated.weights = treated_weights, cluster = cluster_vec)
+## No-X estimates (fast, ~1s each). tau_sdid/tau_sdid_w/tau_did also feed the
+## supplement, so they are computed unconditionally.
+tau_did_eq  <- did_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = uniform_weights, cluster = cluster_vec)
+tau_sdid_eq <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = uniform_weights, cluster = cluster_vec)
+tau_did_w   <- did_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = treated_weights, cluster = cluster_vec)
+tau_sdid_w  <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = treated_weights, cluster = cluster_vec)
 tau_sdid <- synthdid_estimate(setup$Y, setup$N0, setup$T0)
 tau_did  <- did_estimate(setup$Y, setup$N0, setup$T0)
+
+# ---- PAPER RESULTS: skipped wholesale when their CSVs already exist ----------
+run_paper <- !have_all(PAPER_OUT)
+if (!run_paper) message("[skip] paper results present")
+if (run_paper) {
+## Covariate-adjusted estimates (~112s each) -- only needed for Table 1.
+tau_did_eq_x  <- did_estimate_weighted(setup$Y, setup$N0, setup$T0, X = X_arr, treated.weights = uniform_weights, cluster = cluster_vec)
+tau_sdid_eq_x <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, X = X_arr, treated.weights = uniform_weights, cluster = cluster_vec)
+tau_did_w_x   <- did_estimate_weighted(setup$Y, setup$N0, setup$T0, X = X_arr, treated.weights = treated_weights, cluster = cluster_vec)
+tau_sdid_w_x  <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, X = X_arr, treated.weights = treated_weights, cluster = cluster_vec)
 
 # =============================================================================
 # 3. Standard errors  (paper chunk: compute-ses)
@@ -454,6 +474,7 @@ app_scalars <- tibble::tribble(
   "p_placebo",         p_placebo
 )
 out(app_scalars, "app_scalars")
+}  # end PAPER RESULTS (run_paper)
 
 # =============================================================================
 # SUPPLEMENT (Appendix E): SC results/diagnostics, all-estimator event studies,
@@ -461,7 +482,11 @@ out(app_scalars, "app_scalars")
 # Reuses setup / tau_sdid / tau_sdid_w / weights / cluster_vec from above.
 # All SC work is no-X; boot_rep reproduces SC because the SC options ride along
 # in attr(estimate, 'opts'), exactly as vcov.R does.
+# Skipped wholesale when the supplement CSVs already exist.
 # =============================================================================
+run_supp <- !have_all(SUPP_OUT)
+if (!run_supp) message("[skip] supplement results present")
+if (run_supp) {
 message("\n== supplement extraction ==")
 
 tau_sc    <- sc_estimate(setup$Y, setup$N0, setup$T0)
@@ -632,6 +657,7 @@ out(tibble::tribble(
   "dlps_n_candidates", length(control_vars),
   "unins_med",       unins_med
 ), "sc_scalars")
+}  # end SUPPLEMENT (run_supp)
 
 # =============================================================================
 # manifest: seed, git SHA, build date, replication counts
@@ -645,5 +671,7 @@ manifest <- tibble(
 )
 out(manifest, "_manifest")
 
-message(sprintf("\nDone. tau_sdid=%.2f  tau_sdid_w=%.2f  p_diverge=%.3f  p_placebo=%.3f",
-                as.numeric(tau_sdid), as.numeric(tau_sdid_w), p_diverge, p_placebo))
+message(sprintf("\nDone. tau_sdid=%.2f  tau_sdid_w=%.2f  (paper=%s, supplement=%s)",
+                as.numeric(tau_sdid), as.numeric(tau_sdid_w),
+                if (run_paper) "computed" else "skipped",
+                if (run_supp) "computed" else "skipped"))
