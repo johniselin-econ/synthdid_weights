@@ -1,9 +1,9 @@
 key,value
 seed,20240101
-git_sha,9118053
-built,2026-06-08 16:50:20.746983
+git_sha,96c27aa
+built,2026-06-08 19:24:19.479226
 fast_mode,FALSE
 B_SE,500
 B_PB,500
-B_IT,200
+B_IT,500
 N_PLAC,500
