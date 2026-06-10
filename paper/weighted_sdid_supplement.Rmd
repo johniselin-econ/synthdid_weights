@@ -42,6 +42,26 @@ library(kableExtra)
 set.seed(20240101)
 ```
 
+```{r load-scalars-early, include=FALSE}
+## Application scalars used inline in the theory sections (B.5 and the Prop 2
+## remark). Loaded here, before Section B, so those sections never hardcode
+## numbers that can go stale when the panel changes.
+.asc <- readr::read_csv(file.path("..", "results", "app_scalars.csv"),
+                        show_col_types = FALSE)
+asc <- setNames(.asc$value, .asc$name)
+asc_n1_eff <- asc[["n1_eff"]]
+asc_N1     <- as.integer(asc[["N1"]])
+asc_N0     <- as.integer(asc[["n_control"]])
+asc_T0     <- as.integer(asc[["T0"]])
+asc_T1     <- as.integer(asc[["T1"]])
+asc_top1   <- asc[["top1_share"]]
+.het_early <- readr::read_csv(file.path("..", "results", "heterogeneity.csv"),
+                              show_col_types = FALSE)
+.st_early  <- floor(as.numeric(.het_early$fips) / 1000)
+asc_n_treated_states <- length(unique(.st_early))
+asc_ca_share <- sum(.het_early$pop[.st_early == 6]) / sum(.het_early$pop)
+```
+
 \renewcommand{\thesection}{\Alph{section}}
 \setcounter{section}{0}
 \setcounter{secnumdepth}{3}
@@ -71,16 +91,28 @@ We collect the following assumptions, which mirror @arkhangelsky2021 with the ad
 \noindent\textbf{Assumption A1 (Outcome model).} *$Y_{it} = L_{it} + \tau_{it} W_{it} + \epsilon_{it}$ with $L_{it} = U_i^\top V_t + \alpha_i + \beta_t$, where $\text{rank}(UV^\top) = r$ is fixed.*
 
 \medskip
-\noindent\textbf{Assumption A2 (Errors).} *$\epsilon_{it}$ has $\mathbb{E}[\epsilon_{it} \mid U, V, \alpha, \beta] = 0$ and is sub-Gaussian with parameter $\sigma$ uniformly in $i, t$. Errors satisfy a weak-dependence condition (e.g., a stationary mixing process across $t$ for each $i$, with mixing coefficients summable in $T$).*
+\noindent\textbf{Assumption A2 (Errors).} *The error rows $\epsilon_{i\cdot} = (\epsilon_{i1}, \ldots, \epsilon_{iT})$ are independent across units $i$. For each unit, $\mathbb{E}[\epsilon_{it} \mid U, V, \alpha, \beta] = 0$, the errors are sub-Gaussian with parameter $\sigma$ uniformly in $i, t$, and they satisfy a weak-dependence condition over time (e.g., a stationary mixing process across $t$ for each $i$, with mixing coefficients summable in $T$).*
+
+Cross-unit independence is used in the central limit step of Proposition 2; it is relaxed to independence across treatment-assignment clusters (with arbitrary within-cluster dependence) in Proposition 3.
 
 \medskip
 \noindent\textbf{Assumption A3 (Factor structure).} *Singular values of $UV^\top$ satisfy decay conditions sufficient for control-trajectory matching: $\|U^\top U / N_0\|, \|V^\top V / T_0\|$ are bounded above and below, and the $r$-th singular value is bounded away from zero.*
 
 \medskip
-\noindent\textbf{Assumption A4 (Sample-size scaling).} *As $N_0, T_0 \to \infty$, we have $T_0 \log N_0 = o(N_0)$ and $N_0 \log T_0 = o(T_0)$.*
+\noindent\textbf{Assumption A4 (Sample-size scaling).} *$N_0, T_0 \to \infty$ with $\log N_0 = o(T_0)$ and $\log T_0 = o(N_0)$.*
+
+These are the minimal growth conditions under which the weight-estimation error bounds invoked below are meaningful; the primitive rate conditions of @arkhangelsky2021 (those of their Theorem 1) are sufficient for them and for the inherited lemmas we cite.
 
 \medskip
-\noindent\textbf{Assumption A5 (Treated-unit alignment).} *The treated-unit factor loadings $U_{N_0+j}$ for $j = 1, \ldots, N_1$ lie in the column span of the control-unit loadings $\{U_1, \ldots, U_{N_0}\}$, so that the weighted treated trajectory $\sum_j \tilde\omega_j L_{N_0+j, \cdot}$ admits an exact convex representation in terms of control trajectories in expectation.*
+\noindent\textbf{Assumption A5 (Oracle weights).} *There exist an intercept $\omega_0^* \in \mathbb{R}$ and weights $\omega^* \in \Delta^{N_0}$ matching the weighted treated factor structure,*
+$$\sum_{j=1}^{N_1} \tilde\omega_j U_{N_0+j} = \sum_{i=1}^{N_0} \omega^*_i U_i, \qquad
+\sum_{j=1}^{N_1} \tilde\omega_j \alpha_{N_0+j} = \omega_0^* + \sum_{i=1}^{N_0} \omega^*_i \alpha_i,$$
+*and an intercept $\lambda_0^* \in \mathbb{R}$ and weights $\lambda^* \in \Delta^{T_0}$ matching the post-treatment factor average,*
+$$T_1^{-1}\sum_{t > T_0} V_t = \sum_{s \leq T_0} \lambda^*_s V_s, \qquad
+T_1^{-1}\sum_{t > T_0} \beta_t = \lambda_0^* + \sum_{s \leq T_0} \lambda^*_s \beta_s,$$
+*with $\|\omega^*\|_2 \to 0$ as $N_0 \to \infty$.*
+
+Because A5 imposes the matching on the factor loadings rather than period by period on $L$, it implies $\sum_j \tilde\omega_j L_{N_0+j,t} = \omega_0^* + \sum_i \omega^*_i L_{it}$ for *all* $t$ (pre- and post-treatment) and $T_1^{-1}\sum_{t>T_0} L_{it} = \lambda_0^* + \sum_{s \le T_0}\lambda^*_s L_{is}$ for all $i \leq N_0$. Three remarks. First, A5 assumes a convex (simplex) representation directly: membership of the weighted treated loadings in the linear *span* of the control loadings would not by itself deliver weights in $\Delta^{N_0}$. Second, exact matching can be relaxed to approximate matching with vanishing error at the cost of carrying an additional bias term through the proofs, exactly as in @arkhangelsky2021. Third, the diffuseness requirement $\|\omega^*\|_2 \to 0$ rules out oracle weights concentrated on finitely many control units; it is this property that the ridge regularization in the unit-weight program transfers to $\hat\omega^w$.
 
 \medskip
 \noindent\textbf{Assumption W1 (Probability weights).} *$\tilde\omega_j \geq 0$ and $\sum_{j=1}^{N_1} \tilde\omega_j = 1$.*
@@ -114,100 +146,92 @@ $$\hat\tau^w = \begin{pmatrix}-\hat\omega \\ \tfrac{1}{N_1}\mathbf{1}_{N_1}\end{
 \noindent\textbf{Proposition 1 (Consistency).} *Under Assumptions A1--A5 and W1--W2, $\hat\tau^w \xrightarrow{p} \tau^{(\tilde\omega)}$ as $N_0, N_1, T_0 \to \infty$.*
 
 \medskip
-\noindent\textit{Proof.} We follow the decomposition strategy of @arkhangelsky2021, Theorem 1, with the substitution $\frac{1}{N_1}\mathbf{1}_{N_1} \mapsto \tilde\omega$ throughout.
+\noindent\textit{Proof.} We follow the decomposition strategy of @arkhangelsky2021, Theorem 1, with the substitution $\frac{1}{N_1}\mathbf{1}_{N_1} \mapsto \tilde\omega$ throughout. For any time weights $\lambda \in \Delta^{T_0}$ define the unit-level noise *contrast* $\xi_i(\lambda) := T_1^{-1}\sum_{t>T_0}\epsilon_{it} - \sum_{s \leq T_0}\lambda_s \epsilon_{is}$, and write $\xi_i := \xi_i(\lambda^*)$.
 
 \medskip
-\noindent\textit{Step 1 (Decomposition).} By Assumption A5, there exist population control weights $\omega^* \in \Delta^{N_0}$ and time weights $\lambda^* \in \Delta^{T_0}$ satisfying the matching conditions
-\begin{align}
-\sum_{j} \tilde\omega_j L_{N_0+j, t} &= \sum_i \omega^*_i L_{i,t} \quad \text{for all } t \leq T_0, \label{eq:match-omega}\\
-T_1^{-1}\sum_{t > T_0} L_{i, t} - \sum_{s \leq T_0} \lambda^*_s L_{i, s} &= 0 \quad \text{for all } i \leq N_0. \label{eq:match-lambda}
-\end{align}
-That is, $\omega^*$ matches the weighted treated $L$-trajectory in pre-treatment periods, and $\lambda^*$ matches the post-treatment $L$ to a pre-treatment combination for each control unit. Substituting $Y = L + \tau W + \epsilon$ into the bilinear form for $\hat\tau^w$ and using $W_{N_0+j, t} = \mathbf{1}\{t > T_0\}$,
-\begin{equation}\label{eq:tau-decomp}
-\hat\tau^w - \tau^{(\tilde\omega)} = E_1 + E_2 + E_3 + E_4
-\end{equation}
-where
+\noindent\textit{Step 1 (Exact decomposition).} Substitute $Y = L + \tau W + \epsilon$ into the bilinear form \eqref{eq:tau-w}. The $\tau W$ part returns $\tau^{(\tilde\omega)}$ exactly. The systematic part is $f(\hat\omega^w, \hat\lambda^w)$, where
+$$f(\omega, \lambda) := \sum_{j} \tilde\omega_j \Big(T_1^{-1}\textstyle\sum_{t>T_0} L_{N_0+j,t} - \sum_{s \le T_0}\lambda_s L_{N_0+j,s}\Big) - \sum_{i} \omega_i \Big(T_1^{-1}\textstyle\sum_{t>T_0} L_{it} - \sum_{s \le T_0}\lambda_s L_{is}\Big)$$
+is bilinear in $(\omega, \lambda)$. By the all-$t$ matching implied by A5 — the intercepts $\omega_0^*, \lambda_0^*$ cancel because every weight vector involved sums to one — we have $f(\omega^*, \lambda^*) = 0$, and both first-order deviation terms vanish as well: $f(\hat\omega^w, \lambda^*) - f(\omega^*, \lambda^*) = 0$ because the control-side contrast at $\lambda^*$ is the constant $\lambda_0^*$, which sums to zero against $\hat\omega^w - \omega^*$; symmetrically for $f(\omega^*, \hat\lambda^w) - f(\omega^*, \lambda^*)$. Only the bilinear cross term survives. Collecting the noise terms,
+$$\hat\tau^w - \tau^{(\tilde\omega)} = \underbrace{\sum_{j=1}^{N_1} \tilde\omega_j \xi_{N_0+j} - \sum_{i=1}^{N_0}\omega^*_i \xi_i}_{E_1 \text{ (noise at oracle weights)}} \;+\; \underbrace{R_\omega + R_\lambda + R_{\omega\lambda}}_{E_2 \text{ (estimation error)}},$$
+with
 \begin{align*}
-E_1 &= T_1^{-1}\sum_{t > T_0}\sum_{j} \tilde\omega_j \epsilon_{N_0+j, t} - \sum_{i \leq N_0} \hat\omega^w_i \cdot T_1^{-1}\sum_{t > T_0}\epsilon_{i,t} \quad \text{(post-period noise)},\\
-E_2 &= -\sum_{t \leq T_0} \hat\lambda^w_t \left[\sum_j \tilde\omega_j \epsilon_{N_0+j, t} - \sum_i \hat\omega^w_i \epsilon_{i, t}\right] \quad \text{(pre-period noise)},\\
-E_3 &= \sum_{t \leq T_0} \hat\lambda^w_t \cdot \left[\sum_j \tilde\omega_j L_{N_0+j, t} - \sum_i \hat\omega^w_i L_{i, t}\right] - T_1^{-1}\sum_{t > T_0}\left[\sum_j \tilde\omega_j L_{N_0+j, t} - \sum_i \hat\omega^w_i L_{i, t}\right] \\
-& \qquad \text{(matching error in $\hat\omega^w$)},\\
-E_4 &= \text{(matching error in $\hat\lambda^w$)}.
+R_\omega &= -\sum_{i=1}^{N_0}\big(\hat\omega^w_i - \omega^*_i\big)\,\xi_i, \\
+R_\lambda &= -\sum_{s \leq T_0}\big(\hat\lambda^w_s - \lambda^*_s\big)\Big[\sum_j \tilde\omega_j \epsilon_{N_0+j,s} - \sum_i \hat\omega^w_i \epsilon_{is}\Big], \\
+R_{\omega\lambda} &= \big(\hat\omega^w - \omega^*\big)^\top L_{\text{pre}}\,\big(\hat\lambda^w - \lambda^*\big),
 \end{align*}
-The terms $E_3$ and $E_4$ vanish in expectation under \eqref{eq:match-omega}--\eqref{eq:match-lambda} when $\hat\omega^w = \omega^*, \hat\lambda^w = \lambda^*$, so they reduce to deviations $\hat\omega^w - \omega^*$ and $\hat\lambda^w - \lambda^*$ multiplied by $L$ entries.
+where $L_{\text{pre}}$ is the $N_0 \times T_0$ control block of $L$.
 
 \medskip
-\noindent\textit{Step 2 (Treated noise contribution).} The first term in $E_1$ is $T_1^{-1}\sum_{t > T_0}\sum_j \tilde\omega_j \epsilon_{N_0+j, t}$. Under A2,
-$$\text{Var}\!\left(T_1^{-1}\sum_{t > T_0}\sum_j \tilde\omega_j \epsilon_{N_0+j, t}\right) \leq \frac{C\sigma^2}{T_1} \sum_j \tilde\omega_j^2 = \frac{C \sigma^2}{T_1 \cdot N_1^{\text{eff}}}.$$
-By W2, $N_1^{\text{eff}} \to \infty$, so this term is $o_p(1)$ by Markov's inequality. The second term in $E_1$, $\sum_i \hat\omega^w_i T_1^{-1}\sum_{t > T_0} \epsilon_{i,t}$, is similarly bounded by the standard SDID argument [@arkhangelsky2021, Lemma S5] applied to the control block, using the fact that $\hat\omega^w$ remains in $\Delta^{N_0}$ regardless of the target.
+\noindent\textit{Step 2 (Noise at oracle weights).} Under A2, $\text{Var}(\xi_i) \leq C\sigma^2\big(T_1^{-1} + \|\lambda^*\|_2^2 + 2 T_1^{-1/2}\|\lambda^*\|_2\big) \leq C'$ uniformly in $i$: the within-unit serial covariance between the post-period average and the $\lambda^*$-weighted pre-period sum is absorbed into $\text{Var}(\xi_i)$, which is why the contrast — rather than its post and pre pieces separately — is the right object under serially dependent errors. By cross-unit independence (A2),
+$$\text{Var}\!\left(\sum_j \tilde\omega_j \xi_{N_0+j}\right) \leq C' \sum_j \tilde\omega_j^2 = \frac{C'}{N_1^{\text{eff}}} \to 0$$
+by W2, and $\text{Var}\big(\sum_i \omega^*_i \xi_i\big) \leq C' \|\omega^*\|_2^2 \to 0$ by A5. Both pieces of $E_1$ are $o_p(1)$ by Markov's inequality.
 
 \medskip
-\noindent\textit{Step 3 (Pre-period noise contribution).} The bracketed term in $E_2$ has variance bounded by $C\sigma^2 (\sum_j \tilde\omega_j^2 + \sum_i (\hat\omega^w_i)^2)$, which converges to zero under W2 and the bounded-effective-control-units property of $\hat\omega^w$ (inherited from the regularization in the Frank-Wolfe objective). Multiplying by $\hat\lambda^w_t \in \Delta^{T_0}$ and summing over $t \leq T_0$ preserves the bound.
+\noindent\textit{Step 3 (Estimation error).} Under A2--A4 the weight-estimation errors vanish, $\|\hat\omega^w - \omega^*\|_2 = o_p(1)$ and $\|\hat\lambda^w - \lambda^*\|_2 = o_p(1)$, with the ridge regularization in the unit-weight program transferring the diffuseness of $\omega^*$ (A5) to $\hat\omega^w$. These are the estimation-error arguments behind @arkhangelsky2021's Theorem 1, and they apply with $\tilde\omega$ in place of $N_1^{-1}\mathbf{1}$: they depend on the treated block only through the target column of the collapsed form, which under W1 is a fixed convex combination of treated trajectories and, by A5, admits an oracle representation in the control block. Consequently $R_\omega$ and $R_\lambda$ are $o_p(1)$, each pairing an $o_p(1)$ weight-estimation error with noise whose relevant projections have bounded variance. For the cross term, expand $L_{\text{pre}} = U_c V_{\text{pre}}^\top + \alpha_c \mathbf{1}^\top + \mathbf{1}\beta_{\text{pre}}^\top$: the two fixed-effect components vanish *exactly*, since $(\hat\omega^w - \omega^*)^\top \alpha_c \cdot \mathbf{1}^\top(\hat\lambda^w - \lambda^*) = 0$ and $\mathbf{1}^\top(\hat\omega^w - \omega^*) \cdot \beta_{\text{pre}}^\top(\hat\lambda^w - \lambda^*) = 0$ (each difference of simplex vectors sums to zero), leaving
+$$\big|R_{\omega\lambda}\big| = \Big|\big(\hat\omega^w - \omega^*\big)^\top U_c \cdot V_{\text{pre}}^\top \big(\hat\lambda^w - \lambda^*\big)\Big| \leq \big\|U_c^\top(\hat\omega^w - \omega^*)\big\|\,\big\|V_{\text{pre}}^\top(\hat\lambda^w - \lambda^*)\big\| = o_p(1),$$
+a product of loading-space estimation errors, each controlled by the same inherited arguments. (Bounding $R_{\omega\lambda}$ by $\|\hat\omega^w - \omega^*\|_2\,\|L\|_{\text{op}}\,\|\hat\lambda^w - \lambda^*\|_2$ would *not* suffice, since $\|L\|_{\text{op}} \asymp \sqrt{N_0 T_0}$ for a low-rank matrix with bounded entries; the rank-$r$ expansion is what makes the cross term manageable.)
 
-\medskip
-\noindent\textit{Step 4 (Matching error).} For $E_3$, write $\hat\omega^w = \omega^* + (\hat\omega^w - \omega^*)$. The $\omega^*$ piece annihilates by \eqref{eq:match-omega}; the deviation piece is bounded by $\|\hat\omega^w - \omega^*\|_2 \cdot \|L\|_{\text{op}}$. Following @arkhangelsky2021, Lemma S3, $\|\hat\omega^w - \omega^*\|_2 = O_p(\sqrt{(r + \log N_0)/T_0})$ under A3--A4. The same argument applies with $\tilde\omega$ in place of $\frac{1}{N_1}\mathbf{1}$ in the right-hand-side target of the Frank-Wolfe problem, since the proof only requires that the target column lies in the column space of $L$, which is guaranteed by A5. The bound thus carries through unchanged. $E_4$ is handled analogously.
-
-Combining Steps 2--4: each component of \eqref{eq:tau-decomp} is $o_p(1)$, so $\hat\tau^w - \tau^{(\tilde\omega)} \xrightarrow{p} 0$. $\qed$
+Combining Steps 2--3, each component is $o_p(1)$, so $\hat\tau^w - \tau^{(\tilde\omega)} \xrightarrow{p} 0$. $\qed$
 
 ## Asymptotic Normality
 
 \medskip
-\noindent\textbf{Proposition 2 (Asymptotic normality).} *Under Assumptions A1--A5 and W1--W3,*
-$$\sqrt{\nu_n} \cdot \left(\hat\tau^w - \tau^{(\tilde\omega)}\right) \xrightarrow{d} \mathcal{N}(0, V_w)$$
-*where $\nu_n^{-1} = (T_1 N_1^{\text{eff}})^{-1} + (T_0 N_0)^{-1}$ governs the convergence rate and*
-$$V_w = \sigma_\xi^2 + V_{\hat\omega} + V_{\hat\lambda}$$
-*with $\sigma_\xi^2$ the limiting variance of the standardized treated-noise term and $V_{\hat\omega}, V_{\hat\lambda}$ inherited from the corresponding components of @arkhangelsky2021's variance decomposition.*
+\noindent\textbf{Proposition 2 (Asymptotic normality).} *Under Assumptions A1--A5 and W1--W3, and the negligibility condition*
+
+\noindent (R) \quad $\sqrt{N_1^{\text{eff}}}\,\Big(\hat\tau^w - \tau^{(\tilde\omega)} - \sum_{j} \tilde\omega_j \xi_{N_0+j}\Big) = o_p(1)$,
+
+\noindent *i.e., the control-noise and weight-estimation terms of the Proposition 1 decomposition are negligible at the $\sqrt{N_1^{\text{eff}}}$ scale, we have*
+$$\sqrt{N_1^{\text{eff}}}\left(\hat\tau^w - \tau^{(\tilde\omega)}\right) \xrightarrow{d} \mathcal{N}\!\left(0, \sigma_\xi^2\right), \qquad
+\sigma_\xi^2 = \lim_{N_1 \to \infty} \frac{\sum_j \tilde\omega_j^2\,\text{Var}(\xi_{N_0+j})}{\sum_k \tilde\omega_k^2},$$
+*where $\xi_{N_0+j} = T_1^{-1}\sum_{t>T_0}\epsilon_{N_0+j,t} - \sum_{s\le T_0}\lambda^*_s \epsilon_{N_0+j,s}$ is the post-minus-pre noise contrast of treated unit $j$.*
 
 \medskip
-\noindent\textit{Proof.} Returning to decomposition \eqref{eq:tau-decomp}, multiply through by $\sqrt{\nu_n}$. We show that the dominant term has a Gaussian limit and the remaining terms are $o_p(1)$ at the standardized scale.
+\noindent\textit{Proof.}
 
 \medskip
-\noindent\textit{Step 1 (CLT for treated noise).} Consider the standardized treated-noise term
-$$Z_n := \sqrt{T_1 N_1^{\text{eff}}} \cdot T_1^{-1}\sum_{t > T_0}\sum_j \tilde\omega_j \epsilon_{N_0+j, t} = \sqrt{N_1^{\text{eff}}/T_1} \sum_{t > T_0}\sum_j \tilde\omega_j \epsilon_{N_0+j, t}.$$
-Define $\xi_{j} := T_1^{-1/2}\sum_{t > T_0} \epsilon_{N_0+j, t}$, mean-zero with variance $\sigma_j^2$ (asymptotically constant under stationarity in A2). Then $Z_n = \sqrt{N_1^{\text{eff}}}\sum_j \tilde\omega_j \xi_j$. The Lindeberg-Feller CLT for triangular arrays of independent (across $j$) random variables applies provided
-$$\frac{\max_j \tilde\omega_j^2 \cdot \mathbb{E}[\xi_j^2]}{\sum_k \tilde\omega_k^2 \cdot \mathbb{E}[\xi_k^2]} \to 0.$$
-Under A2 with bounded $\sigma_j^2$, this reduces to W3. Hence $Z_n \xrightarrow{d} \mathcal{N}(0, \sigma_\xi^2)$ where $\sigma_\xi^2 = \lim_n \sum_j \tilde\omega_j^2 \sigma_j^2 / \sum_k \tilde\omega_k^2$.
+\noindent\textit{Step 1 (CLT for the treated-noise contrast).} Let $Z_n := \sqrt{N_1^{\text{eff}}}\sum_j \tilde\omega_j \xi_{N_0+j}$. The summands are independent across $j$ (A2), mean zero, with variances $\sigma_j^2 := \text{Var}(\xi_{N_0+j})$ bounded above uniformly (Step 2 of the Proposition 1 proof) and assumed bounded away from zero. The Lindeberg--Feller condition for the triangular array $\{\tilde\omega_j \xi_{N_0+j}\}$,
+$$\frac{\max_j \tilde\omega_j^2\,\sigma_j^2}{\sum_k \tilde\omega_k^2\,\sigma_k^2} \to 0,$$
+reduces under uniformly bounded $\sigma_j^2$ to W3. Hence $Z_n \xrightarrow{d} \mathcal{N}(0, \sigma_\xi^2)$ with $\sigma_\xi^2$ as displayed. Because $\xi$ is the post-minus-pre *contrast*, $\sigma_\xi^2$ already incorporates the within-unit serial covariance between post-period and $\lambda^*$-weighted pre-period noise; no independence between those two pieces is required (nor would it hold under serially dependent errors).
 
 \medskip
-\noindent\textit{Step 2 (Control-block CLT).} The control-noise term $\sum_i \hat\omega^w_i T_1^{-1}\sum_{t > T_0}\epsilon_{i, t}$ admits a CLT under A2--A4 by the argument of @arkhangelsky2021, Theorem 1, replacing their $\frac{1}{N_1}$-target with $\tilde\omega$ in the dual representation. The limiting variance $V_{\hat\omega}$ depends on the spectral properties of the control-block covariance and on the realized $\hat\omega^w$.
+\noindent\textit{Step 2 (Negligible remainder).} By (R), $\sqrt{N_1^{\text{eff}}}(\hat\tau^w - \tau^{(\tilde\omega)}) = Z_n + o_p(1)$, and the conclusion follows by Slutsky's theorem. $\qed$
 
 \medskip
-\noindent\textit{Step 3 (Time-block CLT).} The pre-period and time-matching contributions are handled by Arkhangelsky's Lemma S6 with the same substitution.
+\noindent\textit{Remark (Primitive conditions for (R)).} Condition (R) has two parts. The control-noise term $\sqrt{N_1^{\text{eff}}}\sum_i \omega^*_i \xi_i$ has variance of order $N_1^{\text{eff}}\|\omega^*\|_2^2$, so it requires the oracle control weights to be more diffuse than the treated weights are concentrated ($N_1^{\text{eff}}\|\omega^*\|_2^2 \to 0$) — plausible when $N_1^{\text{eff}}$ grows slowly relative to the effective number of oracle control units. The weight-estimation terms $R_\omega, R_\lambda, R_{\omega\lambda}$ require the estimation-error rates of @arkhangelsky2021 to dominate $\sqrt{N_1^{\text{eff}}}$; the rate conditions of their Theorem 1 play exactly this role in the unweighted case (where $N_1^{\text{eff}} = N_1$) and carry over under the same substitution as in Proposition 1. We do not restate primitive rates here: in the applications we target, the binding constraints are W2--W3 themselves, and inference proceeds by bootstrap rather than by plug-in use of $\sigma_\xi^2$.
 
 \medskip
-\noindent\textit{Step 4 (Joint convergence).} Independence of the treated noise from the control and pre-period blocks (under A2's mixing condition applied across units) implies the joint convergence of the three CLT pieces, yielding the sum-of-Gaussians representation
-$$\sqrt{\nu_n}(\hat\tau^w - \tau^{(\tilde\omega)}) \xrightarrow{d} \mathcal{N}(0, V_w), \quad V_w = \sigma_\xi^2 + V_{\hat\omega} + V_{\hat\lambda}. \qed$$
-
-\medskip
-\noindent\textit{Remark (Effective rate).} The convergence rate $\sqrt{\nu_n}$ depends on which of the three variance components dominates. When the treated block dominates---which is typical in applications with small $N_1^{\text{eff}}$ and large $T_0$---the rate is effectively $\sqrt{T_1 N_1^{\text{eff}}}$. When the control block dominates, the rate inherits from Arkhangelsky's $\sqrt{T_0 N_0}$. In our ACA application, $T_1 N_1^{\text{eff}} \approx 50 \times 10 = 500$ while $T_0 N_0 \approx 5 \times 2700 = 13,500$, suggesting the treated block dominates and motivating the bootstrap as the preferred inference tool.
+\noindent\textit{Remark (When is (R) plausible?).} Condition (R) formalizes the requirement that uncertainty from the estimated weights $(\hat\omega^w, \hat\lambda^w)$ and from the control-noise average be negligible relative to the treated-noise contrast, whose variance is of order $1/N_1^{\text{eff}}$. It is most plausible when $N_1^{\text{eff}}$ is small relative to the control block and the pre-period is long. In our ACA application, $N_1^{\text{eff}} \approx `r round(asc_n1_eff)`$ against $N_0 = `r format(asc_N0, big.mark = ",")`$ control counties — favorable on the cross-sectional side — but the pre-period is short ($T_0 = `r asc_T0`$), so the time-weight estimation error is unlikely to be negligible in the sense of (R). This is one more reason our inference relies on the cluster bootstrap — which resamples the entire estimation pipeline and therefore captures, in finite samples, the contributions that (R) treats as asymptotically negligible — together with randomization inference, rather than on plug-in asymptotic intervals.
 
 ## Cluster-Robust Variance
 
 \medskip
-\noindent\textbf{Proposition 3 (Cluster-robust variance).} *Suppose treatment is assigned at the cluster level with $K$ clusters, where the cluster index of unit $i$ is denoted $g(i) \in \{1, \ldots, K\}$, and let $\tilde\omega^{(k)} = \sum_{j: g(N_0+j) = k} \tilde\omega_j$ be the cluster-aggregated treated-unit weight. Assume*
+\noindent\textbf{Proposition 3 (Cluster-robust variance).} *Suppose treatment is assigned at the cluster level, with $K$ clusters indexed $k = 1, \ldots, K$ and cluster membership $g(i) \in \{1, \ldots, K\}$. Let $\tilde\omega^{(k)} = \sum_{j:\, g(N_0+j) = k} \tilde\omega_j$ be the cluster-aggregated treated weight, $\xi^{(k)} = \sum_{j:\, g(N_0+j) = k} \tilde\omega_j\, \xi_{N_0+j}$ the cluster-aggregated noise contrast, and $K^{\text{eff}} = \big(\sum_k (\tilde\omega^{(k)})^2\big)^{-1}$ the effective number of treated clusters. Assume*
 
-\noindent (CB1) *$K \to \infty$ with bounded cluster sizes;*
+\noindent (CB1) *$K \to \infty$ and $\max_k \tilde\omega^{(k)} \to 0$ (no dominant cluster), with the cluster-level Lindeberg condition $\max_k (\tilde\omega^{(k)})^2 \big/ \sum_{k'} (\tilde\omega^{(k')})^2 \to 0$;*
 
-\noindent (CB2) *$\max_k \tilde\omega^{(k)} \to 0$ (no dominant cluster);*
+\noindent (CB2) *errors are mean-zero, with arbitrary dependence within clusters and independence across clusters (replacing the cross-unit independence in A2);*
 
-\noindent (CB3) *errors are mean-zero and weakly dependent within clusters, independent across clusters.*
+\noindent (CB3) *the analogue of condition (R) at the cluster scale: $\sqrt{K^{\text{eff}}}\big(\hat\tau^w - \tau^{(\tilde\omega)} - \sum_k \xi^{(k)}\big) = o_p(1)$.*
 
-*Then the cluster bootstrap variance estimator $\widehat V_w^{\text{cb}} = B^{-1}\sum_b (\hat\tau^{w,(b)} - \bar\tau^w)^2$ is consistent for $V_w$, where $\hat\tau^{w,(b)}$ is computed on a cluster-resampled bootstrap draw with weight renormalization $\tilde\omega_j^{(b)} = \tilde\omega_j n_j^{(b)} / \sum_k \tilde\omega_k n_k^{(b)}$ and analogous renormalization of $\hat\omega^w$.*
+*Then*
+$$\sqrt{K^{\text{eff}}}\left(\hat\tau^w - \tau^{(\tilde\omega)}\right) \xrightarrow{d} \mathcal{N}\!\left(0, \sigma_{\text{cl}}^2\right), \qquad
+\sigma_{\text{cl}}^2 = \lim_{K \to \infty} \frac{\sum_k \text{Var}\big(\xi^{(k)}\big)}{\sum_{k'} \big(\tilde\omega^{(k')}\big)^2},$$
+*and the cluster bootstrap variance estimator $\widehat V_w^{\text{cb}} = (B-1)^{-1}\sum_b (\hat\tau^{w,(b)} - \bar\tau^w)^2$ is consistent for $\sigma^2_{\text{cl}}/K^{\text{eff}}$, where $\hat\tau^{w,(b)}$ is computed on a cluster-resampled bootstrap draw with weight renormalization $\tilde\omega_j^{(b)} = \tilde\omega_j n_j^{(b)} / \sum_{\ell=1}^{N_1} \tilde\omega_\ell n_\ell^{(b)}$ and analogous renormalization of $\hat\omega^w$.*
 
 \medskip
-\noindent\textit{Proof.} The argument follows the cluster-bootstrap consistency proof of @cameron2008 adapted to the bilinear form \eqref{eq:tau-w}. The key observations are: (i) the cluster bootstrap correctly captures within-cluster dependence in $\hat\tau^w - \tau^{(\tilde\omega)}$ provided each cluster is treated as the sampling unit, which Proposition 3 enforces by resampling all units within each drawn cluster; (ii) the renormalization preserves the convex-combination structure of $\tilde\omega$ within each draw, so the bootstrap analog $\hat\tau^{w,(b)}$ is itself a valid weighted SDID estimate; (iii) under (CB1)--(CB2), the bootstrap distribution of $\sqrt{\nu_n}(\hat\tau^{w,(b)} - \hat\tau^w)$ is asymptotically Gaussian with the same variance $V_w$ as in Proposition 2 (with the cluster-level Lindeberg condition (CB2) replacing the unit-level W3). The cluster-jackknife variant follows by an analogous argument with cluster-level leave-one-out replacing cluster bootstrap. $\qed$
+\noindent\textit{Proof.} The central limit step repeats Proposition 2 one level up: the $\xi^{(k)}$ are independent across clusters by (CB2) — within-cluster covariances among the $\xi_{N_0+j}$ are *absorbed into* $\text{Var}(\xi^{(k)})$ rather than restricted — mean zero, with the Lindeberg condition supplied by (CB1), and (CB3) disposes of the remainder. Note that $\sigma^2_{\text{cl}}$ does not in general equal $\sigma_\xi^2$ of Proposition 2: it exceeds it whenever noise is positively correlated within clusters, which is precisely the situation clustering is designed for. For the bootstrap step, the cluster-bootstrap consistency argument of @cameron2008 (see also @clarke2023) applies to the bilinear form \eqref{eq:tau-w}: (i) resampling whole clusters reproduces the cross-cluster independence structure under which the limit was derived; (ii) the renormalization preserves the convex-combination structure of $\tilde\omega$ within each draw, so each $\hat\tau^{w,(b)}$ is itself a valid weighted SDID estimate; (iii) under (CB1)--(CB3) the bootstrap distribution of $\sqrt{K^{\text{eff}}}(\hat\tau^{w,(b)} - \hat\tau^w)$ converges to the same Gaussian limit. The cluster-jackknife variant follows by an analogous argument with cluster-level leave-one-out. We emphasize that no bound on cluster *sizes* is imposed — clusters may contain arbitrarily many units (states contain hundreds of counties in our application); what matters is that no cluster's *weight share* dominates. $\qed$
 
 ## When the Asymptotics Fail {#app:fails}
 
-The conditions W2, W3, and (CB2) all impose a "no-dominant-weight" requirement at the appropriate level. They fail when:
+The conditions W2, W3, and (CB1) all impose a "no-dominant-weight" requirement at the appropriate level. They fail, or lose practical bite, when:
 
-1. *Population weights with extreme concentration.* The Pareto tail of population sizes for U.S.\ counties or states means that population-weighted estimands often have effective sample sizes that are bounded above by a small constant times the largest unit's share. In our ACA application, $N_1^{\text{eff}} \approx 50$ relative to $N_1 \approx 580$, with a single county (Los Angeles) carrying roughly 8\% of total weight. Such weights satisfy W2 in the strict mathematical sense (the largest weight does shrink as new counties are added), but the rate of convergence is too slow for finite-sample asymptotic intervals to be reliable.
+1. *Population weights with extreme concentration.* The Pareto tail of population sizes for U.S.\ counties or states means that population-weighted estimands often have effective sample sizes far below the number of treated units. In our ACA application, $N_1^{\text{eff}} \approx `r round(asc_n1_eff)`$ relative to $N_1 = `r format(asc_N1, big.mark = ",")`$, with a single county (Los Angeles) carrying roughly `r round(asc_top1 * 100)`\% of total weight. Such weights satisfy W2 in the strict mathematical sense (the largest weight does shrink as new counties are added), but the rate of convergence is too slow for finite-sample asymptotic intervals to be reliable.
 
-2. *Single-cluster dominance.* When treatment is assigned at the state level and one or two states contain a disproportionate share of the treated population (California, Texas, New York in U.S.\ applications), (CB2) can also fail at the cluster level. In our ACA application, California alone contains roughly 25\% of treated population mass; cluster-bootstrap inference at the state level remains valid because (CB2) holds across the $\sim 30$ treated states even though one state is large, but the asymptotic intervals should be interpreted with caution when the largest cluster is more than $\sim 20$\% of weight.
+2. *Single-cluster dominance.* When treatment is assigned at the state level and one or two states contain a disproportionate share of the treated population (California, Texas, New York in U.S.\ applications), the no-dominant-cluster condition (CB1) is strained at the cluster level. In our ACA application, California alone contains roughly `r round(asc_ca_share * 100)`\% of treated population mass across the `r asc_n_treated_states` treated jurisdictions. State-level cluster bootstrapping is nonetheless the most defensible resampling scheme available — treatment is assigned at the state level, and the remaining clusters are individually small — but a largest-cluster share of this magnitude means (CB1) is itself under pressure, which is why the application reports randomization-inference $p$-values alongside the cluster-bootstrap intervals rather than leaning on either alone.
 
 3. *Adversarial weight choices.* If the researcher chooses weights that intentionally concentrate on a single unit (e.g., to estimate a unit-specific effect), the framework reduces to a single-unit synthetic control problem, for which @cattaneo2021's prediction-interval inference is more appropriate than our bilinear-form CLT.
 
-In any of these settings, three remedies are available within our framework. *Cluster-robust bootstrap* at a coarser aggregation level (e.g., region rather than state) restores (CB2) at the cost of treating finer within-region heterogeneity as exchangeable. *Randomization inference* via the placebo distribution, as illustrated in the main paper's in-space placebo, provides an exact finite-sample test that does not rely on (W3) or (CB2). *Subsampling* of treated units, in the spirit of @politis1999, can give valid confidence intervals under weaker conditions but at the cost of reduced power. We recommend reporting both the bootstrap-based interval and the randomization-inference $p$-value when (W2)--(W3) are quantitatively suspect.
+In any of these settings, three remedies are available within our framework. *Cluster-robust bootstrap* at a coarser aggregation level (e.g., region rather than state) restores (CB1) at the cost of treating finer within-region heterogeneity as exchangeable. *Randomization inference* via the placebo distribution, as illustrated in the main paper's in-space placebo, provides an exact finite-sample test that does not rely on (W3) or (CB1). *Subsampling* of treated units, in the spirit of @politis1999, can give valid confidence intervals under weaker conditions but at the cost of reduced power. We recommend reporting both the bootstrap-based interval and the randomization-inference $p$-value when (W2)--(W3) are quantitatively suspect.
 
 
 # Inference Algorithms {#app:inference}
@@ -217,8 +241,8 @@ This appendix documents the bootstrap, jackknife, and placebo variance estimator
 ## Bootstrap
 
 The unit-level bootstrap of @arkhangelsky2021 resamples units with replacement. With researcher-specified treated-unit weights, in bootstrap draw $b$ unit $j$ appears $n_j^{(b)}$ times, and the weights are renormalized:
-$$\tilde\omega_j^{(b)} = \frac{\tilde\omega_j \cdot n_j^{(b)}}{\sum_{k=1}^{N_1} \tilde\omega_k \cdot n_k^{(b)}}.$$
-Control weights are renormalized analogously when control units are resampled. Draws in which no treated units appear are discarded. The bootstrap variance is
+$$\tilde\omega_j^{(b)} = \frac{\tilde\omega_j \cdot n_j^{(b)}}{\sum_{\ell=1}^{N_1} \tilde\omega_\ell \cdot n_\ell^{(b)}}.$$
+Control weights are renormalized analogously when control units are resampled. Draws in which no treated units appear are discarded. Because the renormalized weights vary across draws, each replication estimates a slightly perturbed weighted estimand; this is standard for weighted estimators and is part of the sampling variability the bootstrap is designed to capture. The bootstrap variance is
 $$\widehat V_w^{\text{boot}} = \frac{1}{B-1} \sum_{b=1}^{B}\left(\hat\tau^{w, (b)} - \bar\tau^w\right)^2.$$
 
 The cluster bootstrap of @clarke2023 generalizes by resampling clusters (rather than individual units) with replacement. The renormalization step then operates at both the unit and cluster levels: when cluster $k$ appears $m_k^{(b)}$ times, all units within $k$ inherit the multiplier $m_k^{(b)}$ before the unit-level renormalization is applied.
@@ -787,11 +811,11 @@ The standard SDID estimator averages post-treatment periods uniformly via the $\
 \item exposure varies across post-treatment periods (e.g., partial implementation in the first year);
 \item discounting is appropriate for welfare calculations.
 \end{itemize}
-Period weights enter the collapsed form through the last column of $\tilde Y^w$ and also affect time-weight estimation, since $\hat\lambda^w$ is chosen to match pre-treatment periods to the $\tilde\pi$-weighted post-treatment average. The asymptotic results of Section B extend naturally provided $\tilde\pi$ also satisfies a no-dominant-period analog of W2.
+Period weights enter the collapsed form through the last column of $\tilde Y^w$ and also affect time-weight estimation, since $\hat\lambda^w$ is chosen to match pre-treatment periods to the $\tilde\pi$-weighted post-treatment average. The asymptotic results of Section B extend naturally provided $\tilde\pi$ also satisfies a no-dominant-period analog of W2 --- a condition that requires $T_1 \to \infty$ and is therefore of limited practical relevance in short-post-period applications like ours ($T_1 = `r asc_T1`$); in practice, bootstrap inference remains the tool of choice.
 
 ## Clustered Standard Errors
 
-In many applications of SDID---including our ACA application---the unit of observation differs from the level of treatment assignment. Counties are the panel units, but Medicaid expansion is a state-level policy. Errors are likely correlated within states, violating the implicit unit-level independence assumed by the bootstrap, jackknife, and placebo variance estimators of @arkhangelsky2021. Section B (Proposition 3) establishes consistency of the cluster bootstrap under the no-dominant-cluster condition (CB2). The implementation, following @clarke2023, proceeds as follows:
+In many applications of SDID---including our ACA application---the unit of observation differs from the level of treatment assignment. Counties are the panel units, but Medicaid expansion is a state-level policy. Errors are likely correlated within states, violating the implicit unit-level independence assumed by the bootstrap, jackknife, and placebo variance estimators of @arkhangelsky2021. Section B (Proposition 3) establishes consistency of the cluster bootstrap under the no-dominant-cluster condition (CB1). The implementation, following @clarke2023, proceeds as follows:
 
 \begin{enumerate}
 \item Draw clusters with replacement from the set of all clusters;
