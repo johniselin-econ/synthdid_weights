@@ -24,8 +24,10 @@ Appendix E.5 and `scripts/README.md` documents the pipeline. No open BV items.
 
 ## Math/proof fixes (econometric review 2026-06-10) — DONE 2026-06-10
 
-See `docs/econometric_review_2026-06-10.md` for full statements; all items
-fixed in both Rmds and re-rendered:
+See `docs/econometric_review_2026-06-10.md` for full statements (NOTE
+2026-06-10: this file is not in the repo — commit it from the machine it
+was written on, or drop this pointer); all items fixed in both Rmds and
+re-rendered:
 
 - [x] **M1**: A4 replaced with internally consistent log N0 = o(T0),
       log T0 = o(N0) + pointer to AHIW's primitive rates
@@ -90,11 +92,12 @@ awaits a server run.
       (~1.4 min at B=4, est_wt 11.65 vs target 11.61; placebo SE 0.005 vs
       bootstrap 2.8 — the uniform-placebo understatement is dramatic at
       this concentration).
-- [ ] **Server run needed**: `sbatch scripts/slurm_run_mc.sh` (resumes;
-      ~11 CPU-h, well inside the 32-CPU/23-h allocation), then commit the
-      updated `paper/data/mc_results.csv` and re-knit. Paper §4 prose +
-      tables are conditional on the cell's presence (`mc_has_aca`), so
-      builds render fine before and after.
+- [x] **Server run DONE** (slurm job 14602357, completed 2026-06-10
+      15:16, 12 min — resume logic skipped configs 1–18):
+      `paper/data/mc_results.csv` now has all 1900 rows (19 × 100) and is
+      committed. Remaining: delete `paper/*_cache/` and re-knit on the
+      Windows machine so the `mc_has_aca`-conditional §4 prose/tables pick
+      up the new cell.
 - [x] Cluster support in `synthdid_event_study()` /
       `.event_study_replications()`: new `cluster` argument defaulting to
       the estimate's stored cluster (vcov-consistent); bootstrap resamples
@@ -112,8 +115,11 @@ awaits a server run.
 - [ ] Competing-interests declaration (Word doc); Erica's Amazon affiliation
       / employer disclaimer
 - [ ] Deposit data in a repository per Elsevier Option C
-- [ ] Document the `source("../R/*.R")` setup chunks in a replication README
-      (or switch the Rmds to `library(synthdid)`)
+- [x] Document the package-loading setup in a replication README (done
+      2026-06-10: `scripts/README.md` now documents the analysis stage
+      (`analyze_application.R` sources `R/` directly), the orchestrator,
+      and which scripts need the installed package; the Rmds themselves
+      no longer source `R/` and call no synthdid functions)
 - [ ] Submission fee + Editorial Manager upload
 
 ## Optional / deferred

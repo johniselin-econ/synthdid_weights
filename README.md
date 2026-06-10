@@ -76,7 +76,7 @@ Rscript paper/_build_all.R              # both; or `paper` / `supplement`
 - **pandoc** --- required by `rmarkdown::render()`. `paper/_build_all.R` searches `RSTUDIO_PANDOC`, the system `PATH`, quarto, and the usual RStudio bundle locations on Windows/macOS. On Windows, RStudio's bundled pandoc is found automatically. **On a cluster there is typically no system pandoc and no module for it**---download a static `pandoc` binary into `~/bin` and ensure `~/bin` is on your `PATH` (no root needed).
 - **LaTeX** --- if no `pdflatex` is on the `PATH`, `paper/_build_all.R` bootstraps [TinyTeX](https://yihui.org/tinytex/) automatically on first run.
 
-The data pipeline that regenerates the CSVs (Census API, CDC WONDER, etc.) is documented separately in [`scripts/README.md`](scripts/README.md) and is not needed to reproduce the paper.
+The full regeneration chain --- data pipeline (Census API, CDC WONDER, etc.), application analysis (`results/`), and Monte Carlo sweeps --- is documented in [`scripts/README.md`](scripts/README.md); none of it is needed to reproduce the paper from the committed CSVs. `scripts/00_run_all.R` orchestrates all stages in dependency order.
 
 ### References
 

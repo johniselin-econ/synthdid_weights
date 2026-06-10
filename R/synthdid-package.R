@@ -29,4 +29,24 @@
 #'}
 #'
 #' @keywords internal
+#' @importFrom graphics abline arrows
+#' @importFrom methods setGeneric setMethod
+#' @importFrom stats complete.cases glm qnorm rbinom rpois sd vcov weights
+#' @importFrom utils modifyList
 "_PACKAGE"
+
+# The plot functions attach ggplot2 at call time (it is in Suggests, not
+# Imports) and use its functions unqualified; the remaining names are
+# data-frame columns referenced inside aes(). Declare both so R CMD check
+# does not flag them as undefined globals.
+utils::globalVariables(c(
+  # ggplot2 / grid functions used after attachNamespace("ggplot2")
+  "aes", "arrow", "element_text", "facet_grid", "geom_curve", "geom_hline",
+  "geom_line", "geom_point", "geom_ribbon", "geom_segment", "geom_text",
+  "geom_vline", "ggplot", "guides", "labs", "scale_alpha",
+  "scale_x_continuous", "scale_y_log10", "theme", "theme_light", "unit",
+  "xlab", "ylab",
+  # aes() data-frame columns
+  "color", "estimate", "frame", "iteration", "method", "se", "show",
+  "weight", "x", "xend", "xintercept", "y", "yend", "ymax", "ymin"
+))

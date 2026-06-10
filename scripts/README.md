@@ -1,8 +1,23 @@
-# scripts/ — data pipeline and simulation runners
+# scripts/ — data pipeline, analysis, and simulation runners
 
 All scripts are run from the **repository root** (`Rscript scripts/<name>.R`).
-They fall into two groups: the ACA application data pipeline (steps 1–6) and
-the Monte Carlo runners (step 7).
+They fall into three groups: the ACA application data pipeline (steps 1–6),
+the application analysis that writes `results/`, and the Monte Carlo runners.
+
+`scripts/00_run_all.R` orchestrates everything in dependency order
+(data → analysis → mc → render) and skips stages whose outputs are already
+committed, so a fresh clone goes straight to rendering the PDFs. See its
+header for stage-selection flags (`--from`, `--force`, stage names).
+
+**How the package code is loaded** (relevant for replication):
+
+- `analyze_application.R` sources the package functions directly from `R/`
+  (`lapply(list.files("R"), source)`) — no installed `synthdid` needed.
+- `run_mc_simulations.R` and `run_solutions_mc.R` call `library(synthdid)`
+  and need the local package installed; `Rscript scripts/setup.R` does this
+  (it runs `renv::restore()` then `renv::install(".")`).
+- The paper/supplement Rmds call **no** synthdid functions: they only read
+  the committed CSVs in `results/` and `paper/data/` and format/plot them.
 
 ## Data pipeline run order
 
@@ -19,11 +34,21 @@ Steps 3–5 are independent of one another; step 4 requires steps 2 and 3 first.
 The paper and supplement (`paper/*.Rmd`) read only the committed CSVs in
 `paper/data/`, so a knit never needs the raw inputs.
 
+## Application analysis (`results/`)
+
+| Script | Purpose | Output |
+|--------|---------|--------|
+| `analyze_application.R` | ALL heavy application computation: weighted/unweighted SDID estimates, bootstrap/jackknife/placebo SEs, event studies (state-clustered bootstrap bands), robustness sweeps, heterogeneity, in-time/in-space placebos, SC diagnostics, LOO, DLPS reproduction. Parallel (`SLURM_CPUS_PER_TASK`-aware) and **idempotent**: block-level guards skip a group when its CSVs exist; `ANALYZE_FORCE=1` recomputes, `ANALYZE_FAST=1` is a smoke mode with tiny replication counts. Per-(spec, method) SEs checkpoint to `results/_ses_partial.csv`, so a resubmitted job resumes. | `results/*.csv` (committed), `results/_manifest.csv` (seed / git SHA / replication counts) |
+| `slurm_run_analysis.sh` | Slurm batch wrapper (`sbatch scripts/slurm_run_analysis.sh` from the repo root; ~130 CPU-h, ≈4–6 h on 32 cpus). | log in `scripts/slurm_analysis_<jobid>.log` |
+
+The Rmds read these CSVs as `../results/...` and never recompute them — a
+knit is fast and deterministic given the committed results.
+
 ## Monte Carlo runners
 
 | Script | Purpose | Output |
 |--------|---------|--------|
-| `run_mc_simulations.R` | Main MC sweep (18 configs × 100 sims, B = 50): bias/RMSE and coverage for the weighted estimator (main-paper Section 4). Parallelized (`SLURM_CPUS_PER_TASK`-aware); checkpoints in batches and **resumes** from the output file. | `paper/data/mc_results.csv` |
+| `run_mc_simulations.R` | Main MC sweep (19 configs × 100 sims, B = 50): bias/RMSE and coverage for the weighted estimator (main-paper Section 4). Configs 1–18 are the factorial grid; config 19 is the ACA-calibrated cell matching the application's panel dimensions and actual county populations. Parallelized (`SLURM_CPUS_PER_TASK`-aware); checkpoints in batches and **resumes** from the output file. | `paper/data/mc_results.csv` |
 | `run_solutions_mc.R` | RMSE comparison of the three weighting strategies, Solutions 1–3 (supplement Appendix F). Same DGP and seeding as the main sweep. | `paper/data/mc_solutions_results.csv` |
 | `slurm_run_mc.sh` | Slurm batch script running both sweeps in sequence (`sbatch scripts/slurm_run_mc.sh` from the repo root). | log in `scripts/slurm_mc_<jobid>.log` |
 

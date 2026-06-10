@@ -13,3 +13,7 @@
 ^DEVELOPING\.md$
 ^data/README\.md$
 ^README\.md$
+^\.claude$
+^CLAUDE\.md$
+^results$
+^\.Rprofile$
