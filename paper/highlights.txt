@@ -1,7 +1,8 @@
 Highlights
+(Elsevier limit: 3-5 bullets, max 85 characters each including spaces)
 
-- We extend SDID to incorporate user-specified treated unit weights.
-- The modification requires changing only the collapsed form matrix.
-- In the ACA application, equal weighting gives a precise zero while population weighting gives a mortality reduction of 17 deaths per 100,000.
-- The mortality response is concentrated in the largest counties.
-- An R package implementing the weighted estimator is freely available.
+- Population weighting moves the ACA mortality effect from a null to -17 per 100,000
+- We extend SDID to researcher-specified treated-unit weights via the collapsed form
+- The divergence is an estimand choice: effects concentrate in large urban counties
+- Valid asymptotics need many effective treated units; the ACA has 102 of 1,181
+- We recommend cluster-robust bootstrap inference and a paired-bootstrap estimand test
