@@ -8,7 +8,7 @@ The standard SDID estimator averages treated units equally. When treated units d
 
 - **`synthdid_estimate_weighted()`**: weighted SDID with researcher-specified treated-unit weights
 - **`sc_estimate_weighted()`**, **`did_estimate_weighted()`**: weighted SC and DiD variants
-- **`synthdid_event_study()`**: event-study decomposition for both weighted and unweighted estimates
+- **`synthdid_event_study()`**: event-study decomposition for both weighted and unweighted estimates, with unit-level or cluster-robust bootstrap confidence bands
 - **Adapted variance estimators**: bootstrap, jackknife, and placebo SEs with weight renormalization
 - **Cluster-robust standard errors**: cluster bootstrap and jackknife for settings where treatment is assigned at a higher level than the unit of observation
 - **Placebo weight options**: uniform, size-matched, and permuted weights for placebo inference
@@ -44,7 +44,8 @@ tau.cl = synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
            treated.weights = pop_weights, cluster = cluster)
 se = sqrt(vcov(tau.cl, method = "bootstrap", replications = 200))
 
-# Event study
+# Event study (se.method = "bootstrap" adds CIs; an estimate's stored
+# cluster is used automatically, so tau.cl would get cluster-robust bands)
 es = synthdid_event_study(tau.w)
 plot_event_study(es)
 ```

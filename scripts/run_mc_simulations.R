@@ -7,10 +7,19 @@
 ## each (config, sim) task runs under set.seed(20240101 + sim), so results
 ## are identical to the single-threaded loop.
 ##
-## Design: 18 configurations (N1 in {5,10,20} x gamma in {0,0.5,1} x
-## HHI in {1.5/N1, 3/N1}), 100 sims each, B = 50 bootstrap/placebo reps.
-## Single-threaded estimate ~50h; wall time here is roughly that divided by
-## the number of workers.
+## Design: 18 grid configurations (N1 in {5,10,20} x gamma in {0,0.5,1} x
+## HHI in {1.5/N1, 3/N1}) plus config 19, an ACA-calibrated cell matching the
+## application's scale and weight concentration (N0 = 1643, N1 = 1181, T0 = 5,
+## T1 = 4, with treated-unit sizes set to the application's actual 2013 county
+## populations, so HHI = 0.0098 and N1_eff ~ 102 exactly as in Table 1).
+## 100 sims each, B = 50 bootstrap/placebo reps.
+## Single-threaded estimate ~50h for the grid; the ACA cell adds roughly
+## 10-20 CPU-hours (each sim re-fits a 2,824 x 9 panel ~200 times for the
+## bootstrap/placebo SEs plus ~5,600 cheap frozen-weight jackknife evals).
+## Wall time is roughly the total divided by the number of workers.
+##
+## Resume support means adding config 19 to a completed grid run only computes
+## the new cell: existing (config, sim) rows in the output CSV are skipped.
 ##
 ## Usage: Rscript scripts/run_mc_simulations.R
 
@@ -40,7 +49,7 @@ generate_sizes <- function(N1, target_hhi) {
 }
 
 run_one_sim <- function(N0, N1, T0, T1, gamma, target_hhi,
-                        sigma = 0.5, tau_bar = 1, B = 200) {
+                        sigma = 0.5, tau_bar = 1, B = 200, sizes = NULL) {
   N <- N0 + N1; T_ <- T0 + T1; rank <- 2; rho <- 0.7
   U <- matrix(rpois(rank * N, sqrt(sample(1:N)) / sqrt(N)), N, rank)
   V <- matrix(rpois(rank * T_, sqrt(1:T_) / sqrt(T_)), T_, rank)
@@ -50,7 +59,11 @@ run_one_sim <- function(N0, N1, T0, T1, gamma, target_hhi,
   var_mat <- outer(1:T_, 1:T_, FUN = function(x, y) rho^(abs(x - y)))
   error   <- mvtnorm::rmvnorm(N, sigma = var_mat, method = "chol")
   W <- matrix(0, N, T_); W[(N0+1):N, (T0+1):T_] <- 1
-  sizes <- generate_sizes(N1, target_hhi)
+  ## sizes can be passed explicitly (the ACA-calibrated cell uses the
+  ## application's actual county populations, fixed across sims, so the
+  ## realized weight concentration matches the application exactly); the grid
+  ## cells draw lognormal sizes targeting an average HHI per sim as before.
+  if (is.null(sizes)) sizes <- generate_sizes(N1, target_hhi)
   tw <- sizes / sum(sizes); s_bar <- mean(sizes)
   tau_vec <- tau_bar + gamma * (sizes / s_bar - 1)
   true_att_equal    <- mean(tau_vec)
@@ -88,10 +101,30 @@ run_one_sim <- function(N0, N1, T0, T1, gamma, target_hhi,
 
 configs <- expand.grid(N1 = c(5, 10, 20), gamma = c(0, 0.5, 1.0), hhi_mult = c(1.5, 3))
 configs$hhi <- configs$hhi_mult / configs$N1
+configs$N0 <- 100; configs$T0 <- 40; configs$T1 <- 10
+configs$aca <- FALSE
+## Config 19: ACA-calibrated cell. Panel dimensions match the application and
+## treated-unit sizes are the application's actual 2013 county populations
+## (results/heterogeneity.csv), so every sim has exactly the application's
+## weight concentration (HHI = 0.009829, N1_eff ~ 102 out of 1,181 treated
+## units; results/app_scalars.csv); gamma = 1 puts it in the strong
+## size-effect-correlation regime the application's county-size gradient
+## suggests. Appended AFTER the grid so configs 1-18 keep their numbers and a
+## completed grid run resumes with only this cell to compute.
+configs <- rbind(configs,
+                 data.frame(N1 = 1181, gamma = 1.0, hhi_mult = NA,
+                            hhi = 0.009829, N0 = 1643, T0 = 5, T1 = 4,
+                            aca = TRUE))
 configs$config <- seq_len(nrow(configs))
+
+APP_SIZES <- NULL
+if (file.exists(file.path("results", "heterogeneity.csv"))) {
+  APP_SIZES <- read.csv(file.path("results", "heterogeneity.csv"))$pop
+  stopifnot(length(APP_SIZES) == 1181,
+            abs(sum((APP_SIZES / sum(APP_SIZES))^2) - 0.009829) < 1e-4)
+}
 N_SIM <- as.integer(Sys.getenv("MC_NSIM", "100"))  # override for smoke tests
 B_SE  <- 50
-N0 <- 100; T0 <- 40; T1 <- 10
 if (N_SIM < 100) OUT_CSV <- sub("\\.csv$", "_smoke.csv", OUT_CSV)
 
 tasks <- merge(configs, data.frame(sim = seq_len(N_SIM)))
@@ -111,6 +144,10 @@ if (file.exists(OUT_CSV)) {
 message(sprintf("MC sweep: %d configs x %d sims; %d tasks remaining, B = %d",
                 nrow(configs), N_SIM, nrow(tasks), B_SE))
 
+if (any(tasks$aca) && is.null(APP_SIZES))
+  stop("Config 19 (ACA-calibrated) needs results/heterogeneity.csv for the ",
+       "application's county populations; run from the repository root.")
+
 if (nrow(tasks) > 0) {
   ## Respect a Slurm allocation when present; fall back to physical cores
   n_cores <- max(1, as.integer(Sys.getenv("SLURM_CPUS_PER_TASK",
@@ -119,7 +156,7 @@ if (nrow(tasks) > 0) {
   cl <- makeCluster(n_cores)
   on.exit(stopCluster(cl), add = TRUE)
   invisible(clusterEvalQ(cl, suppressPackageStartupMessages(library(synthdid))))
-  clusterExport(cl, c("generate_sizes", "run_one_sim", "N0", "T0", "T1", "B_SE"))
+  clusterExport(cl, c("generate_sizes", "run_one_sim", "B_SE", "APP_SIZES"))
 
   progress_file <- "paper/_mc_progress.log"
   cat(sprintf("[%s] parallel MC start: %d tasks on %d workers\n",
@@ -134,7 +171,8 @@ if (nrow(tasks) > 0) {
     idx <- batches[[b]]
     results <- parLapply(cl, split(tasks[idx, ], seq_along(idx)), function(tk) {
       set.seed(20240101 + tk$sim)   # matches the original sequential seeding
-      out <- run_one_sim(N0, tk$N1, T0, T1, tk$gamma, tk$hhi, B = B_SE)
+      out <- run_one_sim(tk$N0, tk$N1, tk$T0, tk$T1, tk$gamma, tk$hhi, B = B_SE,
+                         sizes = if (isTRUE(tk$aca)) APP_SIZES else NULL)
       out$config <- tk$config; out$N1 <- tk$N1
       out$gamma <- tk$gamma; out$hhi <- tk$hhi; out$sim <- tk$sim
       out

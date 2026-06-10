@@ -269,7 +269,7 @@ The cluster-robust placebo extension is left to future work; in the meantime, ra
 
 # Monte Carlo Implementation Details {#app:simulations}
 
-The Monte Carlo design and headline results---bias, RMSE, and 95\% confidence-interval coverage of the equally-weighted and population-weighted SDID estimators across 18 configurations---appear in Section 4 of the main paper. This appendix documents the implementation. The simulation sweep is run outside the manuscript build by `scripts/run_mc_simulations.R`, which parallelizes the (configuration, simulation) grid across cores with batched checkpointing and resume support; each task is seeded as `set.seed(20240101 + sim)`, so results are identical to the equivalent sequential loop. The script writes `paper/data/mc_results.csv`, which the main paper's tables read. (The simulation count of 100 per configuration and the 50 bootstrap/placebo replications are smaller than would be ideal for tightly estimated coverage; we view the results as illustrative of the qualitative pattern rather than as precise coverage estimates.) The simulation functions are reproduced below for reference.
+The Monte Carlo design and headline results---bias, RMSE, and 95\% confidence-interval coverage of the equally-weighted and population-weighted SDID estimators across 18 grid configurations plus an ACA-calibrated cell matching the application's panel dimensions and weight concentration---appear in Section 4 of the main paper. This appendix documents the implementation. The simulation sweep is run outside the manuscript build by `scripts/run_mc_simulations.R`, which parallelizes the (configuration, simulation) grid across cores with batched checkpointing and resume support; each task is seeded as `set.seed(20240101 + sim)`, so results are identical to the equivalent sequential loop. The script writes `paper/data/mc_results.csv`, which the main paper's tables read. (The simulation count of 100 per configuration and the 50 bootstrap/placebo replications are smaller than would be ideal for tightly estimated coverage; we view the results as illustrative of the qualitative pattern rather than as precise coverage estimates.) The simulation functions are reproduced below for reference.
 
 ```{r mc-functions, eval=FALSE}
 ## Documentation copy. The canonical, executable version of these functions
@@ -290,7 +290,7 @@ generate_sizes <- function(N1, target_hhi) {
 }
 
 run_one_sim <- function(N0, N1, T0, T1, gamma, target_hhi,
-                        sigma = 0.5, tau_bar = 1, B = 200) {
+                        sigma = 0.5, tau_bar = 1, B = 200, sizes = NULL) {
   N <- N0 + N1; T_ <- T0 + T1; rank <- 2; rho <- 0.7
   U <- matrix(rpois(rank * N, sqrt(sample(1:N)) / sqrt(N)), N, rank)
   V <- matrix(rpois(rank * T_, sqrt(1:T_) / sqrt(T_)), T_, rank)
@@ -300,7 +300,9 @@ run_one_sim <- function(N0, N1, T0, T1, gamma, target_hhi,
   var_mat <- outer(1:T_, 1:T_, FUN = function(x, y) rho^(abs(x - y)))
   error   <- mvtnorm::rmvnorm(N, sigma = var_mat, method = "chol")
   W <- matrix(0, N, T_); W[(N0+1):N, (T0+1):T_] <- 1
-  sizes <- generate_sizes(N1, target_hhi)
+  ## the ACA-calibrated cell passes the application's actual county
+  ## populations as sizes; the grid cells draw lognormal sizes as before
+  if (is.null(sizes)) sizes <- generate_sizes(N1, target_hhi)
   tw <- sizes / sum(sizes); s_bar <- mean(sizes)
   tau_vec <- tau_bar + gamma * (sizes / s_bar - 1)
   true_att_equal    <- mean(tau_vec)
@@ -417,7 +419,7 @@ kableExtra::kbl(
 
 Table \ref{tab:sc-results} reports the SC estimates under both weightings with the same dual standard errors as main-paper Table 1: the equally-weighted SC estimate is `r fmt_sc(as.numeric(tau_sc_eq))` and the population-weighted estimate `r fmt_sc(as.numeric(tau_sc_w))` deaths per 100,000---both substantially larger in magnitude than the corresponding SDID estimates of `r fmt_sc(as.numeric(tau_sdid))` and `r fmt_sc(as.numeric(tau_sdid_w))`. The fit diagnostics in the second table show why---and the mechanism is donor concentration, not an unclosed level gap. Because SC uses no time weights and no unit intercept, it matches the pre-treatment treated trajectory in levels by loading almost all weight onto a handful of donors: the effective number of donor counties is just `r round(scd$eff_n0[2], 0)` (population weighted), with roughly `r round(100 * scd$top10_omega[2])`\% of the weight on its ten largest donors. So sparse a donor set interpolates the short pre-period almost exactly (level pre-RMSPE `r fmt_sc(scd$pre_rmspe_level[2])`), but the match does not generalize: post-treatment the few donors diverge from the treated average, and with no intercept to absorb the difference the divergence is read directly as an enormous effect. SDID, by contrast, spreads weight across roughly `r format(round(scd$eff_n0[4]), big.mark = ",")` effective donors and permits a unit intercept: it carries a large *raw* pre-period level gap (`r fmt_sc(scd$mean_pre_gap[4])`, absorbed by the intercept) yet achieves a robust regularized fit (intercept-adjusted pre-RMSPE `r fmt_sc(scd$pre_rmspe_adj[4])`). The SC outlier is therefore a symptom of sparse, un-regularized level matching on a short pre-period, which is why we report it only here and exclude it from the main-paper comparison.
 
-```{r sc-event-study-app, fig.cap="Synthetic-control event study.\\newline \\footnotesize\\textit{Notes:} Year-specific SC effects under equal (blue circles) and population (red triangles) weighting of treated counties; shaded bands are 95\\% bootstrap confidence intervals (500 replications). The vertical dashed line marks treatment onset (2014). SC matches pre-treatment levels by construction, so pre-period coefficients sit near zero; the population-weighted post-treatment path diverges sharply, reflecting the donor-concentration over-fit documented above.", fig.height=3.6}
+```{r sc-event-study-app, fig.cap="Synthetic-control event study.\\newline \\footnotesize\\textit{Notes:} Year-specific SC effects under equal (blue circles) and population (red triangles) weighting of treated counties; shaded bands are 95\\% state-clustered bootstrap confidence intervals (500 replications). The vertical dashed line marks treatment onset (2014). SC matches pre-treatment levels by construction, so pre-period coefficients sit near zero; the population-weighted post-treatment path diverges sharply, reflecting the donor-concentration over-fit documented above.", fig.height=3.6}
 es_sc_plot <- sc_es_df %>%
   mutate(Weighting = factor(Weighting, levels = c("Equally weighted", "Population weighted")))
 ggplot(es_sc_plot, aes(x = year, y = estimate, color = Weighting, fill = Weighting, shape = Weighting)) +

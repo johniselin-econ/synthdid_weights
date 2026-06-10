@@ -55,12 +55,13 @@ out <- function(x, name) write_csv(x, file.path("results", paste0(name, ".csv"))
 FORCE <- nzchar(Sys.getenv("ANALYZE_FORCE"))
 have_all <- function(names)
   !FORCE && all(file.exists(file.path("results", paste0(names, ".csv"))))
-PAPER_OUT <- c("app_estimates", "app_scalars", "event_studies", "heterogeneity",
+PAPER_OUT <- c("app_estimates", "app_scalars", "heterogeneity",
                "robustness", "headline_comparison", "placebo_distribution")
-# placebo_intime is guarded on its own (cheap, self-contained) so it can be
-# regenerated without recomputing the expensive paper SE block.
+# placebo_intime, event_studies, and sc_event_studies are guarded on their own
+# (cheap relative to the SE blocks, self-contained) so each can be regenerated
+# without recomputing the expensive paper/supplement blocks.
 SUPP_OUT  <- c("sc_results", "sc_diagnostics", "sc_loo", "sc_intime",
-               "sc_event_studies", "omega_weights", "loo_results", "dlps_results", "sc_scalars")
+               "omega_weights", "loo_results", "dlps_results", "sc_scalars")
 
 # =============================================================================
 # Parallel bootstrap machinery
@@ -333,21 +334,6 @@ boot_null  <- boot_diffs - mean(boot_diffs)
 p_diverge  <- mean(abs(boot_null) >= abs(obs_diff))
 
 # =============================================================================
-# 5. Event studies  (paper chunk: event-study-both)
-# =============================================================================
-es_sdid   <- synthdid_event_study(tau_sdid,   se.method = "bootstrap", replications = B_SE)
-es_sdid_w <- synthdid_event_study(tau_sdid_w, se.method = "bootstrap", replications = B_SE)
-es_did    <- synthdid_event_study(tau_did,    se.method = "bootstrap", replications = B_SE)
-es_did_w  <- synthdid_event_study(tau_did_w,  se.method = "bootstrap", replications = B_SE)
-es_df <- bind_rows(
-  es_did    %>% mutate(Weighting = "Equally weighted",    Estimator = "DID"),
-  es_did_w  %>% mutate(Weighting = "Population weighted", Estimator = "DID"),
-  es_sdid   %>% mutate(Weighting = "Equally weighted",    Estimator = "SDID"),
-  es_sdid_w %>% mutate(Weighting = "Population weighted", Estimator = "SDID")
-) %>% mutate(year = as.numeric(time))
-out(es_df, "event_studies")
-
-# =============================================================================
 # 6. Unit-level heterogeneity  (paper chunks: heterogeneity-plot, urban-binscatter)
 #    Per-unit effects are the heavy part (need tau_sdid's omega/lambda); the
 #    Rmd does the cheap binning/plotting from this CSV.
@@ -458,6 +444,28 @@ app_scalars <- tibble::tribble(
 )
 out(app_scalars, "app_scalars")
 }  # end PAPER RESULTS (run_paper)
+
+# =============================================================================
+# 5. Event studies  (paper chunk: event-study-both). Own guard (like the
+# in-time placebo) so the event-study CSV can be regenerated without re-running
+# the expensive paper SE block. SEs use the fixed-weight STATE-CLUSTERED
+# bootstrap (cluster passed explicitly for the unweighted estimates, which do
+# not carry a stored cluster), matching the cluster-robust inference used for
+# Table 1; the curves themselves are deterministic.
+# =============================================================================
+if (!have_all("event_studies")) {
+es_sdid   <- synthdid_event_study(tau_sdid,   se.method = "bootstrap", replications = B_SE, cluster = cluster_vec)
+es_sdid_w <- synthdid_event_study(tau_sdid_w, se.method = "bootstrap", replications = B_SE, cluster = cluster_vec)
+es_did    <- synthdid_event_study(tau_did,    se.method = "bootstrap", replications = B_SE, cluster = cluster_vec)
+es_did_w  <- synthdid_event_study(tau_did_w,  se.method = "bootstrap", replications = B_SE, cluster = cluster_vec)
+es_df <- bind_rows(
+  es_did    %>% mutate(Weighting = "Equally weighted",    Estimator = "DID"),
+  es_did_w  %>% mutate(Weighting = "Population weighted", Estimator = "DID"),
+  es_sdid   %>% mutate(Weighting = "Equally weighted",    Estimator = "SDID"),
+  es_sdid_w %>% mutate(Weighting = "Population weighted", Estimator = "SDID")
+) %>% mutate(year = as.numeric(time))
+out(es_df, "event_studies")
+} else message("[skip] event studies present")
 
 # =============================================================================
 # In-time placebo (main-text Fig 4, left). Own guard so its bootstrap-rep count
@@ -571,17 +579,6 @@ run_intime_sc <- function(py) {
 }
 out(purrr::map_dfr(c(2011L, 2012L), run_intime_sc), "sc_intime")
 
-## SC event studies (equally- and population-weighted), shown on their own in
-## Appendix E.1 (replaces the former all-estimator comparison figure, whose
-## DID/SDID curves duplicated main-text Figure 1).
-es_sc_eq <- synthdid_event_study(tau_sc_eq, se.method = "bootstrap", replications = B_SE)
-es_sc_w  <- synthdid_event_study(tau_sc_w,  se.method = "bootstrap", replications = B_SE)
-sc_event_studies <- bind_rows(
-  es_sc_eq %>% mutate(Weighting = "Equally weighted"),
-  es_sc_w  %>% mutate(Weighting = "Population weighted")
-) %>% mutate(year = as.numeric(time))
-out(sc_event_studies, "sc_event_studies")
-
 ## Control-unit weight distributions
 omega_unwt <- attr(tau_sdid, 'weights')$omega; omega_wt <- attr(tau_sdid_w, 'weights')$omega
 out(bind_rows(tibble(omega = omega_unwt[omega_unwt > 0], weighting = "Equally weighted"),
@@ -679,6 +676,25 @@ out(tibble::tribble(
   "unins_med",       unins_med
 ), "sc_scalars")
 }  # end SUPPLEMENT (run_supp)
+
+# =============================================================================
+# SC event studies (supplement Appendix E.1), equally- and population-weighted
+# (replaces the former all-estimator comparison figure, whose DID/SDID curves
+# duplicated main-text Figure 1). Own guard, like the main event studies; the
+# SC fits are cheap and deterministic, so they are re-fit here rather than
+# shared with run_supp. The stored cluster makes the bootstrap state-clustered.
+# =============================================================================
+if (!have_all("sc_event_studies")) {
+tau_sc_eq_es <- sc_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = uniform_weights, cluster = cluster_vec)
+tau_sc_w_es  <- sc_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = treated_weights, cluster = cluster_vec)
+es_sc_eq <- synthdid_event_study(tau_sc_eq_es, se.method = "bootstrap", replications = B_SE, cluster = cluster_vec)
+es_sc_w  <- synthdid_event_study(tau_sc_w_es,  se.method = "bootstrap", replications = B_SE, cluster = cluster_vec)
+sc_event_studies <- bind_rows(
+  es_sc_eq %>% mutate(Weighting = "Equally weighted"),
+  es_sc_w  %>% mutate(Weighting = "Population weighted")
+) %>% mutate(year = as.numeric(time))
+out(sc_event_studies, "sc_event_studies")
+} else message("[skip] SC event studies present")
 
 # =============================================================================
 # manifest: seed, git SHA, build date, replication counts

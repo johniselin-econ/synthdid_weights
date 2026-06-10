@@ -8,7 +8,8 @@ synthdid_event_study(
   estimate,
   se.method = NULL,
   replications = 200,
-  alpha = 0.05
+  alpha = 0.05,
+  cluster = attr(estimate, "cluster")
 )
 }
 \arguments{
@@ -20,6 +21,13 @@ or their weighted counterparts.}
 \item{replications}{Number of bootstrap/placebo replications for SEs.}
 
 \item{alpha}{Significance level for confidence intervals. Default 0.05 (95\% CI).}
+
+\item{cluster}{An optional vector of cluster IDs (length nrow(Y), controls first) for
+cluster-robust standard errors. Defaults to the cluster stored in the estimate object
+(if any), matching vcov. When non-NULL, the bootstrap resamples clusters rather than
+individual units; the placebo method does not support clustering and falls back to
+unit-level resampling with a warning. Pass cluster = NULL to force unit-level
+resampling for an estimate that carries a stored cluster.}
 }
 \value{
 A data.frame with columns: relative_time, estimate, se, ci_lower, ci_upper.

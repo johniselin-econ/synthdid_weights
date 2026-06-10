@@ -293,7 +293,7 @@ Table 1 reports the main results. Across both estimators, with and without covar
 
 To confirm that the divergence between the equally-weighted and population-weighted SDID estimates is not attributable to sampling variability, we apply the paired-bootstrap divergence diagnostic recommended in Section 2.4. On each of $B = 500$ bootstrap replications we apply identical unit resamples to both estimators and compute $\Delta_b = \hat{\tau}^w_b - \hat{\tau}_b$. Recentering the bootstrap distribution to the null of no difference, the two-sided $p$-value for the observed gap of $|\Delta_{\text{obs}}| = `r abs(round(as.numeric(tau_sdid_w) - as.numeric(tau_sdid), 1))`$ deaths per 100,000 is `r p_diverge_text`. The two estimands are sharply distinguishable---in the recommended workflow, exactly the situation in which the researcher must take an explicit stand on the target estimand before reading off a policy conclusion.
 
-```{r event-study-both, fig.cap="Event-study decomposition under equal and population weighting.\\newline \\footnotesize\\textit{Notes:} DID (left) and SDID (right). Points are year-specific effects under equal (blue circles) and population (red triangles) weighting of treated counties; shaded bands are 95\\% bootstrap confidence intervals (500 replications). The vertical dashed line marks treatment onset (2014).", fig.height=4, fig.width=8, cache=TRUE}
+```{r event-study-both, fig.cap="Event-study decomposition under equal and population weighting.\\newline \\footnotesize\\textit{Notes:} DID (left) and SDID (right). Points are year-specific effects under equal (blue circles) and population (red triangles) weighting of treated counties; shaded bands are 95\\% state-clustered bootstrap confidence intervals (500 replications). The vertical dashed line marks treatment onset (2014).", fig.height=4, fig.width=8, cache=TRUE}
 es_df <- ev %>% mutate(Estimator = factor(Estimator, levels = c("DID", "SDID")))
 
 rmspe_did_pre  <- es_df %>% filter(Estimator == "DID",  Weighting == "Equally weighted", year < 2014) %>% summarise(rmspe = sqrt(mean(estimate^2))) %>% pull(rmspe)
@@ -533,7 +533,7 @@ The data-generating process follows the factor model of @arkhangelsky2021. For $
 $$Y_{it} = L_{it} + \tau_{it} W_{it} + \sigma \epsilon_{it},$$
 where $L = UV^\top + \alpha\mathbf{1}^\top + \mathbf{1}\beta^\top$ is rank-2 with additive fixed effects, $U \in \mathbb{R}^{N \times 2}$ and $V \in \mathbb{R}^{T \times 2}$ are factor loadings drawn from Poisson distributions, $\alpha_i = 10 i / N$, $\beta_t = 10 t / T$, and $\epsilon_{it}$ is drawn from an AR(1) process with $\rho = 0.7$. Each treated unit $j$ is assigned a "size" $s_j$ from a log-normal distribution scaled to achieve a target Herfindahl index for the population weights $\tilde{\omega}_j = s_j / \sum_k s_k$, and the treatment effect is
 $$\tau_{ij} = \bar\tau + \gamma\left(\frac{s_j}{\bar s} - 1\right),$$
-with $\bar\tau = 1$, $\bar s = N_1^{-1}\sum_j s_j$, and $\gamma \geq 0$ controlling the size-effect correlation. We fix $N_0 = 100$, $T_0 = 40$, $T_1 = 10$, $\sigma = 0.5$, and vary $N_1 \in \{5, 10, 20\}$, $\gamma \in \{0, 0.5, 1.0\}$ (homogeneous, moderate, strong heterogeneity), and the weight concentration (low, HHI $= 1.5/N_1$; high, HHI $= 3/N_1$), yielding 18 configurations evaluated over 100 simulations each with bootstrap and placebo variance estimators using 50 replications. The simulation sweep is parallelized across configurations and simulation draws (`scripts/run_mc_simulations.R`), with seeding that reproduces the equivalent sequential loop exactly; implementation details appear in Supplementary Appendix D.
+with $\bar\tau = 1$, $\bar s = N_1^{-1}\sum_j s_j$, and $\gamma \geq 0$ controlling the size-effect correlation. We fix $N_0 = 100$, $T_0 = 40$, $T_1 = 10$, $\sigma = 0.5$, and vary $N_1 \in \{5, 10, 20\}$, $\gamma \in \{0, 0.5, 1.0\}$ (homogeneous, moderate, strong heterogeneity), and the weight concentration (low, HHI $= 1.5/N_1$; high, HHI $= 3/N_1$), yielding 18 grid configurations evaluated over 100 simulations each with bootstrap and placebo variance estimators using 50 replications. A nineteenth, ACA-calibrated configuration gives the application's standard errors direct simulation backing: it reproduces the application's panel dimensions ($N_0 = 1{,}643$, $N_1 = 1{,}181$, $T_0 = 5$, $T_1 = 4$) and sets the treated-unit sizes to the application's actual 2013 county populations, so every simulation has exactly the application's weight concentration (HHI $= 0.0098$, $N_1^{\text{eff}} \approx 102$), with $\gamma = 1$, the strong size-effect-correlation regime the application's county-size gradient suggests. The simulation sweep is parallelized across configurations and simulation draws (`scripts/run_mc_simulations.R`), with seeding that reproduces the equivalent sequential loop exactly; implementation details appear in Supplementary Appendix D.
 
 ```{r mc-run, cache=FALSE}
 ## The sweep is computed outside knitr by scripts/run_mc_simulations.R
@@ -543,13 +543,16 @@ mc_available <- file.exists(file.path("data", "mc_results.csv"))
 mc_df <- if (mc_available) {
   readr::read_csv(file.path("data", "mc_results.csv"), show_col_types = FALSE)
 } else NULL
+## The ACA-calibrated cell (config 19, N1 = 1181) is computed by the same
+## script; tables and prose accommodate builds where it has not yet been run.
+mc_has_aca <- mc_available && any(mc_df$N1 > 100)
 ```
 
 ## Results
 
 `r if (!mc_available) "*Monte Carlo results are generated by* \\texttt{scripts/run\\_mc\\_simulations.R}; *the results file is not present in this build, so the Monte Carlo tables are omitted.*"`
 
-Tables \ref{tab:mc-bias} and \ref{tab:mc-coverage} report bias, RMSE, and 95\% confidence-interval coverage across the 18 configurations. Three patterns are central to the inference recommendations of Section 2:
+Tables \ref{tab:mc-bias} and \ref{tab:mc-coverage} report bias, RMSE, and 95\% confidence-interval coverage across the simulation configurations. Three patterns are central to the inference recommendations of Section 2:
 \begin{itemize}
 \item Both the equally-weighted and population-weighted SDID estimators are approximately unbiased for their respective targets, with RMSE differences favoring the equally-weighted variant for the obvious reason that it has a larger effective sample.
 \item The bootstrap and placebo variance estimators achieve approximately nominal 95\% coverage, with undercoverage at high HHI for the placebo (which uses uniform pseudo-treated weights, as discussed in Section 2.4).
@@ -567,7 +570,8 @@ bias_tbl <- mc_df %>%
     RMSE_wt   = sqrt(mean((est_wt - true_att_weighted)^2, na.rm = TRUE)),
     .groups = "drop"
   ) %>%
-  mutate(across(where(is.numeric) & !c(N1, gamma, hhi), ~ round(., 3)))
+  mutate(across(where(is.numeric) & !c(N1, gamma, hhi), ~ round(., 3)),
+         hhi = round(hhi, 4))
 
 kableExtra::kbl(
   bias_tbl, booktabs = TRUE,
@@ -599,7 +603,8 @@ cov_tbl <- mc_df %>%
     Plac_wt   = coverage(est_wt,   se_plac_wt,   true_att_weighted),
     .groups = "drop"
   ) %>%
-  mutate(across(where(is.numeric) & !c(N1, gamma, hhi), ~ round(., 2)))
+  mutate(across(where(is.numeric) & !c(N1, gamma, hhi), ~ round(., 2)),
+         hhi = round(hhi, 4))
 
 kableExtra::kbl(
   cov_tbl, booktabs = TRUE,
@@ -613,6 +618,22 @@ kableExtra::kbl(
     general = "Nominal level 0.95. Bootstrap (Boot) and placebo (Plac) variance estimators use 50 replications; JK is the fixed-weight jackknife. 100 simulations per configuration. Coverage is evaluated against each estimator's own target ATT.",
     general_title = "Notes:", threeparttable = TRUE, escape = FALSE)
 ```
+
+```{r mc-aca-summary, eval=mc_has_aca, include=FALSE}
+## Scalars for the ACA-calibrated cell (the N1 = 1181 rows), referenced in the
+## conditional paragraph below.
+aca <- mc_df %>% filter(N1 > 100)
+aca_bias_wt <- mean(aca$est_wt - aca$true_att_weighted, na.rm = TRUE)
+aca_rmse_wt <- sqrt(mean((aca$est_wt - aca$true_att_weighted)^2, na.rm = TRUE))
+aca_tau_wt  <- mean(aca$true_att_weighted, na.rm = TRUE)
+aca_cov_boot <- coverage(aca$est_wt, aca$se_boot_wt, aca$true_att_weighted)
+aca_cov_jk   <- coverage(aca$est_wt, aca$se_jk_wt,   aca$true_att_weighted)
+aca_cov_plac <- coverage(aca$est_wt, aca$se_plac_wt, aca$true_att_weighted)
+```
+
+`r if (mc_has_aca) sprintf("The ACA-calibrated configuration (the $N_1 = 1{,}181$ rows of Tables \\ref{tab:mc-bias} and \\ref{tab:mc-coverage}) speaks directly to the application: at the application's own panel dimensions and weight concentration, the population-weighted estimator has bias %.3f against its target (RMSE %.3f, target ATT %.1f), and the bootstrap attains %.0f\\%% coverage, the jackknife %.0f\\%%, and the uniform-weight placebo %.0f\\%%. The bootstrap's performance in this cell is the simulation counterpart of the cluster-robust bootstrap we rely on for Table 1.", aca_bias_wt, aca_rmse_wt, aca_tau_wt, 100 * aca_cov_boot, 100 * aca_cov_jk, 100 * aca_cov_plac)`
+
+`r if (mc_available && !mc_has_aca) "*The ACA-calibrated configuration described in Section 4.1 is not present in this build's* \\texttt{mc\\_results.csv}*; re-running* \\texttt{scripts/run\\_mc\\_simulations.R} *computes it (the completed grid configurations are skipped) and adds its row to the tables.*"`
 
 
 # Discussion

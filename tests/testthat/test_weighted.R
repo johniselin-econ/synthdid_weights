@@ -168,6 +168,53 @@ test_that("event study with SEs doesn't error", {
   expect_true(all(is.finite(es$se)))
 })
 
+test_that("event study cluster bootstrap works for weighted and unweighted estimates", {
+  setup = random.low.rank()
+  N = nrow(setup$Y); N1 = N - setup$N0
+  tw = runif(N1); tw = tw / sum(tw)
+  cl = rep_len(1:4, N)  # every cluster spans both controls and treated units
+
+  # Weighted estimate with a stored cluster: the default picks it up
+  tau = synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
+          treated.weights = tw, cluster = cl)
+  es.cl = synthdid_event_study(tau, se.method = "bootstrap", replications = 10)
+  expect_true(all(is.finite(es.cl$se)))
+  expect_equal(nrow(es.cl), ncol(setup$Y))
+
+  # cluster = NULL forces unit-level resampling despite the stored cluster
+  es.unit = synthdid_event_study(tau, se.method = "bootstrap", replications = 10,
+                                 cluster = NULL)
+  expect_true(all(is.finite(es.unit$se)))
+
+  # Unweighted estimate with an explicitly passed cluster
+  tau.u = synthdid_estimate(setup$Y, setup$N0, setup$T0)
+  es.u = synthdid_event_study(tau.u, se.method = "bootstrap", replications = 10,
+                              cluster = cl)
+  expect_true(all(is.finite(es.u$se)))
+
+  # Point estimates are unaffected by the resampling scheme
+  expect_equal(es.cl$estimate, es.unit$estimate)
+
+  # Wrong-length cluster errors
+  expect_error(synthdid_event_study(tau, se.method = "bootstrap", replications = 5,
+                                    cluster = cl[-1]))
+})
+
+test_that("event study placebo warns and falls back to unit-level under clustering", {
+  setup = random.low.rank()
+  N = nrow(setup$Y); N1 = N - setup$N0
+  tw = runif(N1); tw = tw / sum(tw)
+  cl = rep_len(1:4, N)
+
+  tau = synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0,
+          treated.weights = tw, cluster = cl)
+  expect_warning(
+    es <- synthdid_event_study(tau, se.method = "placebo", replications = 5),
+    "clustering"
+  )
+  expect_true(all(is.finite(es$se)))
+})
+
 test_that("print and summary work for weighted estimates", {
   setup = random.low.rank()
   N1 = nrow(setup$Y) - setup$N0

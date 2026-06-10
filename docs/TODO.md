@@ -72,10 +72,39 @@ fixed in both Rmds and re-rendered:
       disclosure (Disclosure section) merged into the Elsevier AI
       declaration
 
-Still open from the April list (deliberate): ACA-calibrated MC cell
-(recommended tackle — one config addition to run_mc_simulations.R);
-permute-placebo MC comparison and cluster-robust placebo SE (discarded /
-deferred as documented in the paper)
+Still open from the April list (deliberate): permute-placebo MC comparison
+and cluster-robust placebo SE (discarded / deferred as documented in the
+paper). The ACA-calibrated MC cell is now implemented (see below) and
+awaits a server run.
+
+## ACA-calibrated MC cell + clustered event-study SEs (2026-06-10)
+
+- [x] Config 19 added to `run_mc_simulations.R`: ACA-calibrated cell with
+      the application's panel dimensions (N0=1643, N1=1181, T0=5, T1=4)
+      and treated-unit sizes set to the application's ACTUAL 2013 county
+      populations (`results/heterogeneity.csv`), so every sim has exactly
+      HHI=0.009829 / N1eff~102. (The old TODO numbers "N1=118, HHI=0.0085"
+      were the pre-rebuild N1eff and its reciprocal — stale.) gamma=1.
+      Resume-safe: configs 1–18 keep their numbers; a completed grid run
+      computes only the new cell. Verified: one full-scale sim runs clean
+      (~1.4 min at B=4, est_wt 11.65 vs target 11.61; placebo SE 0.005 vs
+      bootstrap 2.8 — the uniform-placebo understatement is dramatic at
+      this concentration).
+- [ ] **Server run needed**: `sbatch scripts/slurm_run_mc.sh` (resumes;
+      ~11 CPU-h, well inside the 32-CPU/23-h allocation), then commit the
+      updated `paper/data/mc_results.csv` and re-knit. Paper §4 prose +
+      tables are conditional on the cell's presence (`mc_has_aca`), so
+      builds render fine before and after.
+- [x] Cluster support in `synthdid_event_study()` /
+      `.event_study_replications()`: new `cluster` argument defaulting to
+      the estimate's stored cluster (vcov-consistent); bootstrap resamples
+      whole clusters (mirrors `cluster_bootstrap_se_weighted`); placebo
+      warns and falls back to unit-level. Tests + man page updated.
+- [x] `analyze_application.R`: event studies (main + SC) moved to their own
+      idempotency guards (like placebo_intime) and now use the
+      state-clustered bootstrap; figure captions updated to say
+      "state-clustered". Curves are unchanged (deterministic); only the
+      CI bands change.
 
 ## Submission logistics (Elsevier)
 
@@ -90,12 +119,12 @@ deferred as documented in the paper)
 ## Optional / deferred
 
 - [ ] Cluster-robust placebo SE (currently warns and falls back to
-      unit-level)
-- [ ] Cluster support in `.event_study_replications()` for clustered
-      event-study SEs
+      unit-level; applies to vcov and to event-study placebo SEs)
+- [x] Cluster support in `.event_study_replications()` for clustered
+      event-study SEs (done 2026-06-10, see above)
 - [ ] "permute" placebo pseudo-weight variant: `vcov.R` implements it but
       the MC only simulates "uniform" — decide whether to add the comparison
       or defer
-- [ ] ACA-calibrated MC cell (N1 = 118, HHI ≈ 0.0085) so Table 1's SEs have
-      direct simulation backing — decide whether to add
+- [x] ACA-calibrated MC cell (done 2026-06-10, see above; server run
+      pending)
 - [x] CLAUDE.md for the repo (added 2026-06-10)

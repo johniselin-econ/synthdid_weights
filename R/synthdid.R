@@ -457,11 +457,18 @@ synthdid_effect_curve_weighted = function(estimate) {
 #' @param se.method Method for computing standard errors: "bootstrap", "placebo", or NULL (no SEs).
 #' @param replications Number of bootstrap/placebo replications for SEs.
 #' @param alpha Significance level for confidence intervals. Default 0.05 (95% CI).
+#' @param cluster An optional vector of cluster IDs (length nrow(Y), controls first) for
+#'   cluster-robust standard errors. Defaults to the cluster stored in the estimate object
+#'   (if any), matching vcov. When non-NULL, the bootstrap resamples clusters rather than
+#'   individual units; the placebo method does not support clustering and falls back to
+#'   unit-level resampling with a warning. Pass cluster = NULL to force unit-level
+#'   resampling for an estimate that carries a stored cluster.
 #' @return A data.frame with columns: relative_time, estimate, se, ci_lower, ci_upper.
 #'   relative_time is centered so that -1 is the last pre-treatment period and 0 is the
 #'   first post-treatment period.
 #' @export synthdid_event_study
-synthdid_event_study = function(estimate, se.method = NULL, replications = 200, alpha = 0.05) {
+synthdid_event_study = function(estimate, se.method = NULL, replications = 200, alpha = 0.05,
+                                cluster = attr(estimate, 'cluster')) {
   is.weighted = inherits(estimate, 'synthdid_estimate_weighted')
 
   # Compute the full event-study curve (pre + post)
@@ -493,7 +500,7 @@ synthdid_event_study = function(estimate, se.method = NULL, replications = 200, 
   # Compute standard errors if requested
   if (!is.null(se.method)) {
     se.method = match.arg(se.method, c("bootstrap", "placebo"))
-    curves.rep = .event_study_replications(estimate, se.method, replications)
+    curves.rep = .event_study_replications(estimate, se.method, replications, cluster)
     result$se = apply(curves.rep, 2, sd)
     z = qnorm(1 - alpha / 2)
     result$ci_lower = result$estimate - z * result$se
@@ -537,7 +544,7 @@ synthdid_event_study = function(estimate, se.method = NULL, replications = 200, 
 }
 
 # Internal: generate replicated event-study curves for SE estimation
-.event_study_replications = function(estimate, method, replications) {
+.event_study_replications = function(estimate, method, replications, cluster = NULL) {
   setup = attr(estimate, 'setup')
   opts  = attr(estimate, 'opts')
   weights = attr(estimate, 'weights')
@@ -547,6 +554,14 @@ synthdid_event_study = function(estimate, se.method = NULL, replications = 200, 
   N  = nrow(setup$Y)
   N1 = N - N0
   T  = ncol(setup$Y)
+
+  if (!is.null(cluster)) {
+    stopifnot(length(cluster) == N)
+    if (method == "placebo") {
+      warning("Event-study placebo SEs do not support clustering; using unit-level placebo.")
+      cluster = NULL
+    }
+  }
 
   if (is.weighted) {
     treated.weights.orig = attr(estimate, 'treated.weights')
@@ -563,6 +578,11 @@ synthdid_event_study = function(estimate, se.method = NULL, replications = 200, 
   }
 
   if (method == "bootstrap") {
+    if (!is.null(cluster)) {
+      cluster_control = cluster[1:N0]
+      cluster_treated = cluster[(N0+1):N]
+      unique_clusters = unique(cluster)
+    }
     curves = matrix(NA, replications, T)
     count = 0
     max_attempts = replications * 10
@@ -570,30 +590,38 @@ synthdid_event_study = function(estimate, se.method = NULL, replications = 200, 
     failures = 0
     while (count < replications && attempts < max_attempts) {
       attempts = attempts + 1
-      ind = sample(1:N, replace = TRUE)
-      control.ind = sort(ind[ind <= N0])
-      treated.ind = sort(ind[ind > N0])
-      if (length(control.ind) == 0 || length(treated.ind) == 0) next
+      if (is.null(cluster)) {
+        ind = sample(1:N, replace = TRUE)
+        control.ind = sort(ind[ind <= N0])
+        treated.ind.local = sort(ind[ind > N0]) - N0
+      } else {
+        # Fixed-weight cluster bootstrap: resample whole clusters, mirroring
+        # cluster_bootstrap_se_weighted() in vcov.R
+        drawn = sample(unique_clusters, replace = TRUE)
+        control.ind = unlist(lapply(drawn, function(cl) which(cluster_control == cl)))
+        treated.ind.local = unlist(lapply(drawn, function(cl) which(cluster_treated == cl)))
+      }
+      if (length(control.ind) == 0 || length(treated.ind.local) == 0) next
 
       weights.boot = weights
       weights.boot$omega = sum_normalize(weights$omega[control.ind])
+      all.ind = c(control.ind, N0 + treated.ind.local)
 
       tryCatch({
         if (is.weighted) {
-          treated.ind.local = treated.ind - N0
           tw.boot = sum_normalize(treated.weights.orig[treated.ind.local])
           est.boot = do.call(synthdid_estimate_weighted,
-            c(list(Y = setup$Y[c(control.ind, treated.ind), ],
+            c(list(Y = setup$Y[all.ind, , drop = FALSE],
                    N0 = length(control.ind), T0 = setup$T0,
-                   X = setup$X[c(control.ind, treated.ind), , ],
+                   X = setup$X[all.ind, , , drop = FALSE],
                    treated.weights = tw.boot,
                    period.weights = period.weights.orig,
                    weights = weights.boot), opts))
         } else {
           est.boot = do.call(synthdid_estimate,
-            c(list(Y = setup$Y[c(control.ind, treated.ind), ],
+            c(list(Y = setup$Y[all.ind, , drop = FALSE],
                    N0 = length(control.ind), T0 = setup$T0,
-                   X = setup$X[c(control.ind, treated.ind), , ],
+                   X = setup$X[all.ind, , , drop = FALSE],
                    weights = weights.boot), opts))
         }
         curves[count + 1, ] = curve_from_estimate(est.boot)
