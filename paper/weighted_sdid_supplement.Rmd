@@ -4,7 +4,7 @@ author: "John Iselin\\thanks{The Budget Lab at Yale} \\and Erica Ryan\\thanks{Am
 date: "`r format(Sys.Date(), '%B %Y')`"
 output:
   pdf_document:
-    latex_engine: xelatex
+    latex_engine: pdflatex
     number_sections: true
     keep_tex: true
     fig_caption: true

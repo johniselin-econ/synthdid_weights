@@ -95,9 +95,13 @@ awaits a server run.
 - [x] **Server run DONE** (slurm job 14602357, completed 2026-06-10
       15:16, 12 min — resume logic skipped configs 1–18):
       `paper/data/mc_results.csv` now has all 1900 rows (19 × 100) and is
-      committed. Remaining: delete `paper/*_cache/` and re-knit on the
-      Windows machine so the `mc_has_aca`-conditional §4 prose/tables pick
-      up the new cell.
+      committed. Re-knit on the Windows machine DONE (2026-06-10:
+      caches cleared, both docs rendered clean): the `mc_has_aca`
+      conditional now fires — §4 bias/coverage tables carry the
+      N1=1,181 row (pop-wt bias 0.005, RMSE 0.053; coverage boot 1.00,
+      jk 1.00, placebo 0.74) and the ACA-calibrated paragraph renders
+      (target ATT 11.6; the 0.74 placebo coverage is the uniform-placebo
+      undercoverage that motivates the cluster bootstrap).
 - [x] Cluster support in `synthdid_event_study()` /
       `.event_study_replications()`: new `cluster` argument defaulting to
       the estimate's stored cluster (vcov-consistent); bootstrap resamples
