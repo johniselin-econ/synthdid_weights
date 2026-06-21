@@ -35,7 +35,7 @@ sparsify_function = function(v) { v[v <= max(v)/4] = 0; v/sum(v) }
 #'         as well as regression coefficients beta if X is passed.
 #'         'setup' is a list describing the problem passed in: Y, N0, T0, X.
 #' @export synthdid_estimate
-synthdid_estimate <- function(Y, N0, T0, X = array(dim = c(dim(Y), 0)),
+synthdid_estimate = function(Y, N0, T0, X = array(dim = c(dim(Y), 0)),
                               noise.level = sd(apply(Y[1:N0,1:T0], 1, diff)),
                               eta.omega = ((nrow(Y)-N0)*(ncol(Y)-T0))^(1/4), eta.lambda = 1e-6,
                               zeta.omega  = eta.omega  * noise.level,  zeta.lambda = eta.lambda * noise.level,
@@ -222,7 +222,7 @@ synthdid_effect_curve = function(estimate) {
 #'         'treated.weights' contains the normalized weights used for treated units.
 #'         'period.weights' contains the normalized weights used for post-treatment periods.
 #' @export synthdid_estimate_weighted
-synthdid_estimate_weighted <- function(Y, N0, T0,
+synthdid_estimate_weighted = function(Y, N0, T0,
                                        treated.weights = NULL,
                                        period.weights = NULL,
                                        X = NULL,
@@ -287,6 +287,11 @@ synthdid_estimate_weighted <- function(Y, N0, T0,
     is.null(weights$lambda) || length(weights$lambda) == T0, is.null(weights$omega) || length(weights$omega) == N0,
     !is.null(weights$lambda) || update.lambda, !is.null(weights$omega) || update.omega)
 
+  # Validate cluster if provided
+  if (!is.null(cluster)) {
+    stopifnot(length(cluster) == nrow(Y))
+  }
+
   if (length(dim(X)) == 2) { dim(X) = c(dim(X), 1) }
   if (is.null(sparsify)) { max.iter.pre.sparsify = max.iter }
 
@@ -339,11 +344,6 @@ synthdid_estimate_weighted <- function(Y, N0, T0,
   class(estimate) = 'synthdid_estimate_weighted'
   attr(estimate, 'estimator') = "synthdid_estimate_weighted"
   attr(estimate, 'weights') = weights
-  # Validate cluster if provided
-  if (!is.null(cluster)) {
-    stopifnot(length(cluster) == nrow(Y))
-  }
-
   attr(estimate, 'treated.weights') = treated.weights
   attr(estimate, 'period.weights') = period.weights
   attr(estimate, 'cluster') = cluster

@@ -18,5 +18,12 @@ print.synthdid_estimate_weighted = function(x, ...) { cat(format(x, ...), "\n") 
 #' @method format synthdid_estimate_weighted
 #' @export
 format.synthdid_estimate_weighted = function(x, ...) {
-  sprintf("synthdid_estimate_weighted: %.3f", c(x))
+  info = summary(x, fast = TRUE)
+  d = as.list(info$dimensions)
+  sprintf('synthdid_weighted: %1.3f +- %1.3f. Effective N0/N0 = %1.1f/%d~%1.1f. Effective T0/T0 = %1.1f/%d~%1.1f. Effective N1/N1 = %1.1f/%d~%1.1f. T1 = %d.',
+          c(x), 1.96 * info$se,
+          d$N0.effective, d$N0, d$N0.effective / d$N0,
+          d$T0.effective, d$T0, d$T0.effective / d$T0,
+          d$N1.effective, d$N1, d$N1.effective / d$N1,
+          d$T1)
 }

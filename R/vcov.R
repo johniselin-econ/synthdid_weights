@@ -190,7 +190,12 @@ synthdid_se_weighted = function(...) { sqrt(vcov(...)) }
 # The bootstrap se for weighted estimates: modified Algorithm 2
 # Key change: renormalize treated.weights for resampled treated units
 bootstrap_se_weighted = function(estimate, replications) {
-  sqrt((replications-1)/replications) * sd(bootstrap_sample_weighted(estimate, replications))
+  samples = bootstrap_sample_weighted(estimate, replications)
+  if (length(samples) == 0 || all(is.na(samples))) {
+    warning("Weighted bootstrap: no valid replicates; returning NA for SE")
+    return(NA)
+  }
+  sqrt((replications-1)/replications) * sd(samples, na.rm = TRUE)
 }
 
 bootstrap_sample_weighted = function(estimate, replications) {

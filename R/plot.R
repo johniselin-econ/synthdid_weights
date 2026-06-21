@@ -14,7 +14,7 @@
 #' @param control.name, the name of the control curve that appears in the legend. Defaults to 'synthetic control'
 #' @param spaghetti.units, a list of units to plot individually. spaghetti.unit %in% rownames(Y) must work. Defaults to the empty list.
 #' @param spaghetti.matrices, a list of matrices --- one for each element of estimates --- of trajectories to plot individually.
-#'        The rows of these matrices should be the same length as the trajectories in Y 
+#'        The rows of these matrices should be the same length as the trajectories in Y
 #'        and they must be named --- set rownames(spaghetti.trajectories\[\[i\]\]) --- so trajectories can be labeled in the plot.
 #' @param facet, a list of the same length as estimates indicating the facet in which to plot each estimate.
 #'        The values of the elements of the list are used to label the facets.
@@ -51,12 +51,12 @@
 #'        one facet but highlighting one or several. All plot elements associated with the estimate are displayed
 #'        with alpha multiplied by the corresponding element of alpha.multiplier. Defaults to a vector of ones.
 #' @export synthdid_plot
-synthdid_plot = function(estimates, treated.name = 'treated', control.name = 'synthetic control', 
+synthdid_plot = function(estimates, treated.name = 'treated', control.name = 'synthetic control',
 			 spaghetti.units = c(), spaghetti.matrices = NULL,
                          facet = NULL, facet.vertical = TRUE, lambda.comparable = !is.null(facet), overlay = 0,
                          lambda.plot.scale = 3, trajectory.linetype = 1, effect.curvature = .3, line.width = .5, guide.linetype = 2, point.size = 1,
                          trajectory.alpha = .5, diagram.alpha = .95, effect.alpha = .95, onset.alpha = .3, ci.alpha=.3,
-			 spaghetti.line.width = .2, spaghetti.label.size = 2, 
+			 spaghetti.line.width = .2, spaghetti.label.size = 2,
 			 spaghetti.line.alpha = .3, spaghetti.label.alpha = .5,
 			 se.method='jackknife', alpha.multiplier = NULL) {
   if (requireNamespace("ggplot2", quietly = TRUE)) {
@@ -96,19 +96,19 @@ synthdid_plot = function(estimates, treated.name = 'treated', control.name = 'sy
 
     # pull estimate-specific overlay from attribute if present
     # if we're given a synthetic control estimate or overlay is one, take note: we'll plot it differently
-    if (!is.null(attr(est, 'overlay'))) { over = attr(est, 'overlay') } 
+    if (!is.null(attr(est, 'overlay'))) { over = attr(est, 'overlay') }
     is.sc = all(weights$lambda == 0) || over==1
 
     intercept.offset = over * c((omega.target - omega.synth) %*% Y %*% lambda.synth)
     obs.trajectory = as.numeric(omega.target %*% Y)
     syn.trajectory = as.numeric(omega.synth %*% Y) + intercept.offset
-    spaghetti.trajectories = Y[rownames(Y) %in% spaghetti.units, , drop=FALSE] 
+    spaghetti.trajectories = Y[rownames(Y) %in% spaghetti.units, , drop=FALSE]
     if(!is.null(spaghetti.matrices)) {
-	more.spaghetti.trajectories = spaghetti.matrices[[grid$estimate[row]]]	
+	more.spaghetti.trajectories = spaghetti.matrices[[grid$estimate[row]]]
 	if(ncol(more.spaghetti.trajectories) != ncol(Y)) { stop('The elements of spaghetti.matrices must be matrices with the same number of columns as Y') }
 	if(is.null(rownames(more.spaghetti.trajectories))) { stop('The elements of the list spaghetti.matrices must have named rows') }
 	spaghetti.trajectories = rbind(spaghetti.trajectories, more.spaghetti.trajectories)
-    } 
+    }
 
     treated.post = omega.target %*% Y %*% lambda.target
     treated.pre = omega.target %*% Y %*% lambda.synth
@@ -139,19 +139,19 @@ synthdid_plot = function(estimates, treated.name = 'treated', control.name = 'sy
       xend = c(pre.time, post.time),
       y = c(control.pre, control.post),
       yend = c(treated.pre, sdid.post))
-    arrows = data.frame(x = post.time, xend = post.time, y = sdid.post, yend = treated.post, 
+    arrows = data.frame(x = post.time, xend = post.time, y = sdid.post, yend = treated.post,
 	xscale = max(time) - post.time, color = groups[control])
-    ub.arrows = data.frame(x = post.time, xend = post.time, y = sdid.post + 1.96*se, yend = treated.post, 
+    ub.arrows = data.frame(x = post.time, xend = post.time, y = sdid.post + 1.96*se, yend = treated.post,
 	xscale = max(time) - post.time, color = groups[control])
-    lb.arrows = data.frame(x = post.time, xend = post.time, y = sdid.post - 1.96*se, yend = treated.post, 
+    lb.arrows = data.frame(x = post.time, xend = post.time, y = sdid.post - 1.96*se, yend = treated.post,
 	xscale = max(time) - post.time, color = groups[control])
     spaghetti.lines = data.frame(x=rep(time, nrow(spaghetti.trajectories)),
 				 y=as.vector(t(spaghetti.trajectories)),
 				 unit=rep(rownames(spaghetti.trajectories), each=length(time)))
     spaghetti.labels = data.frame(x=rep(time[1], nrow(spaghetti.trajectories)),
-				  y=as.vector(spaghetti.trajectories[,1]), 
+				  y=as.vector(spaghetti.trajectories[,1]),
 				  unit=rownames(spaghetti.trajectories))
-    
+
 
     T0s = attr(est, 'T0s')
     if (!is.null(T0s)) {
@@ -174,7 +174,7 @@ synthdid_plot = function(estimates, treated.name = 'treated', control.name = 'sy
       arrows = arrows, lb.arrows = lb.arrows, ub.arrows = ub.arrows, spaghetti.lines=spaghetti.lines, spaghetti.labels=spaghetti.labels,
       vlines = vlines, ribbons = ribbons)
     lapply(elements, function(x) {
-      if(nrow(x) > 0) { 
+      if(nrow(x) > 0) {
 	x$frame = over
 	x$is.sc = is.sc
 	x$estimate = estimate.factors[grid$estimate[row] + 1] # offset because the treated pseudo-estimate factor is first
@@ -206,7 +206,7 @@ synthdid_plot = function(estimates, treated.name = 'treated', control.name = 'sy
   conc = lapply(names(plot.descriptions[[1]]), concatenate.field)
   names(conc) = names(plot.descriptions[[1]])
   no.sc = function(x) { x[!x$is.sc, ] }
-  
+
   # invoke the geom with 'frame=frame' included in the aesthetic only if there are multiple frames
   # This cuts down on warnings without restricting function.
   #   ggplotly understands frame and uses it to create animations if there are multiple
@@ -214,40 +214,40 @@ synthdid_plot = function(estimates, treated.name = 'treated', control.name = 'sy
   # returns geom(aes, data=data, ...) where aes=base.aes if there's a single frame
   #					    aes=(base.aes, frame=frame) if there's more than one
   with.frame = function(geom, base.aes, data, ...) {
-	new.aes = if(multiple.frames) { modifyList(base.aes, aes(frame=frame)) } else { base.aes } 
-	do.call(geom, c(list(new.aes, data=data), list(...))) 
+	new.aes = if(multiple.frames) { modifyList(base.aes, aes(frame=frame)) } else { base.aes }
+	do.call(geom, c(list(new.aes, data=data), list(...)))
   }
 
   p = ggplot() +
-    with.frame(geom_line, aes(x = x, y = y, color = color, alpha = trajectory.alpha * show), data = conc$lines, 
+    with.frame(geom_line, aes(x = x, y = y, color = color, alpha = trajectory.alpha * show), data = conc$lines,
 	linetype = trajectory.linetype, size = line.width) +
-    with.frame(geom_point, aes(x = x, y = y, color = color, alpha = diagram.alpha * show), data = conc$points, 
+    with.frame(geom_point, aes(x = x, y = y, color = color, alpha = diagram.alpha * show), data = conc$points,
 	shape = 21, size = point.size) +
-    with.frame(geom_point, aes(x = x, y = y, color = color, alpha = diagram.alpha * show), data = no.sc(conc$did.points), 
+    with.frame(geom_point, aes(x = x, y = y, color = color, alpha = diagram.alpha * show), data = no.sc(conc$did.points),
 	size = point.size) +
-    with.frame(geom_segment, aes(x = x, xend = xend, y = y, yend = yend, color = color, alpha = diagram.alpha * show), data = no.sc(conc$did.segments), 
+    with.frame(geom_segment, aes(x = x, xend = xend, y = y, yend = yend, color = color, alpha = diagram.alpha * show), data = no.sc(conc$did.segments),
 	size = line.width) +
-    with.frame(geom_segment, aes(x = x, xend = xend, y = y, yend = yend, group = estimate, alpha = .6 * diagram.alpha * show), data = no.sc(conc$hallucinated.segments), 
+    with.frame(geom_segment, aes(x = x, xend = xend, y = y, yend = yend, group = estimate, alpha = .6 * diagram.alpha * show), data = no.sc(conc$hallucinated.segments),
 	linetype = guide.linetype, size = line.width, color = 'black') +
-    with.frame(geom_segment, aes(x = x, xend = xend, y = y, yend = yend, group = estimate, alpha = .5 * diagram.alpha * show), data = no.sc(conc$guide.segments), 
+    with.frame(geom_segment, aes(x = x, xend = xend, y = y, yend = yend, group = estimate, alpha = .5 * diagram.alpha * show), data = no.sc(conc$guide.segments),
 	size = line.width, linetype = guide.linetype, color = 'black') +
-    geom_vline(aes(xintercept = xintercept, alpha = onset.alpha * show), data = conc$vlines, 
+    geom_vline(aes(xintercept = xintercept, alpha = onset.alpha * show), data = conc$vlines,
 	size = line.width, color = 'black') +
-    geom_ribbon(aes(x = x, ymin = ymin, ymax = ymax, group = color, fill = color, alpha = .5 * diagram.alpha * show),  data = no.sc(conc$ribbons), 
+    geom_ribbon(aes(x = x, ymin = ymin, ymax = ymax, group = color, fill = color, alpha = .5 * diagram.alpha * show),  data = no.sc(conc$ribbons),
 	color = 'black', size = line.width, show.legend = FALSE) +
-    geom_curve(aes(x = x, xend = xend, y = y, yend = yend, alpha = effect.alpha * show), data = conc$arrows, 
-    	curvature = effect.curvature, color = 'black', size = line.width, arrow = arrow(length = unit(.2, 'cm'))) + 
+    geom_curve(aes(x = x, xend = xend, y = y, yend = yend, alpha = effect.alpha * show), data = conc$arrows,
+    	curvature = effect.curvature, color = 'black', size = line.width, arrow = arrow(length = unit(.2, 'cm'))) +
     geom_curve(aes(x = x, xend = xend, y = y, yend = yend, alpha = ci.alpha * show), data = conc$ub.arrows, na.rm=TRUE,
-	curvature = effect.curvature, color = 'black', size = line.width, arrow = arrow(length = unit(.2, 'cm'))) + 
-    geom_curve(aes(x = x, xend = xend, y = y, yend = yend, alpha = ci.alpha * show), data = conc$lb.arrows, na.rm=TRUE, 
+	curvature = effect.curvature, color = 'black', size = line.width, arrow = arrow(length = unit(.2, 'cm'))) +
+    geom_curve(aes(x = x, xend = xend, y = y, yend = yend, alpha = ci.alpha * show), data = conc$lb.arrows, na.rm=TRUE,
 	curvature = effect.curvature, color = 'black', size = line.width, arrow = arrow(length = unit(.2, 'cm')))
-    
+
     # plot spaghetti if there is any
     if(nrow(conc$spaghetti.labels) > 0) {
 	p = p + geom_text(aes(x=x, y=y, label = unit, alpha = spaghetti.label.alpha * show), data = conc$spaghetti.labels,
-		    color='black', size=spaghetti.label.size) + 
+		    color='black', size=spaghetti.label.size) +
 		geom_line(aes(x=x, y=y, group = unit, alpha = spaghetti.line.alpha * show),  data = conc$spaghetti.lines,
-		    color='black', size=spaghetti.line.width) 
+		    color='black', size=spaghetti.line.width)
     }
 
   # facet if we want multiple facets
@@ -289,13 +289,13 @@ synthdid_placebo_plot = function(estimate, overlay = FALSE, treated.fraction = N
 }
 
 #' Plots unit by unit difference-in-differences. Dot size indicates the weights omega_i
-#' used in the average that yields our treatment effect estimate. 
+#' used in the average that yields our treatment effect estimate.
 #' This estimate and endpoints of a 95% CI are plotted as horizontal lines.
 #' Requires ggplot2
 #' @param estimates as output by synthdid_estimate. Can be a single one or a list of them.
 #' @param negligible.threshold Unit weight threshold below which units are plotted as small, transparent xs instead of circles. Defaults to .001.
 #' @param negligible.alpha Determines transparency of those xs.
-#' @param se.method the method used to calculate standard errors for the CI. See vcov.synthdid_estimate. 
+#' @param se.method the method used to calculate standard errors for the CI. See vcov.synthdid_estimate.
 #'        Defaults to 'jackknife' for speed. If 'none', don't plot a CI.
 #' @param units a list of control units --- elements of rownames(Y) --- to plot differences for. Defaults to NULL, meaning all of them.
 #' @export synthdid_units_plot
@@ -420,7 +420,19 @@ synthdid_plot_weighted = function(estimates, treated.name = 'treated (weighted)'
     Y_new = rbind(Y_control, Y_treated_weighted)
 
     # Create a new estimate with the modified setup
-    new_setup = list(Y = Y_new, N0 = N0, T0 = T0, X = array(dim = c(N0+1, T0+T1, 0)))
+    # Collapse X covariates the same way we collapsed Y, preserving the covariate adjustment
+    X_orig = setup$X
+    if (dim(X_orig)[3] == 0) {
+      X_new = array(dim = c(N0+1, T0+T1, 0))
+    } else {
+      X_treated_weighted = array(NA, dim = c(1, T0+T1, dim(X_orig)[3]))
+      for (k in 1:dim(X_orig)[3]) {
+        X_treated_weighted[1, , k] = treated.weights %*% X_orig[(N0+1):(N0+N1), , k]
+      }
+      X_new = array(c(X_orig[1:N0, , , drop=FALSE], X_treated_weighted),
+                    dim = c(N0+1, T0+T1, dim(X_orig)[3]))
+    }
+    new_setup = list(Y = Y_new, N0 = N0, T0 = T0, X = X_new)
     new_est = est
     attr(new_est, 'setup') = new_setup
 
@@ -459,4 +471,13 @@ plot.synthdid_estimate_weighted = function(x, ...) {
     stop("Plotting requires the package `ggplot2`. Install it to use this function.")
   }
   synthdid_plot_weighted(x, ...)
+}
+
+#' Plot a synthdid_event_study object
+#' @param x The object to plot, as returned by synthdid_event_study()
+#' @param ... Additional arguments passed to plot_event_study.
+#' @method plot synthdid_event_study
+#' @export
+plot.synthdid_event_study = function(x, ...) {
+  plot_event_study(x, ...)
 }
