@@ -25,14 +25,17 @@ The `synthdid_estimate_weighted` function allows user-specified weights on treat
 We demonstrate with simulated data where three treated units have different sizes and effects.
 
 ```{r simulate}
-# Generate panel data (random.low.rank is an internal test DGP)
-setup = synthdid:::random.low.rank()
+# Use the California Prop 99 dataset included in the package
+data('california_prop99')
+setup = panel.matrices(california_prop99)
 N0 = setup$N0
 N1 = nrow(setup$Y) - N0
 T0 = setup$T0
 
-# Population weights (e.g., unit 1 is much larger)
-pop = c(rep(1, N1 - 1), 10)  # last unit is 10x larger
+# Population weights (e.g., some states are larger)
+# Here we just illustrate with fabricated weights
+set.seed(42)
+pop = runif(N1, 1, 10)
 pop_weights = pop / sum(pop)
 ```
 
@@ -83,13 +86,19 @@ cat(sprintf("Cluster-bootstrapped SE: %1.2f\n", se_cl))
 
 # Event study
 
-Decompose the treatment effect into period-specific estimates.
+Decompose the treatment effect into period-specific estimates. Pre-treatment
+coefficients serve as a visual parallel-trends check — they should be near zero
+if the synthetic control is well-matched to the treated unit before treatment.
 
 ```{r event-study}
 es = synthdid_event_study(tau_sdid_w)
 cat(sprintf("Post-treatment effects: %s\n",
     paste(round(es$estimate[es$relative_time >= 0], 2), collapse = ", ")))
 ```
+
+The vertical dashed line separates pre-treatment periods (left) from post-treatment
+periods (right). Pre-treatment estimates near zero indicate good pre-treatment fit.
+Post-treatment estimates show how the effect evolves over time.
 
 # Summary
 
