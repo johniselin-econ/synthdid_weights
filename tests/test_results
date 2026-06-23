@@ -1,0 +1,18 @@
+PASS 1: unweighted ATT finite: -0.71
+PASS 2: weighted ATT finite: -17.451
+PASS 3: uniform weighted == unweighted
+PASS 4: population weighted differs from unweighted by >1
+PASS 5: omega and lambda sum to one
+PASS 6: format.synthdid_estimate_weighted works
+PASS 7: summary fields present
+PASS 8: unweighted jackknife SE positive: 2.319
+PASS 8a: plot.synthdid_estimate_weighted works
+PASS 8b: event study shape and plot dispatch work
+PASS 9: jackknife SE positive: 2.286
+PASS 10: bootstrap SE positive: 2.178
+PASS 11: placebo SE positive: 3.418
+PASS 12: did_estimate_weighted finite: -18.392
+PASS 13: sc_estimate_weighted finite: -97.435
+PASS 14: N1_eff 102 < N1 1181
+
+=== All 15 tests passed ===
