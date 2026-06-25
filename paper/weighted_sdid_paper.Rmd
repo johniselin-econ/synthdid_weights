@@ -147,7 +147,7 @@ $$\widehat{V}_w^{\text{cb}} = \frac{1}{B-1}\sum_{b=1}^{B} \left(\hat{\tau}^{w,(b
 
 The companion supplementary appendix gives full proofs of all three propositions. Our purpose here is to characterize the regime in which inference based on \eqref{eq:tau-w} has the standard frequentist interpretation.
 
-\paragraph{When the asymptotics lose their bite.} Condition (W2)---and its cluster-level analogue in Proposition 3---is not innocuous in applications. When researchers use population weights in panels with one or two dominant units (e.g., California Proposition 99, where one large state is treated; or our ACA application, where Los Angeles County alone carries roughly 6\% of the population-weighted treated mass), the effective sample size cannot exceed the inverse squared share of the largest unit and in practice sits far below $N_1$, however many small units the panel adds. A sequence of such weights may still satisfy (W2) formally, but the convergence is too slow for the asymptotic approximation to be reliable at realistic sample sizes. In these settings, plug-in asymptotic standard errors will understate uncertainty, and one must rely on either (i) cluster-robust bootstrap inference at a level of aggregation where Proposition 3's no-dominant-cluster condition is plausible, or (ii) randomization-inference / placebo-distribution tests that condition on the actual weight structure. We pursue both routes in our application.
+\paragraph{When the asymptotics lose their bite.} Condition (W2)---and its cluster-level analogue in Proposition 3---is not innocuous in applications. When researchers use population weights in panels with one or two dominant units (e.g., California Proposition 99, where one large state is treated; or our ACA application, where Los Angeles County alone carries roughly 6\% of the population-weighted treated mass), the effective sample size cannot exceed the inverse squared share of the largest unit and in practice sits far below $N_1$, however many small units the panel adds. A sequence of such weights may still satisfy (W2) formally, but the convergence is too slow for the asymptotic approximation to be reliable at realistic sample sizes. In these settings, plug-in asymptotic standard errors will understate uncertainty, and one must rely either on cluster-robust bootstrap inference at a level of aggregation where Proposition 3's no-dominant-cluster condition is plausible, or on randomization-inference and placebo-distribution tests that condition on the actual weight structure. We pursue both routes in our application.
 
 ## Inference
 
@@ -517,7 +517,7 @@ We conduct two complementary falsification exercises. The *in-time* placebo rest
 
 # Monte Carlo Evidence
 
-We evaluate the finite-sample performance of the weighted SDID estimator and its variance estimators via simulation. The key questions are: (i) is the weighted estimator unbiased for its target $\tau^{(\tilde{\omega})}$ under heterogeneous treatment effects? (ii) do the bootstrap, jackknife, and placebo variance estimators achieve nominal coverage when treatment effects are correlated with unit size?
+We evaluate the finite-sample performance of the weighted SDID estimator and its variance estimators via simulation. Two questions are central. First, is the weighted estimator unbiased for its target $\tau^{(\tilde{\omega})}$ under heterogeneous treatment effects? Second, do the bootstrap, jackknife, and placebo variance estimators achieve nominal coverage when treatment effects are correlated with unit size?
 
 ## Design
 
