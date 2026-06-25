@@ -22,21 +22,41 @@ The standard SDID estimator gives equal weight to all treated units.
 When treated units differ in size, you may want a population-weighted estimate instead.
 The `synthdid_estimate_weighted` function allows user-specified weights on treated units.
 
-We demonstrate with simulated data where three treated units have different sizes and effects.
+We demonstrate with the California Prop 99 dataset. In its original form
+California is the *only* treated unit, so any set of treated-unit weights
+collapses to a single weight of one — weighted and unweighted estimates are
+then identical. To make weighting bite, we randomly promote four additional
+states to "treated", sharing California's 1989 onset. This yields five treated
+units that differ in size, so a population-weighted average differs from a
+simple average.
 
 ```{r simulate}
 # Use the California Prop 99 dataset included in the package
 data('california_prop99')
-setup = panel.matrices(california_prop99)
+ca = california_prop99
+
+# California alone is treated here; with one treated unit the weighted and
+# unweighted estimators coincide. Randomly add four more "treated" states
+# (same 1989 onset) so that treated-unit weighting has an effect.
+set.seed(42)
+control_states = setdiff(as.character(unique(ca$State)), "California")
+extra_treated  = sample(control_states, 4)
+treated_states = c("California", extra_treated)
+ca$treated     = as.integer(ca$State %in% treated_states & ca$Year >= 1989)
+
+setup = panel.matrices(ca)
 N0 = setup$N0
 N1 = nrow(setup$Y) - N0
 T0 = setup$T0
 
-# Population weights (e.g., some states are larger)
-# Here we just illustrate with fabricated weights
-set.seed(42)
-pop = runif(N1, 1, 10)
-pop_weights = pop / sum(pop)
+# Population weights (e.g., some states are larger).
+# Here we just illustrate with fabricated weights, aligned to the treated rows.
+treated_names = rownames(setup$Y)[(N0 + 1):nrow(setup$Y)]
+pop           = setNames(runif(N1, 1, 10), treated_names)
+pop_weights   = pop / sum(pop)
+
+cat(sprintf("Treated units (N1 = %d): %s\n", N1,
+    paste(treated_names, collapse = ", ")))
 ```
 
 # Compare equally-weighted and population-weighted estimates
@@ -96,9 +116,26 @@ cat(sprintf("Post-treatment effects: %s\n",
     paste(round(es$estimate[es$relative_time >= 0], 2), collapse = ", ")))
 ```
 
-The vertical dashed line separates pre-treatment periods (left) from post-treatment
-periods (right). Pre-treatment estimates near zero indicate good pre-treatment fit.
-Post-treatment estimates show how the effect evolves over time.
+Passing `se.method` adds period-by-period confidence intervals, and calling
+`plot()` on the resulting object draws the event-study figure. We compare the
+equally-weighted and population-weighted event studies; differences between the
+two panels are driven entirely by the treated-unit weights.
+
+```{r event-study-plot, fig.width = 7, fig.height = 4.5, fig.alt = "Equally-weighted SDID event study"}
+es_uw = synthdid_event_study(tau_sdid,   se.method = "placebo")
+es_w  = synthdid_event_study(tau_sdid_w, se.method = "placebo")
+
+plot(es_uw, main = "Equally-weighted SDID event study")
+```
+
+```{r event-study-plot-weighted, fig.width = 7, fig.height = 4.5, fig.alt = "Population-weighted SDID event study"}
+plot(es_w, main = "Population-weighted SDID event study")
+```
+
+The vertical dotted line separates pre-treatment periods (left) from post-treatment
+periods (right), and the dashed horizontal line marks zero. Pre-treatment estimates
+near zero indicate good pre-treatment fit; post-treatment estimates show how the
+effect evolves over time. The blue whiskers are 95% placebo confidence intervals.
 
 # Summary
 
