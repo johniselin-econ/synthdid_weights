@@ -98,6 +98,51 @@ T0 = 9 panel drift positive (+2 to +5, no-CA) — the small-county side has
 its own (opposite-signed, opioid-era) differential trend that equal
 weighting averages against.
 
+## Unit-specific linear detrending (local, point estimates, 2026-07-01)
+
+Two-step: per county, fit y ~ time by OLS on pre-onset years only, subtract
+the fitted unit trend from all years (extrapolating through the post
+period), run weighted SDID on residuals. Slopes are never fit on post-onset
+data, so dynamic treatment effects are preserved (avoids the Wolfers-2006
+jointly-estimated-trends problem).
+
+| SDID | raw | detrended |
+|---|---|---|
+| Headline popw, T0 = 5 | −17.45 | **−2.29** |
+| Headline popw, T0 = 9 | −22.45 | **−2.78** |
+| Headline eq, T0 = 5 / T0 = 9 | −0.71 / +0.51 | +3.20 / −3.76 |
+| Placebo popw 2012 (T0 = 5 panel, 3 slope pts) | −7.30 | −0.88 |
+| Placebo popw 2009/10/11/12 (T0 = 9, 4–7 slope pts) | −16.7/−16.0/−15.1/−14.7 | −8.8/−2.5/−0.9/−0.3 |
+| Placebo eq 2009–2012 (T0 = 9) | +2 to +4 | −4 to −9 |
+
+Read: under the assumption that the differential trend continues linearly,
+the population-weighted effect is ≈ **−2.5** (consistent across both
+panels) and its placebos pass once slopes have ≥5 fitting points. The raw
+popw headline is, on this evidence, almost entirely differential linear
+trend. Detrending is NOT uniformly better: the equally-weighted side gets
+noisier and worse (small-county slopes are imprecise and the opioid-era
+trend is nonlinear; extrapolation injects error) — it is the right surgery
+specifically for the big-county linear trend.
+
+Caveats: point estimates only (a proper SE must re-estimate slopes inside
+every bootstrap draw); linear continuation is an assumption (Rambachan-Roth
+M = 0); if part of the pre-2014 decline is early coverage (LIHP), detrending
+over-adjusts — though the pre-ACA-onset placebos argue the trend is mostly
+secular.
+
+Precedent (has this been tried?): yes in the SC family, apparently not for
+SDID specifically. Powell (2018 wp; 2022 JBES minimum-wage paper; 2026 JAE
+"Imperfect Synthetic Controls") proposes exactly this two-step —
+unit-specific trends first, synthetic control on the residual/fitted
+structure. Ferman & Pinto (2021 QE) analyze SC under imperfect fit and
+recommend the demeaned SC (SDID's intercept is that) and assessing fit
+after discarding diverging trends. Rambachan & Roth (2023 REStud) give the
+inference framework for exactly this counterfactual (linear extrapolation
+of pre-trends, their M = 0 case; M > 0 relaxes linearity). Xu (2017)
+gsynth/IFE is the estimator-level alternative (latent factors absorb
+size-correlated trends). A detrended *weighted SDID* row appears to be
+novel and citable to Powell + Ferman-Pinto + Rambachan-Roth.
+
 ## Follow-ups
 
 1. Cluster run above → `results_2005/` (do NOT commit over `results/`).
