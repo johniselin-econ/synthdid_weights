@@ -183,9 +183,21 @@ estimator-level version of stratification); Abadie (2021 JEL) donor-pool
 comparability advice. Caveats: no SEs; top bin still weight-concentrated
 (LA); bin boundaries arbitrary; N0 = 121 donors for the top bin.
 
+## Status update (2026-07-02)
+
+Both remedies are now package code (committed): `detrend = TRUE` on
+`synthdid_estimate_weighted()` and `synthdid_estimate_stratified()`, with
+tests (`tests/testthat/test_remedies.R`). `analyze_application.R` gained
+three guarded blocks — `detrended_results`, `binned_results` (pooled-2013
+quantile bins, 25/50/75/90 breaks), `event_study_draws` (RR sensitivity) —
+all with state-clustered bootstrap SEs; the detrended bootstrap re-fits
+unit slopes per draw and the binned bootstrap rebuilds strata per draw.
+
 ## Follow-ups
 
 1. Cluster run above → `results_2005/` (do NOT commit over `results/`).
+   A second default-panel run adds only the new remedy CSVs to `results/`
+   (all other guards are satisfied), giving the T0 = 5 remedy SEs.
 2. Long-panel event study (year effects 2005–2017) — dates the divergence
    year by year; the key figure for the Section 3.6 discussion.
 3. Drop-all-California: point estimates done locally (table above; B=200

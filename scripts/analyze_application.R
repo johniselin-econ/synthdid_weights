@@ -20,7 +20,8 @@
 # Inputs : paper/data/analysis_data.csv, paper/data/urban_share.csv
 # Outputs: results/{app_estimates,app_scalars,event_studies,robustness,
 #                   headline_comparison,heterogeneity,placebo_intime,
-#                   placebo_distribution}.csv  (+ _manifest.csv)
+#                   placebo_distribution,detrended_results,binned_results,
+#                   event_study_draws}.csv  (+ _manifest.csv)
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -506,6 +507,158 @@ run_intime_placebo <- function(placebo_year, B = B_IT) {
 }
 out(purrr::map_dfr(INTIME_YEARS, run_intime_placebo), "placebo_intime")
 }
+
+# =============================================================================
+# Trend-robust remedy 1: detrended weighted SDID (Section 3.6 remedies table).
+# Per-unit linear trends fit on pre-onset years only (detrend = TRUE), so the
+# bootstrap -- which refits via opts on the raw setup$Y -- re-estimates the
+# unit slopes inside every draw, as the variance requires. Headline (onset
+# 2014, full panel) plus in-time placebos at INTIME_YEARS, eq and popw, all
+# with state-clustered bootstrap SEs. Onsets with T0 < 3 pre-periods (e.g.
+# 2011 on the canonical panel) are infeasible and recorded as NA.
+# =============================================================================
+if (!have_all("detrended_results")) {
+run_detrended_at <- function(onset, B, seed0) {
+  if (onset >= 2014) { spb <- setup } else {
+    ppb <- panel %>% filter(time <= 2013) %>% arrange(unit, time) %>%
+      mutate(.unit = as.factor(unit), .time = time,
+             .W = as.integer(treated_unit == 1 & time >= onset)) %>%
+      select(.unit, .time, y, .W) %>% as.data.frame()
+    spb <- panel.matrices(ppb)
+  }
+  clpb <- unit_state$state_fips[match(rownames(spb$Y), unit_state$unit_char)]
+  tpb  <- rownames(spb$Y)[(spb$N0 + 1):nrow(spb$Y)]
+  n1   <- nrow(spb$Y) - spb$N0
+  twp  <- pop_ordered$pop[match(tpb, pop_ordered$unit_char)]; twp <- twp / sum(twp)
+  fit_of <- function(tw) tryCatch(
+    synthdid_estimate_weighted(spb$Y, spb$N0, spb$T0, treated.weights = tw,
+                               cluster = clpb, detrend = TRUE),
+    error = function(e) NULL)
+  fit_eq <- fit_of(rep(1 / n1, n1)); fit_wt <- fit_of(twp)
+  se_of <- function(fit, sb) if (is.null(fit)) NA_real_ else
+    tryCatch(par_boot_se(fit, "cluster", clpb, B, seed_base = sb), error = function(e) NA_real_)
+  tibble(onset_year = as.integer(onset), sample = if (onset >= 2014) "headline" else "placebo",
+         estimate_eq = if (is.null(fit_eq)) NA_real_ else as.numeric(fit_eq), se_eq = se_of(fit_eq, seed0),
+         estimate_wt = if (is.null(fit_wt)) NA_real_ else as.numeric(fit_wt), se_wt = se_of(fit_wt, seed0 + 5L))
+}
+detrended_results <- purrr::map_dfr(c(2014L, INTIME_YEARS), function(yr)
+  run_detrended_at(yr, B = if (yr >= 2014) B_SE else B_IT,
+                   seed0 = 20240101L + 500000L + as.integer(yr) * 10L))
+out(detrended_results, "detrended_results")
+} else message("[skip] detrended results present")
+
+# =============================================================================
+# Trend-robust remedy 2: size-binned (stratified) weighted SDID. Strata are
+# pooled 2013-population quantile bins over ALL counties (quartiles + a
+# top-decile split, i.e. breaks at the 25/50/75/90th percentiles), donor pool
+# restricted to same-bin controls, aggregated with treated-weight bin shares
+# (same estimand; only the comparisons are restricted). The aggregate SE is a
+# full-refit state-clustered bootstrap that rebuilds the strata inside every
+# draw (drop.infeasible renormalization); per-bin SEs for the headline use the
+# fixed-weight cluster bootstrap on each within-stratum fit, consistent with
+# the rest of the paper's SEs. In-time placebos at INTIME_YEARS reuse the
+# full-panel bin assignment (identical county set).
+# =============================================================================
+if (!have_all("binned_results")) {
+pop_all_2013 <- panel %>% filter(time == 2013) %>%
+  transmute(unit_char = as.character(unit), pop)
+pop_by_name <- setNames(pop_all_2013$pop, pop_all_2013$unit_char)
+bin_breaks  <- quantile(pop_all_2013$pop, c(0, .25, .5, .75, .9, 1), na.rm = TRUE)
+strata_of   <- function(nms) cut(pop_by_name[nms], bin_breaks, include.lowest = TRUE, labels = FALSE)
+
+# Parallel full-refit stratified bootstrap (same algorithm as
+# vcov.synthdid_estimate_stratified; each rep independently seeded, like boot_rep).
+strat_rep_seeded <- function(object, cluster_vec, seed) {
+  set.seed(seed)
+  stratified_boot_rep(object, if (is.null(cluster_vec)) "unit" else "cluster", cluster_vec)
+}
+clusterExport(CL, "strat_rep_seeded")
+par_strat_se <- function(object, cluster_vec, replications, seed_base) {
+  OBJ_ <- object; SCLU_ <- cluster_vec
+  clusterExport(CL, c("OBJ_", "SCLU_"), envir = environment())
+  run_seeds <- function(seeds)
+    unlist(parLapplyLB(CL, seeds, function(sd) strat_rep_seeded(OBJ_, SCLU_, sd)))
+  s <- seed_base
+  seeds <- s + seq_len(replications); s <- s + replications
+  collected <- run_seeds(seeds); collected <- collected[!is.na(collected)]
+  while (length(collected) < replications) {
+    need <- replications - length(collected)
+    seeds <- s + seq_len(need); s <- s + need
+    more <- run_seeds(seeds); collected <- c(collected, more[!is.na(more)])
+  }
+  collected <- collected[seq_len(replications)]
+  sqrt((replications - 1) / replications) * sd(collected)
+}
+
+run_binned_at <- function(onset, weighting, B_agg, B_bin, seed0) {
+  if (onset >= 2014) { spb <- setup } else {
+    ppb <- panel %>% filter(time <= 2013) %>% arrange(unit, time) %>%
+      mutate(.unit = as.factor(unit), .time = time,
+             .W = as.integer(treated_unit == 1 & time >= onset)) %>%
+      select(.unit, .time, y, .W) %>% as.data.frame()
+    spb <- panel.matrices(ppb)
+  }
+  clpb <- unit_state$state_fips[match(rownames(spb$Y), unit_state$unit_char)]
+  tpb  <- rownames(spb$Y)[(spb$N0 + 1):nrow(spb$Y)]
+  n1   <- nrow(spb$Y) - spb$N0
+  twp  <- if (weighting == "wt") {
+    w <- pop_ordered$pop[match(tpb, pop_ordered$unit_char)]; w / sum(w)
+  } else rep(1 / n1, n1)
+  strat <- strata_of(rownames(spb$Y))
+  fit <- tryCatch(
+    synthdid_estimate_stratified(spb$Y, spb$N0, spb$T0, strata = strat,
+                                 treated.weights = twp, cluster = clpb),
+    error = function(e) NULL)
+  if (is.null(fit)) return(tibble())
+  tab <- attr(fit, 'strata.table')
+  bin_rows <- purrr::map_dfr(seq_len(nrow(tab)), function(r) {
+    b <- as.integer(tab$stratum[r]); f <- attr(fit, 'strata.fits')[[tab$stratum[r]]]
+    se_bin <- if (B_bin > 0)
+      tryCatch(par_boot_se(f, "cluster", attr(f, 'cluster'), B_bin,
+                           seed_base = seed0 + 100L * b), error = function(e) NA_real_)
+      else NA_real_
+    tibble(onset_year = as.integer(onset), weighting = weighting,
+           stratum = as.character(b), pop_lo = bin_breaks[b], pop_hi = bin_breaks[b + 1],
+           N1 = tab$N1[r], N0 = tab$N0[r], share = tab$share[r],
+           estimate = tab$estimate[r], se_cluster = se_bin)
+  })
+  se_agg <- tryCatch(par_strat_se(fit, clpb, B_agg, seed_base = seed0 + 1000L),
+                     error = function(e) NA_real_)
+  bind_rows(bin_rows,
+            tibble(onset_year = as.integer(onset), weighting = weighting,
+                   stratum = "aggregate", pop_lo = NA_real_, pop_hi = NA_real_,
+                   N1 = sum(tab$N1), N0 = sum(tab$N0), share = 1,
+                   estimate = as.numeric(fit), se_cluster = se_agg))
+}
+binned_grid <- expand.grid(onset = c(2014L, INTIME_YEARS), weighting = c("wt", "eq"),
+                           stringsAsFactors = FALSE)
+binned_results <- purrr::map_dfr(seq_len(nrow(binned_grid)), function(i) {
+  yr <- binned_grid$onset[i]; wg <- binned_grid$weighting[i]
+  run_binned_at(yr, wg,
+                B_agg = if (yr >= 2014) B_SE else B_IT,
+                B_bin = if (yr >= 2014) B_SE else 0L,
+                seed0 = 20240101L + 600000L + 10000L * i)
+})
+out(binned_results, "binned_results")
+} else message("[skip] binned results present")
+
+# =============================================================================
+# Event-study bootstrap draws for the population-weighted SDID (Rambachan-Roth
+# sensitivity needs the cross-period covariance of the event-study
+# coefficients, not just the marginal SEs in event_studies.csv). Long format:
+# one row per (replication, year). State-clustered, fixed-weight bootstrap,
+# matching the event_studies block.
+# =============================================================================
+if (!have_all("event_study_draws")) {
+set.seed(20240101)
+es_w_draws <- synthdid_event_study(tau_sdid_w, se.method = "bootstrap",
+                                   replications = B_SE, cluster = cluster_vec,
+                                   return.replications = TRUE)
+draws <- attr(es_w_draws, 'replications')
+out(tibble(rep  = rep(seq_len(nrow(draws)), times = ncol(draws)),
+           year = rep(as.numeric(colnames(setup$Y)), each = nrow(draws)),
+           value = as.vector(draws)), "event_study_draws")
+} else message("[skip] event-study draws present")
 
 # =============================================================================
 # SUPPLEMENT (Appendix E): SC results/diagnostics, all-estimator event studies,
