@@ -26,7 +26,8 @@ synthdid_estimate_weighted(
   sparsify = sparsify_function,
   max.iter.pre.sparsify = 100,
   effective.sample.size = FALSE,
-  cluster = NULL
+  cluster = NULL,
+  detrend = FALSE
 )
 }
 \arguments{
@@ -87,6 +88,14 @@ are concentrated, which may be appropriate for highly skewed weight distribution
 \item{cluster}{An optional integer or factor vector of length N giving the cluster membership of each unit
 (e.g., state FIPS for county-level data). When provided, variance estimators accessed via vcov()
 will resample clusters rather than individual units. Default NULL (unit-level resampling).}
+
+\item{detrend}{If TRUE, remove a per-unit linear trend before estimation: each unit's OLS trend is
+fit on the pre-treatment columns only (see \link{unit_linear_trend}) and subtracted from all columns,
+and SDID is run on the residuals. Because slopes are never fit on post-treatment data, dynamic
+treatment effects pass through untouched. The stored setup keeps the raw Y and \code{detrend} rides
+along in the refit options, so all resample-and-refit variance methods (bootstrap, jackknife,
+event-study replications) re-fit the unit trends inside every draw. Requires T0 >= 3 and no
+covariates X. Note that plot() shows raw trajectories even when detrend = TRUE. Default FALSE.}
 }
 \value{
 An average treatment effect estimate with 'weights', 'setup', and 'treated.weights' attached as attributes.

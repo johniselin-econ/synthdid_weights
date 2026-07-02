@@ -222,7 +222,7 @@ test_that("print and summary work for weighted estimates", {
 
   tau = synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.weights = tw)
 
-  expect_output(print(tau), "synthdid_estimate_weighted")
+  expect_output(print(tau), "synthdid_weighted")
   s = summary(tau, fast = TRUE)
   expect_true("estimate" %in% names(s))
   expect_true("treated.weights" %in% names(s))

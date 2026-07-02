@@ -9,7 +9,8 @@ synthdid_event_study(
   se.method = NULL,
   replications = 200,
   alpha = 0.05,
-  cluster = attr(estimate, "cluster")
+  cluster = attr(estimate, "cluster"),
+  return.replications = FALSE
 )
 }
 \arguments{
@@ -28,6 +29,11 @@ cluster-robust standard errors. Defaults to the cluster stored in the estimate o
 individual units; the placebo method does not support clustering and falls back to
 unit-level resampling with a warning. Pass cluster = NULL to force unit-level
 resampling for an estimate that carries a stored cluster.}
+
+\item{return.replications}{If TRUE and se.method is non-NULL, attach the full matrix of
+replicated event-study curves (replications x T) as attr(result, 'replications'), so the
+cross-period covariance of the coefficients can be computed (e.g. for Rambachan-Roth
+sensitivity analysis). Default FALSE.}
 }
 \value{
 A data.frame with columns: relative_time, estimate, se, ci_lower, ci_upper.

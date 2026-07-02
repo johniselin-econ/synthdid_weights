@@ -173,6 +173,27 @@ synthdid_effect_curve = function(estimate) {
 # WEIGHTED VERSION: synthdid_estimate_weighted
 # =============================================================================
 
+#' Per-unit linear trends fit on the pre-treatment periods.
+#'
+#' Fits, for each row of Y, an OLS line through its first `T0` columns and
+#' returns the fitted N x T trend surface evaluated at all columns, i.e.
+#' extrapolating the pre-period trend through the post period. This is the
+#' trend removed by the `detrend` option of [synthdid_estimate_weighted];
+#' it is exported so diagnostics can reconstruct the exact residualization.
+#' @param Y the observation matrix.
+#' @param T0 the number of pre-treatment time steps used to fit the trends.
+#' @return an N x T matrix of fitted unit trends.
+#' @export unit_linear_trend
+unit_linear_trend = function(Y, T0) {
+  stopifnot(T0 >= 2, ncol(Y) >= T0)
+  tt  = seq_len(ncol(Y))
+  pre = seq_len(T0)
+  ctr = pre - mean(pre)
+  slope = as.vector(Y[, pre, drop = FALSE] %*% ctr) / sum(ctr^2)
+  level = rowMeans(Y[, pre, drop = FALSE])
+  outer(level, rep(1, ncol(Y))) + outer(slope, tt - mean(pre))
+}
+
 #' Computes the synthetic diff-in-diff estimate with user-specified treated unit weights.
 #'
 #' This is a weighted extension of the SDID estimator that allows for population-weighted
@@ -215,6 +236,13 @@ synthdid_effect_curve = function(estimate) {
 #' @param cluster An optional integer or factor vector of length N giving the cluster membership of each unit
 #'        (e.g., state FIPS for county-level data). When provided, variance estimators accessed via vcov()
 #'        will resample clusters rather than individual units. Default NULL (unit-level resampling).
+#' @param detrend If TRUE, remove a per-unit linear trend before estimation: each unit's OLS trend is
+#'        fit on the pre-treatment columns only (see [unit_linear_trend]) and subtracted from all columns,
+#'        and SDID is run on the residuals. Because slopes are never fit on post-treatment data, dynamic
+#'        treatment effects pass through untouched. The stored setup keeps the raw Y and `detrend` rides
+#'        along in the refit options, so all resample-and-refit variance methods (bootstrap, jackknife,
+#'        event-study replications) re-fit the unit trends inside every draw. Requires T0 >= 3 and no
+#'        covariates X. Note that plot() shows raw trajectories even when detrend = TRUE. Default FALSE.
 #' @return An average treatment effect estimate with 'weights', 'setup', and 'treated.weights' attached as attributes.
 #'         'weights' contains the estimated weights lambda and omega and corresponding intercepts,
 #'         as well as regression coefficients beta if X is passed.
@@ -236,11 +264,28 @@ synthdid_estimate_weighted = function(Y, N0, T0,
                                        sparsify = sparsify_function,
                                        max.iter.pre.sparsify = 100,
                                        effective.sample.size = FALSE,
-                                       cluster = NULL) {
+                                       cluster = NULL,
+                                       detrend = FALSE) {
 
   # Handle default X
   if (is.null(X)) {
     X = array(dim = c(dim(Y), 0))
+  }
+
+  # Optional per-unit linear detrending (the trend-robust variant): estimate on
+  # residuals from unit trends fit on the pre-period only. Must happen before
+  # the data-dependent defaults below so noise.level etc. reflect the residuals.
+  # setup$Y stores the RAW outcome and `detrend` is recorded in opts, so every
+  # do.call(synthdid_estimate_weighted, c(list(Y = <resampled raw rows>), opts))
+  # refit -- vcov bootstrap/jackknife, event-study replications, in-time
+  # placebos -- re-fits the unit slopes inside the draw rather than reusing
+  # slopes fit on the full sample.
+  Y.raw = Y
+  if (detrend) {
+    n.covars = if (length(dim(X)) == 3) dim(X)[3] else 1L
+    if (n.covars != 0) stop("detrend = TRUE is not supported with covariates X")
+    if (T0 < 3) stop("detrend = TRUE requires T0 >= 3 pre-treatment periods to fit unit trends")
+    Y = Y - unit_linear_trend(Y, T0)
   }
 
   N1 = nrow(Y) - N0
@@ -347,12 +392,13 @@ synthdid_estimate_weighted = function(Y, N0, T0,
   attr(estimate, 'treated.weights') = treated.weights
   attr(estimate, 'period.weights') = period.weights
   attr(estimate, 'cluster') = cluster
-  attr(estimate, 'setup') = list(Y = Y, X = X, N0 = N0, T0 = T0)
+  attr(estimate, 'setup') = list(Y = Y.raw, X = X, N0 = N0, T0 = T0)
   attr(estimate, 'opts') = list(zeta.omega = zeta.omega, zeta.lambda = zeta.lambda,
                                 omega.intercept = omega.intercept, lambda.intercept = lambda.intercept,
                                 update.omega = update.omega, update.lambda = update.lambda,
                                 min.decrease = min.decrease, max.iter=max.iter,
-                                effective.sample.size = effective.sample.size)
+                                effective.sample.size = effective.sample.size,
+                                detrend = detrend)
   return(estimate)
 }
 
@@ -431,7 +477,10 @@ synthdid_effect_curve_weighted = function(estimate) {
   X.beta = contract3(setup$X, weights$beta)
   T1 = ncol(setup$Y) - setup$T0
 
-  tau.sc = t(c(-weights$omega, treated.weights)) %*% (setup$Y - X.beta)
+  # setup$Y is raw; detrended estimates average gaps in the residualized outcome
+  Y = setup$Y
+  if (isTRUE(attr(estimate, 'opts')$detrend)) { Y = Y - unit_linear_trend(Y, setup$T0) }
+  tau.sc = t(c(-weights$omega, treated.weights)) %*% (Y - X.beta)
   tau.curve = tau.sc[setup$T0 + (1:T1)] - c(tau.sc[1:setup$T0] %*% weights$lambda)
   tau.curve
 }
@@ -463,12 +512,17 @@ synthdid_effect_curve_weighted = function(estimate) {
 #'   individual units; the placebo method does not support clustering and falls back to
 #'   unit-level resampling with a warning. Pass cluster = NULL to force unit-level
 #'   resampling for an estimate that carries a stored cluster.
+#' @param return.replications If TRUE and se.method is non-NULL, attach the full matrix of
+#'   replicated event-study curves (replications x T) as attr(result, 'replications'), so the
+#'   cross-period covariance of the coefficients can be computed (e.g. for Rambachan-Roth
+#'   sensitivity analysis). Default FALSE.
 #' @return A data.frame with columns: relative_time, estimate, se, ci_lower, ci_upper.
 #'   relative_time is centered so that -1 is the last pre-treatment period and 0 is the
 #'   first post-treatment period.
 #' @export synthdid_event_study
 synthdid_event_study = function(estimate, se.method = NULL, replications = 200, alpha = 0.05,
-                                cluster = attr(estimate, 'cluster')) {
+                                cluster = attr(estimate, 'cluster'),
+                                return.replications = FALSE) {
   is.weighted = inherits(estimate, 'synthdid_estimate_weighted')
 
   # Compute the full event-study curve (pre + post)
@@ -505,6 +559,7 @@ synthdid_event_study = function(estimate, se.method = NULL, replications = 200, 
     z = qnorm(1 - alpha / 2)
     result$ci_lower = result$estimate - z * result$se
     result$ci_upper = result$estimate + z * result$se
+    if (return.replications) { attr(result, 'replications') = curves.rep }
   }
 
   class(result) = c('synthdid_event_study', 'data.frame')
@@ -538,7 +593,10 @@ synthdid_event_study = function(estimate, se.method = NULL, replications = 200, 
   X.beta = contract3(setup$X, weights$beta)
   T0 = setup$T0
 
-  tau.sc = t(c(-weights$omega, treated.weights)) %*% (setup$Y - X.beta)
+  # setup$Y is raw; detrended estimates take gaps in the residualized outcome
+  Y = setup$Y
+  if (isTRUE(attr(estimate, 'opts')$detrend)) { Y = Y - unit_linear_trend(Y, T0) }
+  tau.sc = t(c(-weights$omega, treated.weights)) %*% (Y - X.beta)
   intercept = c(tau.sc[1:T0] %*% weights$lambda)
   as.numeric(tau.sc) - intercept
 }
