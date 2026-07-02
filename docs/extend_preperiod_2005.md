@@ -68,13 +68,44 @@ Caveats: no SEs yet; the equally-weighted placebos also drift positive
 (+2 to +4) on the long panel; short placebo training windows may overfit;
 and the placebo post-windows span the Great Recession.
 
+## Drop-all-California robustness (local, point estimates, 2026-07-01)
+
+All CA counties are treated, so dropping CA removes 58 treated counties
+(~23% of treated mass; no-CA weight stats: N1 = 1,123, N1_eff = 133,
+top-1 share 4.2% — Cook County replaces LA) and leaves the control pool
+untouched.
+
+| SDID pop-weighted | full | no-CA |
+|---|---|---|
+| Headline, T0 = 5 | −17.45 | −13.66 |
+| Headline, T0 = 9 | −22.45 | −17.64 |
+| Placebo onset 2011, T0 = 5 panel | −7.68 | −6.50 |
+| Placebo onset 2012, T0 = 5 panel | −7.30 | −6.35 |
+| Placebo onset 2009, T0 = 9 panel | −16.73 | −13.34 |
+| Placebo onset 2010, T0 = 9 panel | −15.99 | −12.56 |
+| Placebo onset 2011, T0 = 9 panel | −15.08 | −12.58 |
+| Placebo onset 2012, T0 = 9 panel | −14.69 | −11.89 |
+
+Read: **the placebo failure is NOT a California artifact.** Dropping CA
+shaves ~20–25% off both the headline and the placebos, leaving the
+placebo-to-headline ratio roughly unchanged (~45–50% at T0 = 5, ~70% at
+T0 = 9). The differential pre-trend generalizes to non-CA large urban
+treated counties in the SDID contrast, even though the *raw*
+population-weighted gap widening 2005–2010 looked all-CA (the raw
+diagnostic compares different objects: pop-weighted control mean vs.
+SDID's ω̂-matched combo). Also note the equally-weighted placebos on the
+T0 = 9 panel drift positive (+2 to +5, no-CA) — the small-county side has
+its own (opposite-signed, opioid-era) differential trend that equal
+weighting averages against.
+
 ## Follow-ups
 
 1. Cluster run above → `results_2005/` (do NOT commit over `results/`).
 2. Long-panel event study (year effects 2005–2017) — dates the divergence
    year by year; the key figure for the Section 3.6 discussion.
-3. Consider a drop-all-California population-weighted robustness row (the
-   LOO drops one county at a time; CA is ~23% of treated mass).
+3. Drop-all-California: point estimates done locally (table above; B=200
+   local SEs in progress). For the paper, add as a Table-3 robustness row
+   with the full B=500 state-clustered SE in the cluster run.
 4. If the cluster run confirms the smoke test, Section 3.6 and the
    Discussion likely need to shift further toward "upper bound / trend
    bias" framing, and the trend-adjusted ≈ −10 reading may itself be
