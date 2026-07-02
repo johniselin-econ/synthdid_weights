@@ -143,6 +143,46 @@ gsynth/IFE is the estimator-level alternative (latent factors absorb
 size-correlated trends). A detrended *weighted SDID* row appears to be
 novel and citable to Powell + Ferman-Pinto + Rambachan-Roth.
 
+## Size-binned weighted SDID (local, point estimates, 2026-07-01)
+
+Stratify all counties by pooled 2013 population (quartiles + top-decile
+split), run weighted SDID within each bin (donor pool = same-bin controls
+only), aggregate with treated-pop shares. Note the aggregate targets the
+SAME estimand tau^(omega-tilde) — only the comparisons are restricted.
+Extended panel.
+
+| bin (2013 pop) | N1 / N0 | tau_popw | placebo 2010 | placebo 2012 |
+|---|---|---|---|---|
+| 1: <6.1k | 233 / 473 | +0.5 | +1.9 | −0.8 |
+| 2: 6.1–14.5k | 296 / 410 | +3.0 | +8.6 | +1.6 |
+| 3: 14.5–38.5k | 292 / 414 | +5.0 | +5.3 | +6.3 |
+| 4: 38.5–119k | 198 / 225 | +2.7 | +2.1 | +5.4 |
+| 5: >119k (75.9% of treated mass) | 162 / 121 | **−6.5** | −5.0 | −2.7 |
+| **Aggregate** | | **−4.1** | **−2.9** | **−0.9** |
+
+vs unrestricted popw: −22.45 with placebos −16.0 / −14.7.
+
+Read: **most of the failure was cross-size donor contamination, not an
+unmatchable treated group.** Forcing big-treated vs big-control comparisons
+collapses the estimate to −4.1 and the aggregate placebos essentially pass.
+Mechanism: SDID's ridge-regularized level-matching spreads omega-hat
+diffusely across the (mostly small/mid) donor pool and matching pre-period
+LEVELS does not select trend-comparable donors; size-stratification imposes
+the comparability the objective doesn't find. Residual top-bin placebo
+(−5.0 at onset 2010) suggests some remaining within-class treated-vs-control
+divergence (or early-coverage contamination), but small. Middle bins show
+their own POSITIVE placebos ≈ their "effects" (opioid-era trend) — nothing
+causal there either.
+
+Triangulation across surgeries (all targeting the popw estimand):
+raw −22.5/−17.5 → binned −4.1 → detrended −2.5/−2.8 → our DLPS repro −6.2
+→ BV published −11.4. The comparability-enforced estimates cluster at
+−2.5 to −6.5. Precedent for binning: Abadie-L'Hour (2021 JASA) penalized
+SC for disaggregated data (penalizes dissimilar donor matches — the
+estimator-level version of stratification); Abadie (2021 JEL) donor-pool
+comparability advice. Caveats: no SEs; top bin still weight-concentrated
+(LA); bin boundaries arbitrary; N0 = 121 donors for the top bin.
+
 ## Follow-ups
 
 1. Cluster run above → `results_2005/` (do NOT commit over `results/`).
