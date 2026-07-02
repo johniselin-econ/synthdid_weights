@@ -45,8 +45,20 @@ B_IT   <- if (FAST)   5L else 500L   # in-time placebo bootstrap reps
 N_PLAC <- if (FAST)  20L else 500L   # in-space placebo draws
 if (FAST) message("** ANALYZE_FAST: reduced replications; SEs/p-values are rough **")
 
-dir.create("results", showWarnings = FALSE)
-out <- function(x, name) write_csv(x, file.path("results", paste0(name, ".csv")))
+# ANALYZE_PANEL / ANALYZE_RESULTS env vars point a run at an alternative panel
+# and a separate results directory (e.g. the extended 2005-2017 pre-period
+# panel writing to results_2005/), so the committed results/ vintage is never
+# clobbered by an experimental run. Defaults reproduce the canonical run.
+PANEL_PATH <- Sys.getenv("ANALYZE_PANEL", file.path("paper", "data", "analysis_data.csv"))
+RES_DIR    <- Sys.getenv("ANALYZE_RESULTS", "results")
+## In-time placebo onset years (comma-separated). The default matches the
+## canonical T0=5 design; the extended 2005 panel supports earlier onsets
+## with genuine holdout, e.g. ANALYZE_INTIME_YEARS=2009,2010,2011,2012.
+INTIME_YEARS <- as.integer(strsplit(
+  Sys.getenv("ANALYZE_INTIME_YEARS", "2011,2012"), ",")[[1]])
+
+dir.create(RES_DIR, showWarnings = FALSE)
+out <- function(x, name) write_csv(x, file.path(RES_DIR, paste0(name, ".csv")))
 
 # Block-level idempotency: skip a group of result blocks when all of its output
 # CSVs already exist, so a re-run only fills in what is missing (e.g. the
@@ -54,7 +66,7 @@ out <- function(x, name) write_csv(x, file.path("results", paste0(name, ".csv"))
 # ANALYZE_FORCE=1 to recompute everything.
 FORCE <- nzchar(Sys.getenv("ANALYZE_FORCE"))
 have_all <- function(names)
-  !FORCE && all(file.exists(file.path("results", paste0(names, ".csv"))))
+  !FORCE && all(file.exists(file.path(RES_DIR, paste0(names, ".csv"))))
 PAPER_OUT <- c("app_estimates", "app_scalars", "heterogeneity",
                "robustness", "headline_comparison", "placebo_distribution")
 # placebo_intime, event_studies, and sc_event_studies are guarded on their own
@@ -151,7 +163,7 @@ par_boot_se <- function(estimate, method, cluster_vec, replications, seed_base) 
 # =============================================================================
 # 1. Load + prepare data  (paper chunks: load-data, prepare-sdid-panel)
 # =============================================================================
-panel <- read_csv(file.path("paper", "data", "analysis_data.csv"),
+panel <- read_csv(PANEL_PATH,
                   show_col_types = FALSE) %>%
   select(unit = fips, time = year, y = crude_rate,
          treated_unit = expansion, pop = population, state_fips,
@@ -274,7 +286,7 @@ specs <- names(estimates_t1)
 # as it finishes, so a crash only costs the in-flight cell (the X-variant cells
 # are the ~hour-each ones). se_unit uses unit resampling; se_cluster resamples
 # states (the estimates carry a stored state cluster, as in the paper).
-ses_ckpt <- file.path("results", "_ses_partial.csv")
+ses_ckpt <- file.path(RES_DIR, "_ses_partial.csv")
 done_ses <- if (file.exists(ses_ckpt)) read_csv(ses_ckpt, show_col_types = FALSE) else
   tibble(spec = character(), method = character(), se = numeric())
 se_grid <- expand.grid(method = c("unit", "cluster"), spec = specs, stringsAsFactors = FALSE)
@@ -492,7 +504,7 @@ run_intime_placebo <- function(placebo_year, B = B_IT) {
          estimate_eq = if (is.null(fit_eq)) NA_real_ else as.numeric(fit_eq), se_eq = se_of(fit_eq, 20240101L + 80000L + yr * 10L),
          estimate_wt = if (is.null(fit_wt)) NA_real_ else as.numeric(fit_wt), se_wt = se_of(fit_wt, 20240101L + 80000L + yr * 10L + 5L))
 }
-out(purrr::map_dfr(c(2011L, 2012L), run_intime_placebo), "placebo_intime")
+out(purrr::map_dfr(INTIME_YEARS, run_intime_placebo), "placebo_intime")
 }
 
 # =============================================================================
@@ -577,7 +589,7 @@ run_intime_sc <- function(py) {
          estimate_eq = if (is.null(feq)) NA_real_ else as.numeric(feq), se_eq = sef(feq, 20240101L + 210000L + py * 10L),
          estimate_wt = if (is.null(fwt)) NA_real_ else as.numeric(fwt), se_wt = sef(fwt, 20240101L + 210000L + py * 10L + 5L))
 }
-out(purrr::map_dfr(c(2011L, 2012L), run_intime_sc), "sc_intime")
+out(purrr::map_dfr(INTIME_YEARS, run_intime_sc), "sc_intime")
 
 ## Control-unit weight distributions
 omega_unwt <- attr(tau_sdid, 'weights')$omega; omega_wt <- attr(tau_sdid_w, 'weights')$omega
@@ -609,6 +621,9 @@ out(loo_results, "loo_results")
 
 ## DLPS reproduction of Borgschulte & Vogler (2020), Table 2 Panel A
 ## (self-contained; mirrors scripts/bv_replication_tables.R). All cheap.
+## The DLPS reproduction always uses the canonical 2009-2017 panel: it mirrors
+## BV's design (2005-2009 PS predictors, 2009+ outcome panel) regardless of
+## which panel ANALYZE_PANEL points the SDID blocks at.
 adf    <- read_csv(file.path("paper", "data", "analysis_data.csv"), show_col_types = FALSE)
 bv_cov <- read_csv(file.path("paper", "data", "bv_covariates.csv"), show_col_types = FALSE)
 mort_yearly <- bind_rows(

@@ -29,13 +29,17 @@ suppressPackageStartupMessages({
 })
 
 RAW_DIR       <- "paper/data/raw"
-OUT_PANEL     <- "paper/data/analysis_data.csv"
+## PANEL_START_YEAR / PANEL_OUT env vars build an extended-pre-period variant
+## (e.g. PANEL_START_YEAR=2005 PANEL_OUT=paper/data/analysis_data_2005.csv)
+## without touching the canonical 2009-2017 panel. OLD_PANEL always points at
+## the canonical file: it is only the covariate-carryover fallback.
+OUT_PANEL     <- Sys.getenv("PANEL_OUT", "paper/data/analysis_data.csv")
 OUT_PRE       <- "paper/data/county_mortality_pre.csv"
 OLD_PANEL     <- "paper/data/analysis_data.csv"   # source of carried covariates
 IMPUTE_METHOD <- "residual"
 
-START_YEAR <- 2009
-END_YEAR   <- 2017
+START_YEAR <- as.integer(Sys.getenv("PANEL_START_YEAR", "2009"))
+END_YEAR   <- as.integer(Sys.getenv("PANEL_END_YEAR", "2017"))
 
 ## ACA expansion states (first half of 2014), incl. DC
 aca  <- c(4, 5, 6, 8, 9, 10, 11, 15, 17, 19, 21, 24, 25, 26, 27, 32, 34,

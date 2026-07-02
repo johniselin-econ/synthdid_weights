@@ -30,8 +30,11 @@ OUT_CSV  <- "paper/data/seer_laus_covariates.csv"
 SEER_GZ  <- file.path(RAW_DIR, "seer_us.1990_2024.20ages.adjusted.txt.gz")
 LAUS_TXT <- file.path(RAW_DIR, "la.data.64.County")
 
-START_YEAR <- 2009
-END_YEAR   <- 2017
+## COV_START_YEAR env var extends the pre-period (e.g. 2005 for the long-T0
+## panel); default reproduces the original 2009-2017 build. The output is a
+## superset by (fips, year), so downstream joins are unaffected by extra years.
+START_YEAR <- as.integer(Sys.getenv("COV_START_YEAR", "2009"))
+END_YEAR   <- as.integer(Sys.getenv("COV_END_YEAR", "2017"))
 
 # ---------------------------------------------------------------------------
 # 1. SEER population by county x year x race x sex x 19 age groups
