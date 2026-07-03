@@ -236,7 +236,12 @@ if (anyNA(X_arr)) {
     na_idx <- which(is.na(Xk), arr.ind = TRUE)
     for (r in seq_len(nrow(na_idx))) {
       i <- na_idx[r, 1]; t <- na_idx[r, 2]
-      Xk[i, t] <- mean(X_arr[state_of == state_of[i], t, k], na.rm = TRUE)
+      imp <- mean(X_arr[state_of == state_of[i], t, k], na.rm = TRUE)
+      ## National-year fallback for state-years where the whole state is
+      ## missing (all 8 CT counties lack LAUS unemp 2005-2008 on the extended
+      ## panel); the state mean always exists on the canonical panel.
+      if (!is.finite(imp)) imp <- mean(X_arr[, t, k], na.rm = TRUE)
+      Xk[i, t] <- imp
     }
     X_arr[, , k] <- Xk
   }
