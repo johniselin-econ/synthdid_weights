@@ -193,6 +193,62 @@ quantile bins, 25/50/75/90 breaks), `event_study_draws` (RR sensitivity) —
 all with state-clustered bootstrap SEs; the detrended bootstrap re-fits
 unit slopes per draw and the binned bootstrap rebuilds strata per draw.
 
+## DLPS placebo, bridge ladder, RR sensitivity (local, 2026-07-03)
+
+**1. BV's DLPS design FAILS the same in-time falsification.** Holding BV's
+propensity-score weights fixed (they are functions of pre-2014 data only)
+and running the TWFE on pre-2014 windows with simulated onsets
+(est (state-clustered SE)):
+
+| window | onset | base | with controls |
+|---|---|---|---|
+| 2009–13 | 2011 | −9.83 (3.50) | −7.68 (3.08) |
+| 2009–13 | 2012 | −7.22 (2.58) | −5.10 (2.05) |
+| 2005–13 | 2009 | −11.68 (4.33) | −7.26 (3.40) |
+| 2005–13 | 2010 | −13.56 (4.41) | −8.86 (2.88) |
+| 2005–13 | 2011 | −13.64 (4.50) | −8.67 (2.76) |
+| 2005–13 | 2012 | −12.19 (4.07) | −7.11 (2.42) |
+
+All significant; extended-window placebo magnitudes rival the headline
+(−9.6 base / −6.6 controls; BV published −11.36). Lagged-outcome balancing
+does NOT deliver trend balance here — the published estimate inherits the
+same differential trend. (If anything the test is biased TOWARD passing:
+the PS's 2005–09 mortality predictors overlap the placebo windows.)
+
+**2. Bridge ladder (2009–2017, est (SE)) — the asymmetric-weighting
+insight.** L1 pop-weighted TWFE, all counties: **−5.24 (5.19)**; L2
+complete-case −5.22; L3 + PS trim −4.67; L4 pop x IPW untrimmed −9.24;
+L5 + trim (= BV base) −9.56 (5.05); L6 + controls (= BV preferred) −6.62
+(4.14). Two lessons. (i) The package's weighted DID (−18.39) weights only
+the TREATED side by population against an unweighted control mean;
+symmetric population weighting (both sides, as any pop-weighted regression
+does) already compares big-to-big and lands at −5.2 — right where the
+binned SDID sits (−4.8). Much of the raw −17/−22 reflects the asymmetric
+big-treated-vs-diffuse-control comparison. (ii) Within BV's design the
+trim is innocuous (−5.2 -> −4.7); it is the IPW reweighting that adds
+−5 of magnitude — and the placebo above says that reweighting does not
+buy trend balance.
+
+**3. RR-style (M = 0) sensitivity on the popw SDID event study** (500
+state-clustered draws): raw post avg −17.45 (CI [−24.8, −7.7]);
+pre-period differential slope −0.99/yr (SE 0.45); trend-adjusted effect
+**−13.22 (CI [−19.9, −4.5])**. IMPORTANT CAVEAT: this adjusts far less
+than unit-level detrending (−2.3) because the event-study pre-coefficients
+are computed AFTER omega-hat/lambda-hat were optimized to fit the weighted
+pre-trajectory — the estimator absorbs most of the trend into the fit, so
+the visible pre-slope understates the violation. RR on a fit-optimized
+event study is a LOWER BOUND on the needed adjustment; the in-time
+placebos (fit on truncated windows) and unit-level detrending are the
+sharper diagnostics. Worth a remark in the paper — this interaction
+(pre-fit optimization deflates measured pre-trends) applies to any
+SC-family event study fed into HonestDiD.
+
+Updated triangulation (all popw): symmetric-size comparisons −4.7 to −5.2;
+binned SDID −4.77 (3.93); detrended SDID −2.29 (4.35); DLPS after its own
+placebo evidence is discounted, residual plausibly −2 to −4. Every
+level-matched design fails the in-time test, INCLUDING the published one;
+comparability-enforced/trend-adjusted estimates cluster at −2 to −5.
+
 ## Follow-ups
 
 1. Cluster run above → `results_2005/` (do NOT commit over `results/`).

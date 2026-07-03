@@ -185,6 +185,34 @@ re-knit both documents.
   sentence, any "robust to placebo tests" residue.
 - audit-reproducibility pass after re-knit.
 
+## Addendum 2026-07-03: reconciliation branch resolved
+
+The Phase-2 reconciliation paragraph was written with two branches
+("if DLPS placebos pass / fail"). They FAIL — significantly, at every
+onset, both windows (see extend_preperiod_2005.md). Consequences for the
+plan:
+
+- 3.6's reconciliation paragraph takes the stronger form: every
+  level-matched design applied to this panel — weighted SDID, weighted
+  DID, and BV's DLPS itself — fails the same in-time falsification; the
+  trend-robust cluster is −2 to −5. Frame respectfully (BV lacked the
+  2005-08 window's diagnostic power on their sample vintage; our repro of
+  their design is within 1 SE of theirs) and as a demonstration of the
+  workflow's value, not a refutation exercise.
+- New remark needed (2.4 or 3.6): the asymmetric-weighting point. The
+  weighted DID/SDID compare a pop-weighted treated average against a
+  (diffuse) control combination; symmetric pop-weighted TWFE already
+  compares big-to-big and lands at −5.2, near the stratified estimate.
+  Practitioners reading "weighted DID −18" vs "pop-weighted regression
+  −5" need this distinction spelled out — it is an estimand/comparison
+  statement, not a contradiction.
+- RR/HonestDiD caveat (one paragraph, likely supplement): event-study
+  pre-coefficients computed after omega/lambda fit the pre-period
+  UNDERSTATE trend violations (fit absorbs the trend), so M = 0 on the
+  SDID event study (−13.2) is a lower-bound adjustment; placebos on
+  truncated windows and unit detrending are the sharper tools. This is a
+  publishable observation about SC-family + HonestDiD interactions.
+
 ## Risks / referee anticipation
 
 - Wide SEs on remedies -> phrase as "cannot trend-robustly distinguish
