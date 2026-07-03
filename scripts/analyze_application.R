@@ -263,6 +263,34 @@ tau_sdid_w  <- synthdid_estimate_weighted(setup$Y, setup$N0, setup$T0, treated.w
 tau_sdid <- synthdid_estimate(setup$Y, setup$N0, setup$T0)
 tau_did  <- did_estimate(setup$Y, setup$N0, setup$T0)
 
+## Size composition of the estimated control weights vs. the treated target
+## (paper Table "omega size bins": the emergent-asymmetry exhibit). Bins are
+## pooled 2013-population quantiles (25/50/75/90), matching the stratified
+## (binned_results) block. Deterministic; self-guarded so it can be
+## regenerated without recomputing the SE blocks.
+if (!have_all("omega_size_bins")) {
+  p13_all <- panel %>% filter(time == 2013) %>% distinct(unit, .keep_all = TRUE) %>%
+    select(unit, pop13 = pop)
+  brk_sz  <- quantile(p13_all$pop13, c(0, .25, .5, .75, .9, 1))
+  szbin   <- function(ids) cut(p13_all$pop13[match(ids, as.character(p13_all$unit))],
+                               brk_sz, labels = FALSE, include.lowest = TRUE)
+  shr5    <- function(w, b) sapply(1:5, function(k) sum(w[b == k]))
+  wavg13  <- function(w, ids) sum(w * p13_all$pop13[match(ids, as.character(p13_all$unit))]) / sum(w)
+  ctrl_names_sz <- rownames(setup$Y)[1:setup$N0]
+  cbin <- szbin(ctrl_names_sz); tbin <- szbin(treated_names)
+  om_popw <- attr(tau_sdid_w,  "weights")$omega
+  om_eq   <- attr(tau_sdid_eq, "weights")$omega
+  osb <- rbind(
+    c(shr5(treated_weights, tbin), wavg13(treated_weights, treated_names)),
+    c(shr5(om_popw, cbin),         wavg13(om_popw, ctrl_names_sz)),
+    c(shr5(om_eq,   cbin),         wavg13(om_eq,   ctrl_names_sz)))
+  out(tibble(series = c("target_popw", "omega_popw", "omega_eq"),
+             b1 = osb[, 1], b2 = osb[, 2], b3 = osb[, 3], b4 = osb[, 4], b5 = osb[, 5],
+             wavg_pop = osb[, 6],
+             brk1 = brk_sz[2], brk2 = brk_sz[3], brk3 = brk_sz[4], brk4 = brk_sz[5]),
+      "omega_size_bins")
+}
+
 # ---- PAPER RESULTS: skipped wholesale when their CSVs already exist ----------
 run_paper <- !have_all(PAPER_OUT)
 if (!run_paper) message("[skip] paper results present")
