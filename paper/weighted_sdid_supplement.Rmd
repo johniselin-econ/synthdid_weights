@@ -40,6 +40,14 @@ library(kableExtra)
 # the package/source is not loaded here. (The eval=FALSE mc-functions chunk
 # below references them for documentation only.)
 set.seed(20240101)
+
+# Shared series aesthetics for the two-series (equal vs. population) figures,
+# designed for black-and-white readability via REDUNDANT encoding: hue +
+# luminance (Okabe-Ito blue/orange differ in luminance, so they stay distinct in
+# grayscale) + point shape + line type. Matches the main paper's scheme.
+w_pal <- c("Equally weighted" = "#0072B2", "Population weighted" = "#E69F00")
+w_lty <- c("Equally weighted" = "solid",   "Population weighted" = "dashed")
+w_shp <- c("Equally weighted" = 16,        "Population weighted" = 17)
 ```
 
 ```{r load-scalars-early, include=FALSE}
@@ -151,7 +159,7 @@ $$\hat\tau^w = \begin{pmatrix}-\hat\omega \\ \tfrac{1}{N_1}\mathbf{1}_{N_1}\end{
 \medskip
 \noindent\textit{Step 1 (Exact decomposition).} Substitute $Y = L + \tau W + \epsilon$ into the bilinear form \eqref{eq:tau-w}. The $\tau W$ part returns $\tau^{(\tilde\omega)}$ exactly. The systematic part is $f(\hat\omega^w, \hat\lambda^w)$, where
 $$f(\omega, \lambda) := \sum_{j} \tilde\omega_j \Big(T_1^{-1}\textstyle\sum_{t>T_0} L_{N_0+j,t} - \sum_{s \le T_0}\lambda_s L_{N_0+j,s}\Big) - \sum_{i} \omega_i \Big(T_1^{-1}\textstyle\sum_{t>T_0} L_{it} - \sum_{s \le T_0}\lambda_s L_{is}\Big)$$
-is bilinear in $(\omega, \lambda)$. By the all-$t$ matching implied by A5 — the intercepts $\omega_0^*, \lambda_0^*$ cancel because every weight vector involved sums to one — we have $f(\omega^*, \lambda^*) = 0$, and both first-order deviation terms vanish as well: $f(\hat\omega^w, \lambda^*) - f(\omega^*, \lambda^*) = 0$ because the control-side contrast at $\lambda^*$ is the constant $\lambda_0^*$, which sums to zero against $\hat\omega^w - \omega^*$; symmetrically for $f(\omega^*, \hat\lambda^w) - f(\omega^*, \lambda^*)$. Only the bilinear cross term survives. Collecting the noise terms,
+is bilinear in $(\omega, \lambda)$. By the all-$t$ matching implied by A5---the intercepts $\omega_0^*, \lambda_0^*$ cancel because every weight vector involved sums to one---we have $f(\omega^*, \lambda^*) = 0$, and both first-order deviation terms vanish as well: $f(\hat\omega^w, \lambda^*) - f(\omega^*, \lambda^*) = 0$ because the control-side contrast at $\lambda^*$ is the constant $\lambda_0^*$, which sums to zero against $\hat\omega^w - \omega^*$; symmetrically for $f(\omega^*, \hat\lambda^w) - f(\omega^*, \lambda^*)$. Only the bilinear cross term survives. Collecting the noise terms,
 $$\hat\tau^w - \tau^{(\tilde\omega)} = \underbrace{\sum_{j=1}^{N_1} \tilde\omega_j \xi_{N_0+j} - \sum_{i=1}^{N_0}\omega^*_i \xi_i}_{E_1 \text{ (noise at oracle weights)}} \;+\; \underbrace{R_\omega + R_\lambda + R_{\omega\lambda}}_{E_2 \text{ (estimation error)}},$$
 with
 \begin{align*}
@@ -162,7 +170,7 @@ R_{\omega\lambda} &= \big(\hat\omega^w - \omega^*\big)^\top L_{\text{pre}}\,\big
 where $L_{\text{pre}}$ is the $N_0 \times T_0$ control block of $L$.
 
 \medskip
-\noindent\textit{Step 2 (Noise at oracle weights).} Under A2, $\text{Var}(\xi_i) \leq C\sigma^2\big(T_1^{-1} + \|\lambda^*\|_2^2 + 2 T_1^{-1/2}\|\lambda^*\|_2\big) \leq C'$ uniformly in $i$: the within-unit serial covariance between the post-period average and the $\lambda^*$-weighted pre-period sum is absorbed into $\text{Var}(\xi_i)$, which is why the contrast — rather than its post and pre pieces separately — is the right object under serially dependent errors. By cross-unit independence (A2),
+\noindent\textit{Step 2 (Noise at oracle weights).} Under A2, $\text{Var}(\xi_i) \leq C\sigma^2\big(T_1^{-1} + \|\lambda^*\|_2^2 + 2 T_1^{-1/2}\|\lambda^*\|_2\big) \leq C'$ uniformly in $i$: the within-unit serial covariance between the post-period average and the $\lambda^*$-weighted pre-period sum is absorbed into $\text{Var}(\xi_i)$, which is why the contrast---rather than its post and pre pieces separately---is the right object under serially dependent errors. By cross-unit independence (A2),
 $$\text{Var}\!\left(\sum_j \tilde\omega_j \xi_{N_0+j}\right) \leq C' \sum_j \tilde\omega_j^2 = \frac{C'}{N_1^{\text{eff}}} \to 0$$
 by W2, and $\text{Var}\big(\sum_i \omega^*_i \xi_i\big) \leq C' \|\omega^*\|_2^2 \to 0$ by A5. Both pieces of $E_1$ are $o_p(1)$ by Markov's inequality.
 
@@ -197,10 +205,10 @@ reduces under uniformly bounded $\sigma_j^2$ to W3. Hence $Z_n \xrightarrow{d} \
 \noindent\textit{Step 2 (Negligible remainder).} By (R), $\sqrt{N_1^{\text{eff}}}(\hat\tau^w - \tau^{(\tilde\omega)}) = Z_n + o_p(1)$, and the conclusion follows by Slutsky's theorem. $\qed$
 
 \medskip
-\noindent\textit{Remark (Primitive conditions for (R)).} Condition (R) has two parts. The control-noise term $\sqrt{N_1^{\text{eff}}}\sum_i \omega^*_i \xi_i$ has variance of order $N_1^{\text{eff}}\|\omega^*\|_2^2$, so it requires the oracle control weights to be more diffuse than the treated weights are concentrated ($N_1^{\text{eff}}\|\omega^*\|_2^2 \to 0$) — plausible when $N_1^{\text{eff}}$ grows slowly relative to the effective number of oracle control units. The weight-estimation terms $R_\omega, R_\lambda, R_{\omega\lambda}$ require the estimation-error rates of @arkhangelsky2021 to dominate $\sqrt{N_1^{\text{eff}}}$; the rate conditions of their Theorem 1 play exactly this role in the unweighted case (where $N_1^{\text{eff}} = N_1$) and carry over under the same substitution as in Proposition 1. We do not restate primitive rates here: in the applications we target, the binding constraints are W2--W3 themselves, and inference proceeds by bootstrap rather than by plug-in use of $\sigma_\xi^2$.
+\noindent\textit{Remark (Primitive conditions for (R)).} Condition (R) has two parts. The control-noise term $\sqrt{N_1^{\text{eff}}}\sum_i \omega^*_i \xi_i$ has variance of order $N_1^{\text{eff}}\|\omega^*\|_2^2$, so it requires the oracle control weights to be more diffuse than the treated weights are concentrated ($N_1^{\text{eff}}\|\omega^*\|_2^2 \to 0$)---plausible when $N_1^{\text{eff}}$ grows slowly relative to the effective number of oracle control units. The weight-estimation terms $R_\omega, R_\lambda, R_{\omega\lambda}$ require the estimation-error rates of @arkhangelsky2021 to dominate $\sqrt{N_1^{\text{eff}}}$; the rate conditions of their Theorem 1 play exactly this role in the unweighted case (where $N_1^{\text{eff}} = N_1$) and carry over under the same substitution as in Proposition 1. We do not restate primitive rates here: in the applications we target, the binding constraints are W2--W3 themselves, and inference proceeds by bootstrap rather than by plug-in use of $\sigma_\xi^2$.
 
 \medskip
-\noindent\textit{Remark (When is (R) plausible?).} Condition (R) formalizes the requirement that uncertainty from the estimated weights $(\hat\omega^w, \hat\lambda^w)$ and from the control-noise average be negligible relative to the treated-noise contrast, whose variance is of order $1/N_1^{\text{eff}}$. It is most plausible when $N_1^{\text{eff}}$ is small relative to the control block and the pre-period is long. In our ACA application, $N_1^{\text{eff}} \approx `r round(asc_n1_eff)`$ against $N_0 = `r format(asc_N0, big.mark = ",")`$ control counties — favorable on the cross-sectional side — but the pre-period is short ($T_0 = `r asc_T0`$), so the time-weight estimation error is unlikely to be negligible in the sense of (R). This is one more reason our inference relies on the cluster bootstrap — which resamples the entire estimation pipeline and therefore captures, in finite samples, the contributions that (R) treats as asymptotically negligible — together with randomization inference, rather than on plug-in asymptotic intervals.
+\noindent\textit{Remark (When is (R) plausible?).} Condition (R) formalizes the requirement that uncertainty from the estimated weights $(\hat\omega^w, \hat\lambda^w)$ and from the control-noise average be negligible relative to the treated-noise contrast, whose variance is of order $1/N_1^{\text{eff}}$. It is most plausible when $N_1^{\text{eff}}$ is small relative to the control block and the pre-period is long. In our ACA application, $N_1^{\text{eff}} \approx `r round(asc_n1_eff)`$ against $N_0 = `r format(asc_N0, big.mark = ",")`$ control counties---favorable on the cross-sectional side---but the pre-period is short ($T_0 = `r asc_T0`$), so the time-weight estimation error is unlikely to be negligible in the sense of (R). This is one more reason our inference relies on the cluster bootstrap---which resamples the entire estimation pipeline and therefore captures, in finite samples, the contributions that (R) treats as asymptotically negligible---together with randomization inference, rather than on plug-in asymptotic intervals.
 
 ## Cluster-Robust Variance
 
@@ -219,7 +227,7 @@ $$\sqrt{K^{\text{eff}}}\left(\hat\tau^w - \tau^{(\tilde\omega)}\right) \xrightar
 *and the cluster bootstrap variance estimator $\widehat V_w^{\text{cb}} = (B-1)^{-1}\sum_b (\hat\tau^{w,(b)} - \bar\tau^w)^2$ is consistent for $\sigma^2_{\text{cl}}/K^{\text{eff}}$, where $\hat\tau^{w,(b)}$ is computed on a cluster-resampled bootstrap draw with weight renormalization $\tilde\omega_j^{(b)} = \tilde\omega_j n_j^{(b)} / \sum_{\ell=1}^{N_1} \tilde\omega_\ell n_\ell^{(b)}$ and analogous renormalization of $\hat\omega^w$.*
 
 \medskip
-\noindent\textit{Proof.} The central limit step repeats Proposition 2 one level up: the $\xi^{(k)}$ are independent across clusters by (CB2) — within-cluster covariances among the $\xi_{N_0+j}$ are *absorbed into* $\text{Var}(\xi^{(k)})$ rather than restricted — mean zero, with the Lindeberg condition supplied by (CB1), and (CB3) disposes of the remainder. Note that $\sigma^2_{\text{cl}}$ does not in general equal $\sigma_\xi^2$ of Proposition 2: it exceeds it whenever noise is positively correlated within clusters, which is precisely the situation clustering is designed for. For the bootstrap step, the cluster-bootstrap consistency argument of @cameron2008 (see also @clarke2023) applies to the bilinear form \eqref{eq:tau-w}: (i) resampling whole clusters reproduces the cross-cluster independence structure under which the limit was derived; (ii) the renormalization preserves the convex-combination structure of $\tilde\omega$ within each draw, so each $\hat\tau^{w,(b)}$ is itself a valid weighted SDID estimate; (iii) under (CB1)--(CB3) the bootstrap distribution of $\sqrt{K^{\text{eff}}}(\hat\tau^{w,(b)} - \hat\tau^w)$ converges to the same Gaussian limit. The cluster-jackknife variant follows by an analogous argument with cluster-level leave-one-out. We emphasize that no bound on cluster *sizes* is imposed — clusters may contain arbitrarily many units (states contain hundreds of counties in our application); what matters is that no cluster's *weight share* dominates. $\qed$
+\noindent\textit{Proof.} The central limit step repeats Proposition 2 one level up: the $\xi^{(k)}$ are independent across clusters by (CB2)---within-cluster covariances among the $\xi_{N_0+j}$ are *absorbed into* $\text{Var}(\xi^{(k)})$ rather than restricted---mean zero, with the Lindeberg condition supplied by (CB1), and (CB3) disposes of the remainder. Note that $\sigma^2_{\text{cl}}$ does not in general equal $\sigma_\xi^2$ of Proposition 2: it exceeds it whenever noise is positively correlated within clusters, which is precisely the situation clustering is designed for. For the bootstrap step, the cluster-bootstrap consistency argument of @cameron2008 (see also @clarke2023) applies to the bilinear form \eqref{eq:tau-w}: (i) resampling whole clusters reproduces the cross-cluster independence structure under which the limit was derived; (ii) the renormalization preserves the convex-combination structure of $\tilde\omega$ within each draw, so each $\hat\tau^{w,(b)}$ is itself a valid weighted SDID estimate; (iii) under (CB1)--(CB3) the bootstrap distribution of $\sqrt{K^{\text{eff}}}(\hat\tau^{w,(b)} - \hat\tau^w)$ converges to the same Gaussian limit. The cluster-jackknife variant follows by an analogous argument with cluster-level leave-one-out. We emphasize that no bound on cluster *sizes* is imposed---clusters may contain arbitrarily many units (states contain hundreds of counties in our application); what matters is that no cluster's *weight share* dominates. $\qed$
 
 ## When the Asymptotics Fail {#app:fails}
 
@@ -227,7 +235,7 @@ The conditions W2, W3, and (CB1) all impose a "no-dominant-weight" requirement a
 
 1. *Population weights with extreme concentration.* The Pareto tail of population sizes for U.S.\ counties or states means that population-weighted estimands often have effective sample sizes far below the number of treated units. In our ACA application, $N_1^{\text{eff}} \approx `r round(asc_n1_eff)`$ relative to $N_1 = `r format(asc_N1, big.mark = ",")`$, with a single county (Los Angeles) carrying roughly `r round(asc_top1 * 100)`\% of total weight. Such weights satisfy W2 in the strict mathematical sense (the largest weight does shrink as new counties are added), but the rate of convergence is too slow for finite-sample asymptotic intervals to be reliable.
 
-2. *Single-cluster dominance.* When treatment is assigned at the state level and one or two states contain a disproportionate share of the treated population (California, Texas, New York in U.S.\ applications), the no-dominant-cluster condition (CB1) is strained at the cluster level. In our ACA application, California alone contains roughly `r round(asc_ca_share * 100)`\% of treated population mass across the `r asc_n_treated_states` treated jurisdictions. State-level cluster bootstrapping is nonetheless the most defensible resampling scheme available — treatment is assigned at the state level, and the remaining clusters are individually small — but a largest-cluster share of this magnitude means (CB1) is itself under pressure, which is why the application reports randomization-inference $p$-values alongside the cluster-bootstrap intervals rather than leaning on either alone.
+2. *Single-cluster dominance.* When treatment is assigned at the state level and one or two states contain a disproportionate share of the treated population (California, Texas, New York in U.S.\ applications), the no-dominant-cluster condition (CB1) is strained at the cluster level. In our ACA application, California alone contains roughly `r round(asc_ca_share * 100)`\% of treated population mass across the `r asc_n_treated_states` treated jurisdictions. State-level cluster bootstrapping is nonetheless the most defensible resampling scheme available---treatment is assigned at the state level, and the remaining clusters are individually small---but a largest-cluster share of this magnitude means (CB1) is itself under pressure, which is why the application reports randomization-inference $p$-values alongside the cluster-bootstrap intervals rather than leaning on either alone.
 
 3. *Adversarial weight choices.* If the researcher chooses weights that intentionally concentrate on a single unit (e.g., to estimate a unit-specific effect), the framework reduces to a single-unit synthetic control problem, for which @cattaneo2021's prediction-interval inference is more appropriate than our bilinear-form CLT.
 
@@ -368,7 +376,7 @@ tau_sc_w   <- scr$estimate[scr$weighting == "w"]
 
 ## Synthetic Control Results and Diagnostics {#app:sc}
 
-Earlier drafts of the main paper reported synthetic control (SC) estimates alongside DID and SDID in Table 1. The SC estimates are an extreme outlier relative to the DID--SDID family, and this appendix reports them together with the standard battery of post-estimation diagnostics---pre-treatment fit, leave-one-out donor sensitivity, and in-time placebos---to document why their magnitude differs.
+Earlier drafts of the main paper reported synthetic control (SC) estimates alongside DID and SDID in the main results table (main-paper Table 2). The SC estimates are an extreme outlier relative to the DID--SDID family, and this appendix reports them together with the standard battery of post-estimation diagnostics---pre-treatment fit, leave-one-out donor sensitivity, and in-time placebos---to document why their magnitude differs.
 
 As implemented here (following @arkhangelsky2021), SC sets the time weights to zero and omits the unit intercept: the estimator compares post-treatment *levels* of the (weighted) treated average against a convex combination of control-county levels, with no allowance for a permanent level difference between the treated average and its synthetic control. Any level gap that the simplex-constrained match cannot close therefore loads directly into the post-treatment difference and is read as a treatment effect. DID and SDID, by contrast, difference out unit-specific levels.
 
@@ -402,7 +410,7 @@ kableExtra::kbl(
 ) %>%
   kableExtra::kable_styling(latex_options = "hold_position") %>%
   kableExtra::footnote(
-    general = "Deaths per 100,000, ages 20--64. SC estimated as in Arkhangelsky et al. (2021): zero time weights, no unit intercept in the control match. SE (boot) is the county-level bootstrap and SE (cluster) the state-clustered bootstrap, both with 500 replications, matching the standard-error conventions of main-paper Table 1.",
+    general = "Deaths per 100,000, ages 20--64. SC estimated as in Arkhangelsky et al. (2021): zero time weights, no unit intercept in the control match. SE (boot) is the county-level bootstrap and SE (cluster) the state-clustered bootstrap, both with 500 replications, matching the standard-error conventions of main-paper Table 2.",
     general_title = "Notes:", threeparttable = TRUE)
 ```
 
@@ -417,21 +425,23 @@ kableExtra::kbl(
     general_title = "Notes:", threeparttable = TRUE, escape = FALSE)
 ```
 
-Table \ref{tab:sc-results} reports the SC estimates under both weightings with the same dual standard errors as main-paper Table 1: the equally-weighted SC estimate is `r fmt_sc(as.numeric(tau_sc_eq))` and the population-weighted estimate `r fmt_sc(as.numeric(tau_sc_w))` deaths per 100,000---both substantially larger in magnitude than the corresponding SDID estimates of `r fmt_sc(as.numeric(tau_sdid))` and `r fmt_sc(as.numeric(tau_sdid_w))`. The fit diagnostics in the second table show why---and the mechanism is donor concentration, not an unclosed level gap. Because SC uses no time weights and no unit intercept, it matches the pre-treatment treated trajectory in levels by loading almost all weight onto a handful of donors: the effective number of donor counties is just `r round(scd$eff_n0[2], 0)` (population weighted), with roughly `r round(100 * scd$top10_omega[2])`\% of the weight on its ten largest donors. So sparse a donor set interpolates the short pre-period almost exactly (level pre-RMSPE `r fmt_sc(scd$pre_rmspe_level[2])`), but the match does not generalize: post-treatment the few donors diverge from the treated average, and with no intercept to absorb the difference the divergence is read directly as an enormous effect. SDID, by contrast, spreads weight across roughly `r format(round(scd$eff_n0[4]), big.mark = ",")` effective donors and permits a unit intercept: it carries a large *raw* pre-period level gap (`r fmt_sc(scd$mean_pre_gap[4])`, absorbed by the intercept) yet fits well once the intercept is netted out (intercept-adjusted pre-RMSPE `r fmt_sc(scd$pre_rmspe_adj[4])`). The SC outlier is therefore a symptom of sparse, un-regularized level matching on a short pre-period, which is why we report it only here and exclude it from the main-paper comparison.
+Table \ref{tab:sc-results} reports the SC estimates under both weightings with the same dual standard errors as main-paper Table 2: the equally-weighted SC estimate is `r fmt_sc(as.numeric(tau_sc_eq))` and the population-weighted estimate `r fmt_sc(as.numeric(tau_sc_w))` deaths per 100,000, both substantially larger in magnitude than the corresponding SDID estimates of `r fmt_sc(as.numeric(tau_sdid))` and `r fmt_sc(as.numeric(tau_sdid_w))`. The fit diagnostics in the second table show why: the mechanism is donor concentration, not an unclosed level gap. Because SC uses no time weights and no unit intercept, it matches the pre-treatment treated trajectory in levels by loading almost all weight onto a handful of donors: the effective number of donor counties is just `r round(scd$eff_n0[2], 0)` (population weighted), with roughly `r round(100 * scd$top10_omega[2])`\% of the weight on its ten largest donors. So sparse a donor set interpolates the short pre-period almost exactly (level pre-RMSPE `r fmt_sc(scd$pre_rmspe_level[2])`), but the match does not generalize: post-treatment the few donors diverge from the treated average, and with no intercept to absorb the difference the divergence is read directly as an enormous effect. SDID, by contrast, spreads weight across roughly `r format(round(scd$eff_n0[4]), big.mark = ",")` effective donors and permits a unit intercept: it carries a large *raw* pre-period level gap (`r fmt_sc(scd$mean_pre_gap[4])`, absorbed by the intercept) yet fits well once the intercept is netted out (intercept-adjusted pre-RMSPE `r fmt_sc(scd$pre_rmspe_adj[4])`). The SC outlier is therefore a symptom of sparse, un-regularized level matching on a short pre-period, which is why we report it only here and exclude it from the main-paper comparison.
 
-```{r sc-event-study-app, fig.cap="Synthetic-control event study.\\newline \\footnotesize\\textit{Notes:} Year-specific SC effects under equal (blue circles) and population (red triangles) weighting of treated counties; shaded bands are 95\\% state-clustered bootstrap confidence intervals (500 replications). The vertical dashed line marks treatment onset (2014). SC matches pre-treatment levels by construction, so pre-period coefficients sit near zero; the population-weighted post-treatment path diverges sharply, reflecting the donor-concentration over-fit documented above.", fig.height=3.6}
+```{r sc-event-study-app, fig.cap="Synthetic-control event study.\\newline \\footnotesize\\textit{Notes:} Year-specific SC effects under equal (blue circles) and population (orange triangles) weighting of treated counties; shaded bands are 95\\% state-clustered bootstrap confidence intervals (500 replications). The vertical dashed line marks treatment onset (2014). SC matches pre-treatment levels by construction, so pre-period coefficients sit near zero; the population-weighted post-treatment path diverges sharply, reflecting the donor-concentration over-fit documented above.", fig.height=3.6}
 es_sc_plot <- sc_es_df %>%
   mutate(Weighting = factor(Weighting, levels = c("Equally weighted", "Population weighted")))
 ggplot(es_sc_plot, aes(x = year, y = estimate, color = Weighting, fill = Weighting, shape = Weighting)) +
   geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.15, color = NA) +
   geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
   geom_vline(xintercept = 2013.5, linetype = "dashed", color = "gray30") +
+  geom_line(aes(linetype = Weighting), linewidth = 0.5) +
   geom_point(size = 1.3) +
-  geom_line(linewidth = 0.5) +
-  scale_color_manual(values = c("Equally weighted" = "steelblue", "Population weighted" = "firebrick")) +
-  scale_fill_manual(values  = c("Equally weighted" = "steelblue", "Population weighted" = "firebrick")) +
-  scale_shape_manual(values = c("Equally weighted" = 16, "Population weighted" = 17)) +
-  labs(x = NULL, y = "Effect on mortality\n(deaths per 100,000)", color = NULL, fill = NULL, shape = NULL) +
+  scale_color_manual(values = w_pal) +
+  scale_fill_manual(values  = w_pal) +
+  scale_shape_manual(values = w_shp) +
+  scale_linetype_manual(values = w_lty) +
+  labs(x = NULL, y = "Effect on mortality\n(deaths per 100,000)",
+       color = NULL, fill = NULL, shape = NULL, linetype = NULL) +
   theme_minimal(base_size = 10) +
   theme(legend.position = "bottom")
 ```
@@ -444,21 +454,22 @@ top_n_donors <- 15
 loo_sc <- sc_loo_df %>% dplyr::rename(Weighting = weighting)
 ```
 
-```{r sc-loo-plot, fig.cap="Leave-one-out donor sensitivity of the SC estimates.\\newline \\footnotesize\\textit{Notes:} Each point re-estimates the synthetic control after dropping one of the 15 largest-weight donor (control) counties, ranked by $\\hat\\omega$ within each weighting scheme. Horizontal dashed lines mark the full-sample SC estimates; the dotted line marks zero. Circles: equally weighted; triangles: population weighted.", fig.height=3.5}
+```{r sc-loo-plot, fig.cap="Leave-one-out donor sensitivity of the SC estimates.\\newline \\footnotesize\\textit{Notes:} Each point re-estimates the synthetic control after dropping one of the 15 largest-weight donor (control) counties, ranked by $\\hat\\omega$ within each weighting scheme. Horizontal lines mark the full-sample SC estimates (solid: equally weighted; dashed: population weighted); the dotted line marks zero. Circles: equally weighted; triangles: population weighted.", fig.height=3.5}
 ggplot(loo_sc, aes(x = rank, y = estimate, color = Weighting, shape = Weighting)) +
   geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
-  geom_hline(yintercept = as.numeric(tau_sc_eq), linetype = "dashed",
-             color = "steelblue", linewidth = 0.5) +
+  geom_hline(yintercept = as.numeric(tau_sc_eq), linetype = "solid",
+             color = w_pal[["Equally weighted"]], linewidth = 0.5) +
   geom_hline(yintercept = as.numeric(tau_sc_w), linetype = "dashed",
-             color = "firebrick", linewidth = 0.5) +
+             color = w_pal[["Population weighted"]], linewidth = 0.5) +
+  geom_line(aes(linetype = Weighting), linewidth = 0.4, alpha = 0.6) +
   geom_point(size = 2) +
-  geom_line(linewidth = 0.4, alpha = 0.6) +
   scale_x_continuous(breaks = seq(1, top_n_donors, by = 2)) +
-  scale_color_manual(values = c("Equally weighted" = "steelblue",
-                                "Population weighted" = "firebrick")) +
-  scale_shape_manual(values = c("Equally weighted" = 16, "Population weighted" = 17)) +
+  scale_color_manual(values = w_pal) +
+  scale_shape_manual(values = w_shp) +
+  scale_linetype_manual(values = w_lty) +
   labs(x = "Donor county dropped (ranked by control weight, 1 = largest)",
-       y = "SC estimate\n(deaths per 100,000)", color = NULL, shape = NULL) +
+       y = "SC estimate\n(deaths per 100,000)",
+       color = NULL, shape = NULL, linetype = NULL) +
   theme_minimal(base_size = 10) +
   theme(legend.position = "bottom")
 ```
@@ -483,18 +494,20 @@ kableExtra::kbl(
     general_title = "Notes:", threeparttable = TRUE)
 ```
 
-The leave-one-out exercise shows that the SC estimates are `r if (diff(range(loo_sc$estimate[loo_sc$Weighting == "Population weighted"], na.rm = TRUE)) < 0.5 * abs(as.numeric(tau_sc_w))) "not driven by any single donor county: dropping each of the 15 largest-weight donors moves the estimate only modestly" else "sensitive to the donor pool: dropping individual large-weight donors moves the estimate materially"`. The in-time placebos are the more diagnostic test: where the SDID in-time placebos in the main paper are tightly centered on zero, the SC placebo estimates of `r fmt_sc(intime_sc[["Pop. estimate"]][1])` (2011) and `r fmt_sc(intime_sc[["Pop. estimate"]][2])` (2012, population weighted) indicate how readily SC's sparse, over-fit donor match generates a spurious effect even in years when no treatment occurred. Taken together, the diagnostics attribute the outsized SC estimates to the estimator's sparse, un-regularized level matching rather than to information about the policy: SC answers a different question than DID and SDID in this application, and we therefore exclude it from the main-paper comparison.
+The leave-one-out exercise shows that the SC estimates are `r if (diff(range(loo_sc$estimate[loo_sc$Weighting == "Population weighted"], na.rm = TRUE)) < 0.5 * abs(as.numeric(tau_sc_w))) "not driven by any single donor county: dropping each of the 15 largest-weight donors moves the estimate only modestly" else "sensitive to the donor pool: dropping individual large-weight donors moves the estimate materially"`. The in-time placebos are the more diagnostic test: where the main paper's SDID in-time placebos are at most a few deaths per 100,000 (indistinguishable from zero equally weighted, around $-7.5$ population weighted---itself a bias signal the main paper discusses in Section 3.6), the SC placebo estimates of `r fmt_sc(intime_sc[["Pop. estimate"]][1])` (2011) and `r fmt_sc(intime_sc[["Pop. estimate"]][2])` (2012, population weighted) are an order of magnitude larger, indicating how readily SC's sparse, over-fit donor match generates a spurious effect in years when no treatment occurred. Taken together, the diagnostics attribute the outsized SC estimates to the estimator's sparse, un-regularized level matching rather than to information about the policy: SC answers a different question than DID and SDID in this application, and we therefore exclude it from the main-paper comparison.
 
 ## Control Unit Weight Diagnostics
 
-```{r omega-weights-app, fig.cap="Distribution of SDID control-unit weights.\\newline \\footnotesize\\textit{Notes:} Histogram of the estimated control weights $\\hat{\\omega}_i$ under equal vs.\\ population weighting of treated counties. Counties with zero weight excluded; the x-axis is on a log scale.", fig.height=3.6}
+```{r omega-weights-app, fig.cap="Distribution of SDID control-unit weights.\\newline \\footnotesize\\textit{Notes:} Frequency polygons of the estimated control weights $\\hat{\\omega}_i$ under equal (solid) vs.\\ population (dashed) weighting of treated counties. Counties with zero weight excluded; the x-axis is on a log scale.", fig.height=3.6}
 ## Control-weight distributions precomputed in results/omega_weights.csv.
 omega_df <- omega_w_df %>% dplyr::rename(Weighting = weighting)
-ggplot(omega_df, aes(x = omega, fill = Weighting)) +
-  geom_histogram(alpha = 0.6, position = "identity", bins = 40) +
+ggplot(omega_df, aes(x = omega, color = Weighting, linetype = Weighting)) +
+  geom_freqpoly(bins = 40, linewidth = 0.7) +
   scale_x_log10() +
-  scale_fill_manual(values = c("Equally weighted" = "steelblue", "Population weighted" = "firebrick")) +
-  labs(x = expression(hat(omega)[i] ~ "(log scale)"), y = "Number of control counties", fill = NULL) +
+  scale_color_manual(values = w_pal) +
+  scale_linetype_manual(values = w_lty) +
+  labs(x = expression(hat(omega)[i] ~ "(log scale)"), y = "Number of control counties",
+       color = NULL, linetype = NULL) +
   theme_minimal(base_size = 11) +
   theme(legend.position = "bottom")
 ```
@@ -543,7 +556,7 @@ Figure E.4 reports the leave-one-out sensitivity under both weightings. The popu
 
 ## Reproducing BV2020 with Public Data
 
-This appendix documents our public-data reproduction of the all-cause mortality results in @borgschulte2020 (BV): the headline $-11.36$ deaths per 100,000 estimate (their Table 2, Panel A) and the heterogeneity by baseline uninsurance (their columns 10--11). BV use restricted-access NVSS mortality microdata; we use public CDC WONDER tabulations, recovering the county-year cells that WONDER suppresses (counts of 1--9) by allocating the exact state-year residual---the state total, which is never suppressed, minus the sum of unsuppressed county counts---across suppressed cells in proportion to working-age population, clamped to the feasible $[1, 9]$ range. The resulting estimation sample is essentially BV's: within two counties of their 2,823-county pre-trim sample (exact counts below). The exercise is purely diagnostic: it is *not* the source of the comparison shown in main-paper Table 3, which uses BV's published value directly.
+This appendix documents our public-data reproduction of the all-cause mortality results in @borgschulte2020 (BV): the headline $-11.36$ deaths per 100,000 estimate (their Table 2, Panel A) and the heterogeneity by baseline uninsurance (their columns 10--11). BV use restricted-access NVSS mortality microdata; we use public CDC WONDER tabulations, recovering the county-year cells that WONDER suppresses (counts of 1--9) by allocating the exact state-year residual---the state total, which is never suppressed, minus the sum of unsuppressed county counts---across suppressed cells in proportion to working-age population, clamped to the feasible $[1, 9]$ range. The resulting estimation sample is essentially BV's: within two counties of their 2,823-county pre-trim sample (exact counts below). The exercise is purely diagnostic: it is *not* the source of the comparison shown in main-paper Table 4, which uses BV's published value directly.
 
 ### Covariate menu
 
@@ -604,7 +617,7 @@ kableExtra::kbl(
 
 The double lasso selects `r length(dlps_selected)` of `r length(control_vars)` candidates, closely matching the selection BV report in their Appendix Table A.2 (both include the demographic shares, income, unemployment, the uninsured rate, both Obama vote shares, the Democratic-governor indicator, and all five yearly pre-expansion mortality rates). The complete-case sample is `r format(dlps_n_complete, big.mark = ",")` counties against BV's 2,823; the propensity-score trim removes `r dlps_n_trimmed` counties against their 563.
 
-Table \ref{tab:bv-dlps-replication} reports the reproduction. The structure of BV's results reproduces well on public data: every specification is negative; the base estimate of `r round(r_base["est"], 2)` (SE `r round(r_base["se"], 2)`) is within one standard error of BV's $-14.83$; and the heterogeneity by baseline uninsurance---the pattern most directly tied to the coverage mechanism---is nearly exact, with `r round(r_high["est"], 2)` (SE `r round(r_high["se"], 2)`) against BV's $-12.40$ in high-uninsured counties and `r round(r_low["est"], 2)` (SE `r round(r_low["se"], 2)`) against $-3.96$ in low-uninsured counties. The pooled estimate with controls, `r round(r_ctrl["est"], 2)` (SE `r round(r_ctrl["se"], 2)`), is smaller in magnitude than BV's $-11.36$ though the confidence intervals overlap substantially. Two residual differences plausibly account for the gap: our propensity score trims fewer counties than BV's (so our estimand retains more of the high-mortality Southern control counties), and BV's restricted NVSS microdata report small-county death counts exactly where we impute them. We view this reproduction as confirming that the BV design and its key heterogeneity pattern are recoverable from public data, while the pooled point estimate retains some sensitivity to the exact propensity-score implementation. None of this affects the main paper: the comparison in main-paper Table 3 uses BV's published estimate directly, and the weighted-versus-equal SDID comparison is internal to our own panel.
+Table \ref{tab:bv-dlps-replication} reports the reproduction. The structure of BV's results reproduces well on public data: every specification is negative; the base estimate of `r round(r_base["est"], 2)` (SE `r round(r_base["se"], 2)`) is within one standard error of BV's $-14.83$; and the heterogeneity by baseline uninsurance---the pattern most directly tied to the coverage mechanism---is nearly exact, with `r round(r_high["est"], 2)` (SE `r round(r_high["se"], 2)`) against BV's $-12.40$ in high-uninsured counties and `r round(r_low["est"], 2)` (SE `r round(r_low["se"], 2)`) against $-3.96$ in low-uninsured counties. The pooled estimate with controls, `r round(r_ctrl["est"], 2)` (SE `r round(r_ctrl["se"], 2)`), is smaller in magnitude than BV's $-11.36$ though the confidence intervals overlap substantially. Two residual differences plausibly account for the gap: our propensity score trims fewer counties than BV's (so our estimand retains more of the high-mortality Southern control counties), and BV's restricted NVSS microdata report small-county death counts exactly where we impute them. We view this reproduction as confirming that the BV design and its key heterogeneity pattern are recoverable from public data, while the pooled point estimate retains some sensitivity to the exact propensity-score implementation. None of this affects the main paper: the comparison in main-paper Table 4 uses BV's published estimate directly, and the weighted-versus-equal SDID comparison is internal to our own panel.
 
 Table \ref{tab:bv-descstats} closes the loop on sample comparability, comparing population-weighted covariate means in our analysis sample with the values BV publish in their Table 1.
 
@@ -829,7 +842,7 @@ In many applications of SDID---including our ACA application---the unit of obser
 
 The cluster jackknife proceeds analogously, leaving out one cluster at a time. The variance formula uses $K$ (the number of clusters) rather than $N$:
 $$\widehat V_w^{\text{cjk}} = \frac{K - 1}{K} \sum_{k=1}^{K} \left(\hat\tau^{w,(-k)} - \bar\tau^{w,(\cdot)}\right)^2.$$
-The cluster bootstrap and jackknife are accessed via the software API as `vcov(estimate, method = "bootstrap", cluster = state_fips)` or by passing `cluster` directly to `synthdid_estimate_weighted()`, which stores it for automatic use by `vcov()`; passing `cluster = NULL` to `vcov()` overrides a stored cluster and forces unit-level resampling. The event-study decomposition follows the same convention: `synthdid_event_study()` defaults to the estimate's stored cluster, so its bootstrap confidence bands are cluster-robust whenever the estimate carries one (as in main-paper Figure 1 and Figure E.1, which use the state-clustered bootstrap). In the main paper's ACA application, every cell of Table 1 reports both the county-level bootstrap and the state-clustered bootstrap standard error, with inference based on the latter since treatment is assigned at the state level; the county-level bootstrap likely understates true uncertainty (see the "When the Asymptotics Fail" discussion in Section B).
+The cluster bootstrap and jackknife are accessed via the software API as `vcov(estimate, method = "bootstrap", cluster = state_fips)` or by passing `cluster` directly to `synthdid_estimate_weighted()`, which stores it for automatic use by `vcov()`; passing `cluster = NULL` to `vcov()` overrides a stored cluster and forces unit-level resampling. The event-study decomposition follows the same convention: `synthdid_event_study()` defaults to the estimate's stored cluster, so its bootstrap confidence bands are cluster-robust whenever the estimate carries one (as in main-paper Figure 1 and Figure E.1, which use the state-clustered bootstrap). In the main paper's ACA application, every cell of Table 2 reports both the county-level bootstrap and the state-clustered bootstrap standard error, with inference based on the latter since treatment is assigned at the state level; the county-level bootstrap likely understates true uncertainty (see the "When the Asymptotics Fail" discussion in Section B).
 
 
 \clearpage

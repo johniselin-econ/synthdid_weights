@@ -48,8 +48,9 @@ are public; per the CDC WONDER DUA, death **counts** are never committed
 - The user frequently edits files externally — **always re-read a file
   before editing it**.
 - `tau_sdid` in the Rmds is the *standard* `synthdid_estimate` (the
-  robustness "equal" row); the Table-1 "equally weighted" cell
-  (`sdid_eq`) is the weighted-uniform variant — they differ by ~2e-5
+  robustness "equal" row); the main-results-table "equally weighted"
+  cell (`sdid_eq`; Table 2 since the two-unit example became Table 1)
+  is the weighted-uniform variant — they differ by ~2e-5
   (Proposition 0), so don't "fix" the discrepancy.
 - Bootstrap SEs re-run on a different machine shift ~3% (Monte Carlo
   noise; RNG differs from `vcov()`'s although the resampling algorithm
