@@ -243,6 +243,40 @@ sharper diagnostics. Worth a remark in the paper — this interaction
 (pre-fit optimization deflates measured pre-trends) applies to any
 SC-family event study fed into HonestDiD.
 
+**Re-estimated DLPS placebo (2026-07-03, answers the parity question).**
+Re-fitting the FULL pipeline at each fake onset — double-lasso selection,
+logit PS, trim, all on pre-onset data only, with ALL pre-onset mortality
+years as predictors (more generous than BV's own 4-year-holdout
+convention) — changes nothing: extended window base −11.6 to −13.8
+(controls −6.6 to −8.8), canonical −9.8/−7.6, all significant, virtually
+identical to the fixed-weights version. The procedure balances lagged
+mortality LEVELS; nothing in it targets slopes, so re-estimation cannot
+rescue it. (Residual caveat: ACS/SAHIE/political covariates keep their
+2009–2013 vintage — unavoidable and slow-moving; the mortality predictors,
+the trend-relevant part, were properly truncated.)
+
+**Why the "asymmetry" persists under SDID's ESTIMATED control weights
+(2026-07-03).** Size-bin composition of weight mass (bins = pooled
+quartiles + top decile):
+
+| | b1 | b2 | b3 | b4 | b5 (top decile) |
+|---|---|---|---|---|---|
+| treated target (popw omega-tilde) | 0.8 | 2.9 | 7.0 | 13.4 | **75.9** |
+| omega-hat under popw target | 29.1 | 24.7 | 25.0 | 13.7 | **7.5** |
+| omega-hat under equal target | 29.1 | 24.8 | 25.1 | 13.7 | 7.4 |
+
+Weighted-average 2013 county pop: treated target ≈ 997k; omega-hat ≈ 44k
+(either target). Changing the target from equal to population weighting
+leaves the control portfolio's size composition essentially UNCHANGED —
+7.5% top-decile mass is what uniform-over-controls gives (121/1,643 =
+7.4%): the ridge keeps omega-hat near-diffuse, and level-plus-intercept
+matching over a 5-year window is size-blind (small-county combinations fit
+the big-county pre-SHAPE as well as big controls do, with the intercept
+absorbing the level). The asymmetry in weighted DID is hard-coded; in
+weighted SDID it is EMERGENT from the objective. This is the precise
+mechanism the stratified variant repairs (within bin 5, top-decile donor
+mass is 100% by construction).
+
 Updated triangulation (all popw): symmetric-size comparisons −4.7 to −5.2;
 binned SDID −4.77 (3.93); detrended SDID −2.29 (4.35); DLPS after its own
 placebo evidence is discounted, residual plausibly −2 to −4. Every
