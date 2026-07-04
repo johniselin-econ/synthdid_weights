@@ -113,6 +113,38 @@ awaits a server run.
       "state-clustered". Curves are unchanged (deterministic); only the
       CI bands change.
 
+## 2005 pre-period extension (branch `extend-preperiod-2005`, 2026-07-04)
+
+Full-quality run committed as `results_2005/` (seed 20240101, B=500,
+fast_mode=FALSE, SHA ea9b090; slurm job 17073601). Same 2,824-county
+sample; window 2005–2017 (T0=9 vs 5).
+
+Event-study comparison vs baseline `results/` (2026-07-04):
+
+- DID curves shift by a **constant** across all overlapping event times
+  (eq +1.80, pop-wt −7.57) — purely the longer pre-period baseline mean
+  (matches the obs_diff change in app_scalars). SDID shifts are not
+  constant: ω/λ genuinely re-estimated.
+- New 2005–2008 leads reveal a large positive pre-trend in the
+  pop-weighted comparison (DID leads +10 to +12 at −9..−7). Weighted
+  SDID absorbs much of it (+6.4 to +7.2 far out, ~0 by −5/−4), but
+  near-treatment leads deteriorate: −1 lead goes −2.7 → −6.3 (SE 1.6),
+  −3/−2 flip from ~0 to −1.7/−1.9. Eq-SDID leads stay small and noisy
+  all the way back (−3.9 … +0.4).
+- Post effects deepen ~5 pts uniformly (sdid_w headline −17.45 → −22.45;
+  post path −16/−16/−14/−23 → −22/−21/−19/−29), SEs up ~15–20%. Eq specs
+  remain near zero / insignificant in both vintages, so the eq-vs-weighted
+  contrast *widens* with the longer window.
+
+Open items:
+
+- [ ] Decide whether the 2005 window goes in as a robustness exhibit
+      (event-study figure + estimates row) in paper or supplement
+- [ ] If it goes in: the weighted-SDID −1 lead of −6.3 (~4 SEs, ~29% of
+      the on-impact effect vs 17% in the 2009 window) is the obvious
+      referee target — add a sentence connecting the 2013 dip to
+      anticipation/woodwork and the existing placebo-bias discussion
+
 ## Submission logistics (Elsevier)
 
 - [ ] `devtools::check()` clean pass
