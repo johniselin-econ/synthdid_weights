@@ -71,14 +71,18 @@ STAGES <- list(
       "app_estimates.csv", "app_scalars.csv", "event_studies.csv",
       "heterogeneity.csv", "robustness.csv", "headline_comparison.csv",
       "placebo_intime.csv", "placebo_distribution.csv",
+      "detrended_results.csv", "binned_results.csv", "event_study_draws.csv",
+      "omega_size_bins.csv",
       "sc_results.csv", "sc_diagnostics.csv", "sc_loo.csv", "sc_intime.csv",
       "sc_event_studies.csv", "omega_weights.csv", "loo_results.csv",
-      "dlps_results.csv", "sc_scalars.csv"
+      "dlps_results.csv", "dlps_placebo.csv", "dlps_ladder.csv", "sc_scalars.csv"
     ))
   ),
   mc = list(
-    scripts = file.path("scripts", c("run_mc_simulations.R", "run_solutions_mc.R")),
-    outputs = file.path("paper", "data", c("mc_results.csv", "mc_solutions_results.csv"))
+    scripts = file.path("scripts", c("run_mc_simulations.R", "run_solutions_mc.R",
+                                     "run_trend_mc.R")),
+    outputs = file.path("paper", "data", c("mc_results.csv", "mc_solutions_results.csv",
+                                           "mc_trend_results.csv"))
   ),
   render = list(
     scripts = file.path("paper", "_build_all.R"),
