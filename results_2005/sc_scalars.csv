@@ -1,0 +1,10 @@
+name,value
+eff_N0_unwt,1627.8582263440521
+eff_N0_wt,1573.8561843186026
+n_nonzero_unwt,1643
+n_nonzero_wt,1643
+dlps_n_complete,2821
+dlps_n_trimmed,327
+dlps_n_selected,18
+dlps_n_candidates,26
+unins_med,0.201
