@@ -1,10 +1,17 @@
 # Server build list — pieces to build before the single-vintage run
 
 2026-07-03. Companion to `draft_sketch_2026-07.md` (which marks where each
-lands as [SRV-n]). Reference implementations for SRV-2/SRV-3 are committed
-as `scripts/dev_*.R` — they reproduce the numbers in
-`extend_preperiod_2005.md` exactly and only need porting into guarded
-blocks. Delete the dev scripts after porting.
+lands as [SRV-n]).
+
+**Status 2026-07-04:** SRV-2 (`dlps_placebo`) and SRV-3 (`dlps_ladder`) are
+now PORTED into `scripts/analyze_application.R` as two self-contained,
+independently guarded blocks (after the `run_supp` block); the reference
+scripts `dev_dlps_placebo_ladder.R` and `dev_dlps_reestimated.R` have been
+removed. `dev_rr_sensitivity.R` is retained (press-side, not on this list).
+Still open before the single-vintage sequence: the `ANALYZE_FORCE=1`
+canonical rerun that actually writes `results/dlps_placebo.csv` +
+`results/dlps_ladder.csv`. SRV-1 (`mc_trend_results.csv`) and SRV-4
+(`results_2005/`) already committed.
 
 The paper/supplement chunks will be written against the exact CSV schemas
 below — please keep column names as specified.

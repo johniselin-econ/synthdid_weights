@@ -21,7 +21,8 @@
 # Outputs: results/{app_estimates,app_scalars,event_studies,robustness,
 #                   headline_comparison,heterogeneity,placebo_intime,
 #                   placebo_distribution,detrended_results,binned_results,
-#                   event_study_draws}.csv  (+ _manifest.csv)
+#                   event_study_draws,dlps_placebo,dlps_ladder}.csv
+#                   (+ _manifest.csv)
 # =============================================================================
 
 suppressPackageStartupMessages({
@@ -877,6 +878,152 @@ out(tibble::tribble(
   "unins_med",       unins_med
 ), "sc_scalars")
 }  # end SUPPLEMENT (run_supp)
+
+# =============================================================================
+# DLPS estimand-specific placebos (SRV-2) + DID->DLPS bridge ladder (SRV-3)
+# ---------------------------------------------------------------------------
+# Self-contained and independently guarded (like the SC event studies): the
+# propensity score is rebuilt from scratch here (cheap), so each block runs
+# whenever its CSV is missing regardless of the run_supp guard. Ported from
+# scripts/dev_dlps_placebo_ladder.R and dev_dlps_reestimated.R, which reproduce
+# the numbers in docs/extend_preperiod_2005.md; those dev scripts are removed.
+# Always uses the canonical panels (analysis_data.csv / analysis_data_2005.csv),
+# not ANALYZE_PANEL, mirroring BV's design like the run_supp DLPS block.
+#   dlps_placebo: in-time placebos with BV's PS weights held FIXED (functions of
+#     pre-2014 data only) and again with the FULL pipeline re-estimated at each
+#     fake onset on pre-onset data (all pre-onset mortality years as predictors).
+#   dlps_ladder : DID -> BV-DLPS bridge, one ingredient per rung, 2009-2017.
+# =============================================================================
+if (!have_all("dlps_placebo") || !have_all("dlps_ladder")) {
+set.seed(20240101)
+dl_adf <- read_csv(file.path("paper", "data", "analysis_data.csv"), show_col_types = FALSE)
+dl_ext <- read_csv(file.path("paper", "data", "analysis_data_2005.csv"), show_col_types = FALSE)
+dl_bv  <- read_csv(file.path("paper", "data", "bv_covariates.csv"), show_col_types = FALSE)
+dl_mort_yearly <- bind_rows(
+  read_csv(file.path("paper", "data", "county_mortality_pre.csv"), show_col_types = FALSE) %>%
+    select(fips, year, crude_rate),
+  dl_adf %>% filter(year == 2009) %>% select(fips, year, crude_rate)
+) %>% filter(year >= 2005, year <= 2009) %>%
+  pivot_wider(names_from = year, values_from = crude_rate, names_prefix = "mort_")
+dl_mort_vars  <- paste0("mort_", 2005:2009)
+dl_panel_ctrl <- c("pct_white", "pct_55_64", "log_20_64", "log_35_44", "log_f_20_64", "unemp")
+dl_bv_vars    <- c("pct_male", "pct_black", "pct_hispanic", "pct_2024", "pct_2534", "pct_3544",
+                   "pct_4554", "pct_5564", "poverty_rate", "log_median_income", "log_pop_density",
+                   "uninsured_rate", "dem_governor_2010", "obama_share_2008", "obama_share_2012")
+
+# double-lasso covariate selection + logit propensity score (shared by the
+# fixed placebo and the ladder; the reestimated placebo re-runs it per onset)
+dl_select_ps <- function(dat, cvars, yvars) {
+  X <- scale(as.matrix(dat[, cvars])); X[!is.finite(X)] <- 0
+  D <- dat$expansion; Yv <- rowMeans(dat[, yvars])
+  if (requireNamespace("RPtests", quietly = TRUE)) {
+    st <- which(abs(RPtests::sqrt_lasso(X, as.numeric(D))) > 1e-8)
+    so <- which(abs(RPtests::sqrt_lasso(X, as.numeric(scale(Yv)))) > 1e-8)
+  } else {
+    st <- which(hdm::rlassologit(X, D, post = TRUE)$index)
+    so <- which(hdm::rlasso(X, Yv, post = TRUE)$index)
+  }
+  su <- sort(unique(c(st, so)))
+  predict(glm(D ~ ., data = data.frame(D = D, X[, su, drop = FALSE]),
+              family = binomial()), type = "response")
+}
+
+# state-clustered weighted TWFE -> numeric (estimate, se, nobs)
+dl_twfe <- function(dat, wcol, controls = NULL) {
+  rhs <- paste(c("treated_post", controls), collapse = " + ")
+  m <- fixest::feols(stats::as.formula(paste0("crude_rate ~ ", rhs, " | fips + year")),
+                     data = dat, weights = stats::as.formula(paste0("~", wcol)),
+                     cluster = ~ state_fips_n)
+  ct <- fixest::coeftable(m)["treated_post", ]
+  c(estimate = unname(ct[1]), se = unname(ct[2]), n = stats::nobs(m))
+}
+
+# canonical PS (BV vintage: 2005-2009 mortality predictors, 2009-2013 covariates)
+dl_base <- dl_adf %>% filter(year <= 2013) %>%
+  group_by(fips, state_fips = as.numeric(state_fips), expansion) %>%
+  summarise(across(all_of(dl_panel_ctrl), ~ mean(.x, na.rm = TRUE)), .groups = "drop") %>%
+  left_join(dl_bv %>% select(fips, all_of(dl_bv_vars)), by = "fips") %>%
+  left_join(dl_mort_yearly, by = "fips") %>% drop_na()
+dl_base$ps <- dl_select_ps(dl_base, c(dl_panel_ctrl, dl_bv_vars, dl_mort_vars), dl_mort_vars)
+dl_trim <- dl_base %>% filter(ps >= 0.038, ps <= 0.971) %>%
+  mutate(ipw = if_else(expansion == 1, 1, ps / (1 - ps)))
+
+## ---- SRV-2: DLPS in-time placebos --------------------------------------
+if (!have_all("dlps_placebo")) {
+  dl_row <- function(window, onset, variant, spec, dat, controls) {
+    v <- dl_twfe(dat, "final_weight", controls)
+    tibble(window = window, onset = onset, variant = variant, spec = spec,
+           estimate = v[["estimate"]], se = v[["se"]], n = v[["n"]])
+  }
+  # (a) fixed variant: hold the canonical PS weights, move the outcome window
+  dl_fixed_onset <- function(onset, window) {
+    panel <- if (window == "2009-2013") dl_adf %>% filter(year <= 2013)
+             else                        dl_ext %>% filter(year <= 2013)
+    d <- panel %>% inner_join(dl_trim %>% select(fips, ipw), by = "fips") %>%
+      mutate(final_weight = population * ipw, state_fips_n = as.numeric(state_fips),
+             treated_post = expansion * as.integer(year >= onset))
+    bind_rows(dl_row(window, onset, "fixed", "base",     d, NULL),
+              dl_row(window, onset, "fixed", "controls", d, dl_panel_ctrl))
+  }
+  # (b) reestimated variant: re-fit the full pipeline on pre-onset data only,
+  #     using ALL pre-onset mortality years as predictors (generous best case).
+  #     ACS/SAHIE/political covariates keep their fixed 2009-2013 vintage.
+  dl_mort_wide <- dl_ext %>% select(fips, year, crude_rate) %>%
+    pivot_wider(names_from = year, values_from = crude_rate, names_prefix = "mort_")
+  dl_reest_onset <- function(onset, w_start, window) {
+    mort_vars_py <- paste0("mort_", w_start:(onset - 1))
+    base <- dl_ext %>% filter(year >= w_start, year < onset) %>%
+      group_by(fips, state_fips = as.numeric(state_fips), expansion) %>%
+      summarise(across(all_of(dl_panel_ctrl), ~ mean(.x, na.rm = TRUE)), .groups = "drop") %>%
+      left_join(dl_bv %>% select(fips, all_of(dl_bv_vars)), by = "fips") %>%
+      left_join(dl_mort_wide %>% select(fips, all_of(mort_vars_py)), by = "fips") %>%
+      drop_na()
+    base$ps <- dl_select_ps(base, c(dl_panel_ctrl, dl_bv_vars, mort_vars_py), mort_vars_py)
+    trim <- base %>% filter(ps >= 0.038, ps <= 0.971) %>%
+      mutate(ipw = if_else(expansion == 1, 1, ps / (1 - ps)))
+    d <- dl_ext %>% filter(year >= w_start, year <= 2013) %>%
+      inner_join(trim %>% select(fips, ipw), by = "fips") %>%
+      mutate(final_weight = population * ipw, state_fips_n = as.numeric(state_fips),
+             treated_post = expansion * as.integer(year >= onset))
+    bind_rows(dl_row(window, onset, "reestimated", "base",     d, NULL),
+              dl_row(window, onset, "reestimated", "controls", d, dl_panel_ctrl))
+  }
+  dlps_placebo <- bind_rows(
+    map_dfr(2011:2012, ~ dl_fixed_onset(.x, "2009-2013")),
+    map_dfr(2009:2012, ~ dl_fixed_onset(.x, "2005-2013")),
+    map_dfr(2009:2012, ~ dl_reest_onset(.x, 2005, "2005-2013")),
+    map_dfr(2011:2012, ~ dl_reest_onset(.x, 2009, "2009-2013"))
+  )
+  out(dlps_placebo, "dlps_placebo")
+} else message("[skip] DLPS placebo present")
+
+## ---- SRV-3: DID -> DLPS bridge ladder (2009-2017) ----------------------
+if (!have_all("dlps_ladder")) {
+  full <- dl_adf %>% mutate(treated_post = expansion * as.integer(year >= 2014),
+                            state_fips_n = as.numeric(state_fips), final_weight = population)
+  cc    <- full %>% semi_join(dl_base, by = "fips")
+  trimd <- full %>% semi_join(dl_trim, by = "fips")
+  ipw_cc   <- full %>% inner_join(
+    dl_base %>% transmute(fips, ipw = if_else(expansion == 1, 1, ps / (1 - ps))), by = "fips") %>%
+    mutate(final_weight = population * ipw)
+  ipw_trim <- full %>% inner_join(dl_trim %>% select(fips, ipw), by = "fips") %>%
+    mutate(final_weight = population * ipw)
+  ladder_spec <- list(
+    list("L1", "pop TWFE, all counties",                     full,     NULL),
+    list("L2", "pop TWFE, complete-case",                    cc,       NULL),
+    list("L3", "pop TWFE, PS-trimmed sample",                trimd,    NULL),
+    list("L4", "pop x IPW, complete-case untrimmed",         ipw_cc,   NULL),
+    list("L5", "pop x IPW, trimmed [BV base]",               ipw_trim, NULL),
+    list("L6", "pop x IPW, trimmed + controls [BV preferred]", ipw_trim, dl_panel_ctrl)
+  )
+  dlps_ladder <- map_dfr(ladder_spec, function(s) {
+    v <- dl_twfe(s[[3]], "final_weight", s[[4]])
+    tibble(rung = s[[1]], label = s[[2]], n_counties = n_distinct(s[[3]]$fips),
+           estimate = v[["estimate"]], se = v[["se"]])
+  })
+  out(dlps_ladder, "dlps_ladder")
+} else message("[skip] DLPS ladder present")
+} else message("[skip] DLPS placebo + ladder present")
 
 # =============================================================================
 # SC event studies (supplement Appendix E.1), equally- and population-weighted
