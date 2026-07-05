@@ -6,6 +6,32 @@ supplement that develop the method and apply it to the 2014 ACA Medicaid
 expansion (county mortality, building on Borgschulte & Vogler 2020).
 Target: Elsevier journal submission.
 
+## Repository state (consolidated 2026-07-05)
+
+Everything lives on a **single branch, `master`** (@ `d3e7dfc`,
+"single-vintage cluster rebuild"). All feature branches were fast-
+forwarded/merged into master and deleted:
+
+- `extend-preperiod-2005` — the 2005 pre-period extension + trend-robust
+  variants + DLPS placebo/ladder + MC trend cell; was the furthest-ahead
+  branch and became master via a clean fast-forward.
+- `pipeline-restructure`, `portable-build-renv` — already contained in
+  master's history; deleted as redundant.
+- `erica_test` — the **Jan-2026 ancestral HTML working draft**
+  (`vignettes/sdid_weights_paper_html.Rmd`). Reviewed 2026-07-05 and
+  found to be a **strict subset** of the current `paper/` + supplement:
+  its three-solutions framing is already Appendix "Alternative Approaches
+  to Weighted Estimation" (with a Sol 1/2/3 Monte Carlo horserace), its
+  DLPS/helper code is superseded by the package + `analyze_application.R`,
+  and its §2.7 inference claim (rate √N_co, variance driven by N_co) is
+  **inconsistent with** the adopted theory (CLT at √N₁ᵉᶠᶠ, driven by the
+  effective number of *treated* units) — do NOT reintroduce it. Nothing
+  to port; branch deleted (recoverable via reflog). Erica remains a
+  credited coauthor.
+
+Only `origin/master` remains on the fork; `upstream/*` (original
+synthdid) is untouched.
+
 ## Architecture: results factory vs. PDF press
 
 Heavy computation and document rendering are fully decoupled, sharing
