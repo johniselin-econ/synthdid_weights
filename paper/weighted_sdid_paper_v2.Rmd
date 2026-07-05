@@ -1,0 +1,888 @@
+---
+title: "Weighted Synthetic Difference-in-Differences"
+author: "John Iselin\\thanks{The Budget Lab at Yale. Corresponding author: john.iselin@yale.edu} \\and Erica Ryan\\thanks{Amazon}"
+date: "`r format(Sys.Date(), '%B %Y')`"
+output:
+  pdf_document:
+    latex_engine: pdflatex
+    number_sections: true
+    keep_tex: true
+    fig_caption: true
+    citation_package: natbib
+    includes:
+      in_header: header.tex
+bibliography: references.bib
+biblio-style: elsarticle-harv
+fontsize: 11pt
+geometry: margin=1in
+linestretch: 1.4
+abstract: |
+ We extend synthetic difference-in-differences (SDID) to allow researcher-specified treated-unit weights. This extension, implemented via a single modification of the collapsed form of @arkhangelsky2021, allows researchers to specify the estimand of interest. We adapt the bootstrap, jackknife, and placebo variance estimators in two ways: allowing treated-unit weights and adding cluster-robust versions. We further establish consistency and asymptotic normality of the weighted estimator under a condition requiring the effective number of treated units to grow. Because that condition is often strained, as in our application, we recommend cluster-robust bootstrap inference and a paired-bootstrap test of the gap between estimands as an ex-ante diagnostic. Researcher weights fix both the estimand and its identification burden: the oracle-matching condition must hold for the weighted treated composite, so it can hold under equal weights and fail under population weights in the same panel. We therefore pair the estimator with an estimand-specific placebo and two trend-robust variants, a unit-detrended and a size-stratified weighted SDID, and implement all of it as an extension to the \texttt{synthdid} R package. Applied to the 2014 ACA Medicaid expansion, equal weighting yields a precise null while population weighting yields roughly 17 fewer deaths per 100,000. But the population-weighted estimate fails its in-time placebo: it loads on a pre-existing mortality decline in the largest urban counties that level-matched comparisons cannot remove, and that also biases the published propensity-score benchmark. Trend-robust estimates cluster near 2 to 5 fewer deaths and cannot be distinguished from zero. The weighting choice thus changes the answer through two channels: the estimand it selects, and the identification that estimand demands.
+
+  \medskip\noindent
+  \textbf{Keywords:} Synthetic difference-in-differences, causal inference, panel data, heterogeneous treatment effects, Medicaid expansion
+
+  \medskip\noindent
+  \textbf{JEL Codes:} C21, C23, I13
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 6.5,
+  fig.height = 4,
+  fig.align = "center",
+  out.width = "90%",
+  cache = TRUE
+)
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(kableExtra)
+
+# This build only reads and formats the committed results/ tables (see the
+# load-results chunk); it computes nothing from the synthdid functions, so the
+# package/source is not loaded here.
+set.seed(20240101)
+
+# Shared series aesthetics for the two-series (equal vs. population) figures,
+# designed for black-and-white readability via REDUNDANT encoding: hue +
+# luminance (Okabe-Ito blue/orange differ in luminance, so they stay distinct in
+# grayscale) + point shape + line type. Reference these everywhere instead of
+# re-specifying scales inline, so the encoding is consistent across figures.
+w_pal <- c("Equally weighted" = "#0072B2", "Population weighted" = "#E69F00")
+w_lty <- c("Equally weighted" = "solid",   "Population weighted" = "dashed")
+w_shp <- c("Equally weighted" = 16,        "Population weighted" = 17)
+```
+
+```{r load-headline, include=FALSE}
+## Headline scalars used in the Introduction and Discussion, loaded here---
+## before the Section 3 load-results chunk---so the narrative never hardcodes
+## numbers that drift with the results vintage (see results/_manifest.csv for
+## the seed, git SHA, and replication counts).
+.rdh    <- function(f) readr::read_csv(file.path("..", "results", f), show_col_types = FALSE)
+.est_h  <- .rdh("app_estimates.csv"); .rob_h <- .rdh("robustness.csv")
+.detr_h <- .rdh("detrended_results.csv"); .bin_h <- .rdh("binned_results.csv")
+.lad_h  <- .rdh("dlps_ladder.csv")
+hl_sdid     <- .rob_h$estimate[.rob_h$spec == "equal"]        # equally-weighted SDID
+hl_sdid_w   <- .est_h$estimate[.est_h$spec == "sdid_w"]       # population-weighted SDID
+hl_detr_w   <- .detr_h$estimate_wt[.detr_h$sample == "headline"]   # detrended, population weighted
+hl_strat_w  <- .bin_h$estimate[.bin_h$weighting == "wt" &
+                               .bin_h$stratum == "aggregate" &
+                               .bin_h$onset_year == 2014]     # stratified aggregate, population weighted
+hl_bv_repro <- .lad_h$estimate[.lad_h$rung == "L6"]           # our public-data DLPS reproduction
+hl_bv_pub   <- -11.36                                         # BV (2020) published, Table 2 col. 2
+```
+
+\setcounter{secnumdepth}{3}
+
+# Introduction
+
+The synthetic difference-in-differences (SDID) estimator of @arkhangelsky2021 has become a workhorse for causal inference in panel settings, combining the strengths of the synthetic control method (SCM) [@abadie2010] and difference-in-differences by using data-driven unit weights $\hat{\omega}$ and time weights $\hat{\lambda}$ while permitting level differences across units. When multiple units are treated, the standard SDID implementation averages them equally: each treated unit contributes $1/N_1$ to both the target estimand and the construction of the synthetic control. This convention likely reflects the origins of the estimator in the SCM, which was developed for settings with a single treated unit [@abadie2010].
+
+This way of accounting for multiple treated units means that when treatment effects are heterogeneous and correlated with unit size, the equally-weighted estimand can diverge sharply from estimands that researchers actually care about: for example, per-capita treatment effects, average effects on the population exposed to treatment, or effects on subpopulations of policy interest. A growing literature has emphasized that aggregation choices in panel estimators are not innocuous: @gibbons2019 show that two-way fixed-effects regressions implicitly weight observations in ways that may diverge from any natural causal estimand; @sloczynski2022 extends this critique to OLS with heterogeneous effects; @callaway2021 and @dechaisemartin2020 develop frameworks for staggered-adoption settings in which conventional aggregations can produce negatively-weighted combinations of unit-specific effects. 
+
+We make four contributions. First, we develop a weighted SDID estimator that replaces the uniform $1/N_1$ averaging with researcher-chosen weights $\tilde{\omega}_j$ in the collapsed form of the outcome matrix. The modification is parsimonious (a single change to the optimization target) and propagates naturally through the data-driven control and time weights $\hat{\omega}^w, \hat{\lambda}^w$. Standard SDID is recovered when $\tilde{\omega}_j = 1/N_1$, and weighted DID and weighted SCM emerge as boundary cases. Second, we establish consistency and asymptotic normality of the weighted estimator under conditions that inherit from the original SDID factor-model framework, supplemented by a Lindeberg-type requirement that the *effective* number of treated units, the Kish $N_1^{\text{eff}} = (\sum_j \tilde\omega_j^2)^{-1}$, grow with $N_1$. We document that this condition loses its practical bite in many policy-relevant applications, including ours, and motivate alternative inference procedures as the appropriate finite-sample tool. Third, we adapt all three variance estimators of @arkhangelsky2021 (bootstrap, jackknife, and placebo) to the weighted case with appropriate weight renormalization, and extend the bootstrap to handle clustered treatment assignment following @clarke2023. Fourth, we show that the weights select not only an estimand but an identification burden: the oracle-matching condition behind SDID is a statement about the *weighted* treated composite, so it can hold under equal weights and fail under population weights in the same panel with the same estimator. We turn this into a workflow---an estimand-specific placebo run at the reported weights, backed by two trend-robust variants of the weighted estimator (a unit-detrended and a size-stratified SDID) that target the leading failure mode, a trend factor whose loadings covary with the weights [@powell2022; @ferman2021; @rambachan2023; @abadie_lhour2021]. The full set of estimators is implemented as an extension to the \texttt{synthdid} R package.\footnote{Available at \url{https://github.com/johniselin-econ/synthdid_weights}. Replication code and a companion supplementary appendix with proofs and additional robustness checks are also provided.}
+
+We apply the method to the county-level mortality effects of the ACA's 2014 Medicaid expansion, following the design of @borgschulte2020. They use double-lasso propensity score (DLPS) weighting to address pre-existing differences in mortality trends between expansion and non-expansion counties---a setting where SDID's data-driven reweighting is a natural alternative. Treated counties range from under 10,000 to over 10 million residents, making the weighting choice consequential. The equally-weighted (i.e., standard) SDID estimate is statistically indistinguishable from zero. The population-weighted SDID estimate is approximately $-17.5$ deaths per 100,000, of the same order as the $-11.36$ that @borgschulte2020 obtain via double-lasso propensity-score weighting, a benchmark we revisit below. The divergence from the equally-weighted estimate is driven entirely by the weighting choice, not the estimator: a parallel weighted DID exercise produces qualitatively identical results. A binned scatter of unit-level treatment effects against log county population shows that effects in small and mid-sized counties oscillate around zero while the largest urban counties exhibit reductions exceeding $25$ deaths per 100,000---the heterogeneity-size gradient that drives the result. The population-weighted estimate is robust to alternative weight specifications (2010 vs.\ 2013 base years, square-root population), to leave-one-out exclusion of large counties, and to an in-space placebo. It is not, however, robust to the sharper falsification. An in-time placebo that assigns simulated pre-2014 onsets returns the same large negative estimate under population weighting, while the equally-weighted placebo stays at zero: the largest counties were already on a differential mortality decline that SDID's convex, level-matched control weights cannot difference out, and equal weighting passes the placebo only because opposing size-correlated trends net out. Two trend-robust variants of the weighted estimator (a unit-detrended and a size-stratified SDID, both targeting the same population-weighted estimand) leave an effect of roughly `r round(abs(hl_detr_w))` to `r round(abs(hl_strat_w))` fewer deaths per 100,000, no longer distinguishable from zero. The same falsification defeats the published DLPS benchmark, whose $-11.36$ sits at the edge of this range. In this application the choice of weights did more than pick a larger number: it changed whether that number was identified at all, which is what the divergence test and the trend-robust variants are built to detect.
+
+Section 2 develops the weighted estimator, its asymptotic theory, the inference procedures, and the two trend-robust variants. Section 3 applies the method to the ACA Medicaid expansion; its estimand-specific diagnostics (Section 3.6) and trend-robust estimates (Section 3.7) are where the identification-burden lesson is drawn empirically. Section 4 reports Monte Carlo evidence on finite-sample bias and coverage, including a design in which a weight-correlated trend violates identification for the population-weighted target alone. Section 5 concludes.
+
+
+# The Weighted SDID Estimator
+
+## Setup
+
+Consider a balanced panel with $N$ units observed over $T$ periods. The first $N_0$ units are untreated controls; the remaining $N_1 = N - N_0$ are treated beginning at period $T_0 + 1$, with $T_1 = T - T_0$ post-treatment periods. Define the treatment indicator $W_{it} = \mathbf{1}\{i > N_0\} \cdot \mathbf{1}\{t > T_0\}$ and observed outcomes $Y_{it} = Y_{it}(0) + \tau_{it} W_{it}$, where $\tau_{it}$ is the unit-time treatment effect.
+
+Following @arkhangelsky2021, the standard SDID estimator solves
+\begin{equation} \label{eq:sdid-regression}
+(\hat{\tau}^{\text{sdid}}, \hat{\mu}, \hat{\alpha}, \hat{\beta}) = \underset{\tau, \mu, \alpha_i, \beta_t}{\arg\min} \sum_{i=1}^{N} \sum_{t=1}^{T} \left( Y_{it} - \mu - \alpha_i - \beta_t - \tau \cdot W_{it} \right)^2 \hat{\omega}_i \hat{\lambda}_t,
+\end{equation}
+where $\hat{\omega}_i$ and $\hat{\lambda}_t$ are data-driven unit and time weights. This admits a closed-form solution with a *collapsed form* $\tilde{Y}$, an $(N_0+1) \times (T_0+1)$ matrix in which the last row averages treated units and the last column averages post-treatment periods:
+\begin{equation} \label{eq:collapsed}
+\tilde{Y}_{N_0+1, t} = \frac{1}{N_1} \sum_{j=1}^{N_1} Y_{N_0+j,t}, \quad
+\tilde{Y}_{i, T_0+1} = \frac{1}{T_1} \sum_{t=T_0+1}^{T} Y_{it}.
+\end{equation}
+Control unit weights $\hat{\omega} \in \Delta^{N_0}$ and time weights $\hat{\lambda} \in \Delta^{T_0}$ solve the penalized matching programs
+\begin{align}
+(\hat\omega_0, \hat\omega) &= \underset{\omega_0 \in \mathbb{R},\; \omega \in \Delta^{N_0}}{\arg\min} \; \sum_{t=1}^{T_0}\Big(\omega_0 + \sum_{i=1}^{N_0}\omega_i Y_{it} - \tilde Y_{N_0+1, t}\Big)^2 + \zeta^2 T_0 \|\omega\|_2^2, \label{eq:omega-program}\\
+(\hat\lambda_0, \hat\lambda) &= \underset{\lambda_0 \in \mathbb{R},\; \lambda \in \Delta^{T_0}}{\arg\min} \; \sum_{i=1}^{N_0}\Big(\lambda_0 + \sum_{s=1}^{T_0}\lambda_s Y_{is} - \tilde Y_{i, T_0+1}\Big)^2, \label{eq:lambda-program}
+\end{align}
+where $\zeta$ is the regularization level of @arkhangelsky2021: the intercepts permit level differences between the treated average and its synthetic control, and the ridge penalty spreads $\hat\omega$ across control units. Both programs are solved by Frank-Wolfe iterations on the simplex. The treatment effect is the bilinear form
+\begin{equation} \label{eq:tau-sdid}
+\hat{\tau}^{\text{sdid}} = \begin{pmatrix} -\hat{\omega} \\ \frac{1}{N_1}\mathbf{1}_{N_1} \end{pmatrix}^\top Y \begin{pmatrix} -\hat{\lambda} \\ \frac{1}{T_1}\mathbf{1}_{T_1} \end{pmatrix}.
+\end{equation}
+
+The key observation that motivates our extension is that the equal weights $1/N_1$ appear in two distinct places: in the collapsed form \eqref{eq:collapsed} that determines *which* synthetic control is constructed, and in the treated-row block of \eqref{eq:tau-sdid} that determines *which* treated average is being matched. In standard SDID, both are uniform by convention. Researchers who care about a non-uniform target estimand (per-capita effects, effects weighted by exposure or population) should reweight both.
+
+## The Weighted Modification
+
+Let $\tilde{\omega} = (\tilde{\omega}_1, \ldots, \tilde{\omega}_{N_1})$ be researcher-specified non-negative weights on treated units, normalized so $\sum_j \tilde{\omega}_j = 1$. The target estimand is
+\begin{equation} \label{eq:estimand}
+\tau^{(\tilde{\omega})} = \sum_{j=1}^{N_1} \tilde{\omega}_j \, \bar{\tau}_j, \quad \bar{\tau}_j = T_1^{-1}\sum_{t=T_0+1}^{T} \tau_{N_0+j, t}.
+\end{equation}
+We modify SDID by replacing the uniform average in the treated row of the collapsed form with the weighted average:
+\begin{equation} \label{eq:collapsed-w}
+\tilde{Y}^w_{N_0+1, t} = \sum_{j=1}^{N_1} \tilde{\omega}_j Y_{N_0+j,t}, \quad
+\tilde{Y}^w_{i, T_0+1} = \frac{1}{T_1} \sum_{t=T_0+1}^{T} Y_{it}.
+\end{equation}
+Control weights $\hat{\omega}^w$ and time weights $\hat{\lambda}^w$ are estimated from $\tilde{Y}^w$ via the same Frank-Wolfe algorithm (no modification to the solver is needed) and the weighted treatment effect is
+\begin{equation} \label{eq:tau-w}
+\hat{\tau}^{w} = \begin{pmatrix} -\hat{\omega}^w \\ \tilde{\omega} \end{pmatrix}^\top Y \begin{pmatrix} -\hat{\lambda}^w \\ \frac{1}{T_1}\mathbf{1}_{T_1} \end{pmatrix}.
+\end{equation}
+The modification is concentrated in two places: the collapsed form that feeds the weight solver, and the treated-unit block of the bilinear form. Equation \eqref{eq:tau-w} preserves the double-difference structure and delivers two boundary cases. Setting $\tilde{\omega}_j = 1/N_1$ for all $j$ recovers $\hat{\tau}^{\text{sdid}}$ exactly: the collapsed form \eqref{eq:collapsed-w} reduces to \eqref{eq:collapsed}, the Frank-Wolfe solutions coincide, and \eqref{eq:tau-w} reduces to \eqref{eq:tau-sdid}. The weighted analogues of the constituent estimators emerge at the remaining boundaries: fixing $\hat{\omega} = \mathbf{1}_{N_0}/N_0$ and $\hat{\lambda} = \mathbf{1}_{T_0}/T_0$ produces a weighted DID estimator, while fixing $\hat{\lambda} = \mathbf{0}$ produces a weighted synthetic control estimator.
+
+The interpretation of \eqref{eq:tau-w} as a sample analogue of \eqref{eq:estimand} is that the synthetic control trajectory is constructed to match the weighted treated trajectory in pre-treatment periods, so that the post-treatment double-difference recovers the weighted average of unit-level treatment effects.
+
+\paragraph{A two-unit example.} The choice of $\tilde\omega$ matters exactly when treatment effects covary with the weights. From \eqref{eq:estimand}, the gap between the weighted and equally-weighted estimands is
+$$\tau^{(\tilde\omega)} - \tau^{(1/N_1)} = \sum_{j=1}^{N_1}\left(\tilde\omega_j - \frac{1}{N_1}\right)\bar\tau_j = \sum_{j=1}^{N_1}\left(\tilde\omega_j - \frac{1}{N_1}\right)\left(\bar\tau_j - \bar{\bar\tau}\,\right),$$
+where $\bar{\bar\tau} = N_1^{-1}\sum_j \bar\tau_j$ (the second equality holds because the weight deviations sum to zero)---an empirical covariance between weights and unit-level effects. Table 1 walks through a concrete case: $N_1 = 2$, with one large treated unit ($\tilde\omega_1 = 0.9$, $\bar\tau_1 = -15$) and one small unit ($\tilde\omega_2 = 0.1$, $\bar\tau_2 = +10$). The unit-level effects are held fixed across the table's three weighting schemes; only the weights change, and each estimand is the sum of the weight $\times$ effect contributions in its column pair. Population weighting yields $0.9(-15) + 0.1(10) = -12.5$ against the equally-weighted $(-15+10)/2 = -2.5$; the gap of $-10$ is exactly the covariance term above. Under the assumptions of Section 2.3, each estimator is consistent for its own target, so the gap is not a bias of either: the two numbers answer different questions. Heterogeneity alone is not sufficient. Reversing the weights (the final column pair) moves the weighted estimand to $+7.5$ without touching either unit's effect, and homogeneous effects ($\bar\tau_1 = \bar\tau_2 = -2.5$) would make all three schemes return $-2.5$. Both heterogeneous effects *and* weight--effect correlation are required, which is what the binned scatter of Section 3.3 diagnoses in our application.
+
+\paragraph{Trend heterogeneity.} The same covariance algebra exposes a second channel, one that concerns identification rather than the choice of target. Suppose the untreated potential outcome of treated unit $j$ carries a differential linear trend $\delta_j$ per period that no convex combination of controls reproduces. It survives the post-minus-pre double difference in proportion to the gap $g$ between the post-period center and the $\hat\lambda$-weighted pre-period center, biasing the weighted estimand by $g\sum_j \tilde\omega_j \delta_j = g\big[\operatorname{cov}(\tilde\omega_j, \delta_j) + \bar\delta\,\big]$. When the trend averages to zero across treated units ($\bar\delta = 0$) but correlates with the weights, the bias is $g\operatorname{cov}(\tilde\omega_j, \delta_j)$: the estimand gap above, now in trends rather than effects. Trend heterogeneity correlated with the weights therefore biases the weighted target exactly where effect heterogeneity moves it, while the equally-weighted target ($\tilde\omega_j = 1/N_1$) is largely insulated. This is the failure our ACA application runs into, and Section 3.6 confronts it.
+
+```{r two-unit-table}
+two_unit <- tibble::tibble(
+  unit = c("1 (large)", "2 (small)", "Estimand"),
+  tau  = c("$-15$",  "$+10$",  ""),
+  eq_w = c("$0.5$",  "$0.5$",  ""),
+  eq_c = c("$-7.5$", "$+5.0$", "$-2.5$"),
+  pw_w = c("$0.9$",  "$0.1$",  ""),
+  pw_c = c("$-13.5$", "$+1.0$", "$-12.5$"),
+  rv_w = c("$0.1$",  "$0.9$",  ""),
+  rv_c = c("$-1.5$", "$+9.0$", "$+7.5$")
+)
+
+kableExtra::kbl(
+  two_unit, booktabs = TRUE, escape = FALSE,
+  caption = "The two-unit example: three estimands from the same unit-level effects.",
+  col.names = c("Unit $j$", "$\\bar\\tau_j$",
+                "$\\tilde\\omega_j$", "$\\tilde\\omega_j \\bar\\tau_j$",
+                "$\\tilde\\omega_j$", "$\\tilde\\omega_j \\bar\\tau_j$",
+                "$\\tilde\\omega_j$", "$\\tilde\\omega_j \\bar\\tau_j$"),
+  align = c("l", rep("r", 7))
+) %>%
+  kableExtra::add_header_above(
+    c(" " = 2, "Equal" = 2, "Population" = 2, "Reversed" = 2)) %>%
+  kableExtra::row_spec(2, hline_after = TRUE) %>%
+  kableExtra::kable_styling(latex_options = "hold_position") %>%
+  kableExtra::footnote(
+    general = paste(
+      "Unit-level average effects $\\\\bar\\\\tau_j$ are identical in every column pair; only the",
+      "treated-unit weights $\\\\tilde\\\\omega$ change. Each estimand $\\\\tau^{(\\\\tilde\\\\omega)} = \\\\sum_j \\\\tilde\\\\omega_j \\\\bar\\\\tau_j$",
+      "is the sum of the contributions above it. The gap between any two estimands equals the",
+      "covariance between the weight deviations and the unit-level effects; with homogeneous",
+      "effects ($\\\\bar\\\\tau_1 = \\\\bar\\\\tau_2$) all three schemes would agree."),
+    general_title = "Notes:", threeparttable = TRUE, escape = FALSE)
+```
+
+## Asymptotic Theory
+
+We establish consistency and asymptotic normality of $\hat{\tau}^w$ under conditions that inherit from the factor-model framework of @arkhangelsky2021, supplemented by regularity conditions on the treated-unit weights. The data-generating-process assumptions, stated formally as Assumptions A1--A5 in the supplementary appendix, are: (A1) outcomes follow a low-rank-plus-noise structure $Y_{it} = L_{it} + \tau_{it} W_{it} + \epsilon_{it}$ with $L_{it} = \mu_{it} + \alpha_i + \beta_t$ for some low-rank $\mu$; (A2) sub-Gaussian errors, independent across units and weakly dependent over time; (A3) factor-structure regularity; (A4) sample sizes $N_0, T_0 \to \infty$ with $\log N_0 = o(T_0)$ and $\log T_0 = o(N_0)$; (A5) existence of oracle weights $(\omega^*, \lambda^*)$ on the intercept-augmented simplex that match the weighted treated factor structure. We also impose two conditions on the treated-unit weights. Condition (W1) requires the weights to form a probability vector, $\tilde{\omega}_j \geq 0$ and $\sum_j \tilde{\omega}_j = 1$. Condition (W2) requires that $\max_j \tilde{\omega}_j \to 0$ as $N_1 \to \infty$ or, equivalently, that the Kish effective sample size $N_1^{\text{eff}} := \left(\sum_j \tilde{\omega}_j^2\right)^{-1}$ diverge.
+
+Condition (W2) rules out a single dominant treated unit and is the key requirement for the central-limit machinery to apply to the weighted treated average. It is automatically satisfied by uniform weights ($N_1^{\text{eff}} = N_1$). For population weights, it is satisfied when treated units' size shares decay at any rate (e.g., a Pareto distribution with finite second moment), but it can fail when one or two units carry a non-vanishing share of total weight in the limit. We return to this point below.
+
+\medskip
+\noindent\textbf{Proposition 1 (Consistency).} *Under Assumptions A1--A5 of @arkhangelsky2021 and (W1)--(W2),*
+$$\hat{\tau}^w \xrightarrow{p} \tau^{(\tilde{\omega})} \quad \text{as } N_0, N_1, T_0 \to \infty.$$
+
+\medskip
+\noindent\textit{Proof sketch.} Following the decomposition argument of @arkhangelsky2021, write
+$$\hat{\tau}^w - \tau^{(\tilde{\omega})} = \underbrace{\sum_{j} \tilde{\omega}_j \xi_j}_{\text{treated noise (i)}} + \underbrace{\Delta_{\text{ctrl}}}_{\text{control noise (ii)}} + \underbrace{\Delta_{\text{est}}}_{\text{weight estimation (iii)}},$$
+where $\xi_j$ is the post-minus-pre noise *contrast* for treated unit $j$ (its post-period noise average minus the oracle-$\lambda^*$-weighted pre-period noise sum), with bounded variance under (A2); the contrast form absorbs within-unit serial covariance between post- and pre-period noise. For (i): $\text{Var}\!\left(\sum_j \tilde\omega_j \xi_j\right) \leq C \sum_j \tilde\omega_j^2 = C / N_1^{\text{eff}} \to 0$ by (W2), so (i) is $o_p(1)$ by Markov's inequality. For (ii): the analogous contrast at the oracle control weights has variance bounded by $C\|\omega^*\|_2^2 \to 0$ under (A5). For (iii): the weighted target column of the collapsed form remains a fixed convex combination of treated trajectories with an oracle representation in the control block (A5), so the weight-estimation error bounds of @arkhangelsky2021 apply with $\tilde\omega$ in place of $1/N_1$, and the surviving cross term, a product of loading-space estimation errors, vanishes under (A3)--(A4). Combining (i)--(iii) gives consistency. $\square$
+
+\medskip
+\noindent\textbf{Proposition 2 (Asymptotic normality).} *Under A1--A5, (W1)--(W2), the Lindeberg condition (W3): $\max_j \tilde{\omega}_j^2 / \sum_k \tilde{\omega}_k^2 \to 0$, and a negligibility condition (R) requiring the control-noise and weight-estimation terms to vanish at the $\sqrt{N_1^{\text{eff}}}$ scale,*
+$$\sqrt{N_1^{\text{eff}}} \cdot \left( \hat{\tau}^w - \tau^{(\tilde{\omega})} \right) \xrightarrow{d} \mathcal{N}\!\left(0, \sigma_\xi^2\right),$$
+*where $\sigma_\xi^2$ is the limiting variance of the standardized weighted treated-noise contrast.*
+
+\medskip
+\noindent\textit{Proof sketch.} Component (i) of the decomposition above is a Lindeberg-CLT-eligible weighted sum: $\sqrt{N_1^{\text{eff}}} \sum_j \tilde\omega_j \xi_j$ converges in distribution to $\mathcal{N}(0, \sigma_\xi^2)$ provided no single weight dominates the variance contribution---which is precisely condition (W3). Because $\xi_j$ is a post-minus-pre contrast, $\sigma_\xi^2$ absorbs the within-unit serial covariance between post- and pre-period noise rather than assuming it away. Components (ii) and (iii) are $o_p(1)$ at the $\sqrt{N_1^{\text{eff}}}$ scale under (R); primitive sufficient conditions, inherited from the rate conditions behind @arkhangelsky2021's Theorem 1, are discussed in the supplementary appendix, which also characterizes when (R) is plausible. In finite samples, the bootstrap-based intervals we recommend capture the contributions of (ii)--(iii) regardless of whether (R) holds exactly. $\square$
+
+\medskip
+\noindent\textbf{Proposition 3 (Cluster-robust variance).} *Suppose treatment is assigned at the cluster level, with $K$ clusters indexed $k = 1, \ldots, K$, $K \to \infty$ and $\max_k \tilde\omega^{(k)} \to 0$ where $\tilde\omega^{(k)} = \sum_{j \in k} \tilde\omega_j$ is the cluster-aggregated weight, and suppose errors are independent across clusters but arbitrarily dependent within them. Then the cluster bootstrap variance estimator
+$$\widehat{V}_w^{\text{cb}} = \frac{1}{B-1}\sum_{b=1}^{B} \left(\hat{\tau}^{w,(b)} - \bar{\tau}^{w}\right)^2$$
+*is consistent for the cluster-robust asymptotic variance, which augments $\sigma_\xi^2$ with within-cluster covariance terms, where $\hat\tau^{w,(b)}$ is computed from a cluster-resampled bootstrap draw with weight renormalization $\tilde\omega_j^{(b)} = \tilde\omega_j n_j^{(b)} / \sum_{\ell=1}^{N_1} \tilde\omega_\ell n_\ell^{(b)}$.*
+
+\medskip
+\noindent\textit{Proof sketch.} The central limit argument of Proposition 2 is applied one level up, to cluster-aggregated noise contrasts whose variances absorb within-cluster covariances; standard cluster-bootstrap arguments [@cameron2008; @clarke2023] then apply to the bilinear form \eqref{eq:tau-w} provided the cluster-level weights satisfy the no-dominant-cluster condition---the Lindeberg analogue at the cluster level. The renormalization step preserves the convex-combination structure of $\tilde\omega$ within each draw. No bound on cluster sizes is required; what matters is that no cluster's weight share dominates. $\square$
+
+The companion supplementary appendix gives full proofs of all three propositions. Our purpose here is to characterize the regime in which inference based on \eqref{eq:tau-w} has the standard frequentist interpretation.
+
+\paragraph{When the asymptotics lose their bite.} Condition (W2), and its cluster-level analogue in Proposition 3, is not innocuous in applications. When researchers use population weights in panels with one or two dominant units (e.g., California Proposition 99, where one large state is treated; or our ACA application, where Los Angeles County alone carries roughly 6\% of the population-weighted treated mass), the effective sample size cannot exceed the inverse squared share of the largest unit and in practice sits far below $N_1$, however many small units the panel adds. A sequence of such weights may still satisfy (W2) formally, but the convergence is too slow for the asymptotic approximation to be reliable at realistic sample sizes. In these settings, plug-in asymptotic standard errors will understate uncertainty, and one must rely either on cluster-robust bootstrap inference at a level of aggregation where Proposition 3's no-dominant-cluster condition is plausible, or on randomization-inference and placebo-distribution tests that condition on the actual weight structure. We pursue both routes in our application.
+
+\paragraph{Identification is estimand-specific.} The parallel caveat applies to point identification, not just inference. Assumption A5 is a statement about the $\tilde\omega$-weighted treated composite: it requires a convex combination of controls to match the factor loadings of the *weighted* treated average. Changing $\tilde\omega$ changes which loadings must be matched, so A5 can hold for one weight vector and fail for another in the same panel with the same estimator---the identification burden travels with the estimand. Two consequences follow, and they organize the empirical section. The falsification tests of Section 2.4 must be run at the weights the researcher reports, since a test at the equal weights certifies only the default estimand; and when they fail, the trend-robust variants of Section 2.5 supply estimators for the leading failure mode, a trend factor whose loadings covary with the weights.
+
+## Inference
+
+We adapt the three variance estimators of @arkhangelsky2021 (bootstrap, jackknife, and placebo) to the weighted case. The key complication in resampling is the renormalization of $\tilde{\omega}$: when treated units are dropped or duplicated, the weights must be renormalized to remain a probability vector.
+
+\paragraph{Bootstrap.} In bootstrap draw $b$, treated unit $j$ appears $n_j^{(b)}$ times, and the bootstrap-adjusted weights are $\tilde{\omega}_j^{(b)} = \tilde{\omega}_j n_j^{(b)} / \sum_k \tilde{\omega}_k n_k^{(b)}$. Control weights $\hat{\omega}$ are similarly renormalized. The cluster bootstrap of @clarke2023 generalizes this to the case where clusters of units are resampled together; we extend the renormalization to act at both unit and cluster levels.
+
+\paragraph{Jackknife.} The leave-one-out jackknife renormalizes the remaining weights when a treated unit is dropped: $\tilde{\omega}_k^{(-j)} = \tilde{\omega}_k / \sum_{\ell \neq j} \tilde{\omega}_\ell$ for $k \neq j$. We use the *fixed-weight* jackknife, holding $\hat{\omega}^w$ and $\hat{\lambda}^w$ at their full-sample values. Following @arkhangelsky2021, the jackknife is not recommended for the SC variant due to non-differentiability at the boundary of the simplex.
+
+\paragraph{Placebo.} The placebo method assigns $N_1$ control units as pseudo-treated and estimates the treatment effect on them. Since the original $\tilde{\omega}$ do not naturally map to control units, our default uses uniform weights for pseudo-treated units, with software options for size-matched and permuted weighting schemes. The cluster-robust placebo extension is left to future work.
+
+\paragraph{Diagnosing estimand divergence.} Because $\hat\tau^w$ and $\hat\tau^{\text{sdid}}$ estimate different estimands, we recommend that practitioners estimate both and test whether the gap between them exceeds sampling noise. The paired bootstrap does this directly: apply identical unit (or cluster) resamples to both estimators in each replication, compute $\Delta_b = \hat\tau^w_b - \hat\tau_b$, and compare the observed gap to the recentered bootstrap distribution of $\Delta_b$. This is a Hausman-style comparison. A significant gap indicates treatment-effect heterogeneity correlated with the weights, so the estimand choice of Section 2.2 is consequential and should be made (and defended) explicitly; an insignificant gap means the weighting choice is innocuous and the equally-weighted default loses nothing. We view this as the natural ex-ante diagnostic for whether weighted SDID is needed in a given application, and we apply it in Section 3.2. The divergence test is the first step of a two-step validity check. If the estimands diverge, the researcher has committed to a non-default target, so the falsification battery---in-time placebos above all---must be re-run *under $\tilde\omega$*: a placebo at the equal weights certifies the equal-weighted estimand only, and can pass while the population-weighted target fails (Section 3.6). We read a failing estimand-specific placebo not as a fatal flaw but as the signal to deploy the trend-robust variants of Section 2.5.
+
+The supplementary appendix states each estimator in full; Section 4 reports a Monte Carlo evaluation of finite-sample bias and coverage.
+
+## Trend-Robust Variants
+
+When the estimand-specific placebo fails, the leading interpretation is a trend factor whose loadings covary with the weights---an A5 violation specific to $\tilde\omega$, in the sense of the two-unit example of Section 2.2. Two variants of the weighted estimator target it directly, each leaving the estimand $\tau^{(\tilde\omega)}$ unchanged.
+
+\paragraph{Detrended weighted SDID.} Fit a unit-specific linear trend $\hat a_i + \hat b_i t$ by ordinary least squares on each unit's *pre-onset* years only, subtract it from every period, and run weighted SDID on the residuals $\tilde{Y}_{it} = Y_{it} - \hat a_i - \hat b_i t$. Fitting the slopes on pre-treatment data alone preserves dynamic treatment effects, avoiding the contamination of jointly estimated trends [@wolfers2006]. This is the @rambachan2023 $M = 0$ counterfactual---linear extrapolation of pre-trends---turned into a point estimator, and the SDID analogue of the two-step synthetic control of @powell2022; the unit intercept that SDID already carries is the demeaning of @ferman2021, and unit detrending is the next order. Because the slopes are estimated, valid inference re-fits them inside every bootstrap draw. The variant is available as \texttt{synthdid\_estimate\_weighted(..., detrend = TRUE)}.
+
+\paragraph{Stratified weighted SDID.} Partition units on an observable that predicts the trend loadings (here, county population), run weighted SDID within each stratum with the donor pool restricted to same-stratum controls, and aggregate the within-stratum estimates using the $\tilde\omega$ stratum shares. The aggregate targets the same estimand $\tau^{(\tilde\omega)}$; only the comparisons are restricted. Stratification can succeed where the unrestricted estimator fails because SDID's ridge-regularized *level* matching is size-blind: a diffuse combination of small control counties fits the pre-period level of a large treated county as well as large controls do (Section 3.6, Table 5), so it does not select trend-comparable donors, whereas partitioning imposes that comparability by construction. Restricting comparisons to similar units is the design analogue of the penalized synthetic control of @abadie_lhour2021 and the donor-pool discipline of @abadie2021. The variant is \texttt{synthdid\_estimate\_stratified()}.
+
+Both variants are diagnostics-driven rather than default choices. Their formal properties---Propositions 1--3 carry within stratum and under the detrended factor model---and their caveats (slope-extrapolation noise for detrending, bin-boundary and thin-donor sensitivity for stratification) are in Supplementary Appendix B.6.
+
+
+# Application: The ACA Medicaid Expansion
+
+We apply the weighted SDID estimator to the county-level mortality effects of the ACA's 2014 Medicaid expansion, building on the design of @borgschulte2020. The ACA application is well-suited to demonstrating the contribution of the weighted estimator: counties differ in population by three orders of magnitude, treatment was assigned at the state level (so within-state correlation matters for inference), and there is plausible heterogeneity in mortality response across the urban--rural gradient given documented differences in baseline uninsurance rates [@sommers2016; @miller2021].
+
+## Setting and Data
+
+```{r load-results}
+## All heavy computation is precomputed by scripts/analyze_application.R and
+## committed to results/ (see results/_manifest.csv for the seed, git SHA, and
+## replication counts). This build only reads and formats those tables, so it
+## renders in seconds. The objects reconstructed below carry the names the rest
+## of the document already references.
+rd <- function(f) readr::read_csv(file.path("..", "results", f), show_col_types = FALSE)
+.est     <- rd("app_estimates.csv")
+.sc      <- rd("app_scalars.csv"); sc <- setNames(.sc$value, .sc$name)
+ev       <- rd("event_studies.csv")
+het      <- rd("heterogeneity.csv")
+rob      <- rd("robustness.csv")
+headline <- rd("headline_comparison.csv")
+pintime  <- rd("placebo_intime.csv")
+pdist    <- rd("placebo_distribution.csv")
+
+## Descriptive scalars
+n_counties <- as.integer(sc[["n_counties"]]); n_treated <- as.integer(sc[["n_treated"]])
+n_control  <- as.integer(sc[["n_control"]])
+year_range <- c(sc[["year_min"]], sc[["year_max"]]); n_years <- as.integer(sc[["n_years"]])
+T0 <- as.integer(sc[["T0"]]); T1 <- as.integer(sc[["T1"]])
+treated_pop <- list(total = sc[["treated_pop_total"]], median = sc[["treated_pop_median"]],
+                    p10 = sc[["treated_pop_p10"]], p90 = sc[["treated_pop_p90"]])
+hhi <- sc[["hhi"]]; n1_eff <- sc[["n1_eff"]]; N1 <- as.integer(sc[["N1"]])
+top1_share <- sc[["top1_share"]]; top10_share <- sc[["top10_share"]]
+n_states <- as.integer(sc[["n_states"]])
+## Treated-jurisdiction count and California's share of treated population
+## mass, computed from the heterogeneity file (one row per treated county)
+.het_st <- floor(as.numeric(het$fips) / 1000)
+n_states_treated <- length(unique(.het_st))
+ca_share_treated <- sum(het$pop[.het_st == 6]) / sum(het$pop)
+obs_diff <- sc[["obs_diff"]]; p_diverge <- sc[["p_diverge"]]; p_placebo <- sc[["p_placebo"]]
+p_diverge_text <- ifelse(p_diverge < 0.001, "$p < 0.001$", paste0("$p = ", round(p_diverge, 3), "$"))
+
+## Estimates and SEs as named vectors. Point estimates are deterministic; the
+## state-clustered (se_cluster) and county-level (se_unit) bootstrap SEs are
+## from the committed run. tau_sdid is the *standard* synthdid_estimate (the
+## robustness "equal" row), which the heterogeneity decomposition averages to
+## by construction; the Table-2 "equally weighted" cell (sdid_eq) is the
+## weighted-uniform variant and differs by ~2e-5 (Proposition 0).
+est_val    <- setNames(.est$estimate,   .est$spec)
+se_unit    <- setNames(.est$se_unit,    .est$spec)
+se_cluster <- setNames(.est$se_cluster, .est$spec)
+estimates_t1 <- as.list(est_val)          # cell()/as.numeric() work on plain numbers
+tau_did <- est_val[["did_eq"]]
+tau_sdid <- rob$estimate[rob$spec == "equal"]
+tau_did_w <- est_val[["did_w"]]; tau_sdid_w <- est_val[["sdid_w"]]
+tau_did_eq_x <- est_val[["did_eq_x"]]; tau_sdid_eq_x <- est_val[["sdid_eq_x"]]
+tau_did_w_x  <- est_val[["did_w_x"]];  tau_sdid_w_x  <- est_val[["sdid_w_x"]]
+se_sdid <- se_cluster[["sdid_eq"]]; se_did <- se_cluster[["did_eq"]]
+se_sdid_w <- se_cluster[["sdid_w"]]; se_did_w <- se_cluster[["did_w"]]
+```
+
+The sample is a balanced county-year panel covering `r year_range[1]`--`r year_range[2]` with `r format(n_counties, big.mark = ",")` counties (`r format(n_treated, big.mark = ",")` treated, `r format(n_control, big.mark = ",")` control). The outcome is the all-cause mortality rate per 100,000 among adults aged 20--64, drawn from CDC WONDER's Underlying Cause of Death file [@cdcwonder]. We use these public-use tabulations rather than the restricted-access National Vital Statistics System microdata used by @borgschulte2020; both derive from the same NCHS underlying records. The treated counties are those in the `r n_states_treated` jurisdictions (`r n_states_treated - 1` states and the District of Columbia) that expanded Medicaid coverage to childless adults effective January 1, 2014 under the ACA. Following @borgschulte2020, the six states that expanded *after* January 2014 (Alaska, Indiana, Louisiana, Montana, New Hampshire, and Pennsylvania) are excluded from the panel entirely: over the sample period they are neither cleanly treated nor valid never-treated controls. The remaining `r n_states` jurisdictions (44 states plus the District of Columbia) constitute the clusters for state-level inference. Treated-unit weights $\tilde{\omega}_j$ are each county's share of total treated-county population as of 2013. The population distribution is highly skewed: the 90th percentile county (`r format(round(treated_pop$p90), big.mark = ",")` residents) is an order of magnitude larger than the 10th percentile (`r format(round(treated_pop$p10), big.mark = ",")`).
+
+The skewness of the weight distribution is consequential for inference. The Herfindahl index of the population weights is $H = `r round(hhi, 4)`$, implying an effective number of treated units $N_1^{\text{eff}} = `r round(n1_eff, 0)`$ relative to the raw $N_1 = `r N1`$. A single county (Los Angeles County) accounts for roughly `r round(top1_share * 100, 1)`\% of total population-weighted treated mass; the ten largest counties account for `r round(top10_share * 100, 0)`\%. This concentration leaves the effective-sample-size condition (W2) of Proposition 1 with little practical bite, so we rely on cluster-robust bootstrap inference at the state level, where treatment is assigned. The no-dominant-cluster condition of Proposition 3 is more plausible across the `r n_states_treated` treated state clusters, though not comfortably satisfied, California alone accounts for roughly `r round(ca_share_treated * 100)`\% of treated population mass (Supplementary Appendix B.5), which is why we complement the cluster-bootstrap intervals with randomization inference via the in-space placebo (Section 3.6).
+
+\paragraph{Spillovers and SUTVA.} Identification treats non-expansion counties as unaffected by neighboring states' expansions. Cross-border spillovers could violate this: newly insured patients can use providers across state lines, hospital systems near borders serve mixed patient pools, and expansion may have induced enrollment among already-eligible individuals elsewhere [@frean2017; @sommers2016]. Two considerations limit the threat to our conclusions. First, the plausible direction of health-improving spillovers onto control counties *attenuates* the estimated treated--control contrast; spillovers of this kind cannot manufacture the negative population-weighted estimate, which would if anything be larger in their absence. Second, our central result (the divergence between the equally-weighted and population-weighted estimands) is a comparison within the treated group: both estimands rest on the same control pool and the same estimator class, so contamination of control counties moves the two estimates together rather than apart. Spillovers *within* treated states (say, from urban treatment intensity to neighboring rural counties) would color the interpretation of the size gradient in Figure 2, but not the existence of the divergence.
+
+## Main Results
+
+```{r main-results-table}
+stars <- function(est, se) {
+  if (is.na(est) || is.na(se)) return("")
+  p <- 2 * pnorm(-abs(est / se))
+  dplyr::case_when(p < 0.01 ~ "***", p < 0.05 ~ "**", p < 0.10 ~ "*", TRUE ~ "")
+}
+fmt <- function(x) formatC(x, digits = 2, format = "f")
+
+cell <- function(key) {
+  est <- as.numeric(estimates_t1[[key]])
+  paste0(fmt(est), stars(est, se_cluster[[key]]))
+}
+row_keys_eq <- c("did_eq", "did_eq_x", "sdid_eq", "sdid_eq_x")
+row_keys_w  <- c("did_w",  "did_w_x",  "sdid_w",  "sdid_w_x")
+
+results <- tibble::tibble(
+  Estimator    = c("DID", "DID", "SDID", "SDID"),
+  Covariates   = c("No", "Yes", "No", "Yes"),
+  eq_est       = sapply(row_keys_eq, cell),
+  eq_se_boot   = fmt(se_unit[row_keys_eq]),
+  eq_se_clust  = fmt(se_cluster[row_keys_eq]),
+  w_est        = sapply(row_keys_w, cell),
+  w_se_boot    = fmt(se_unit[row_keys_w]),
+  w_se_clust   = fmt(se_cluster[row_keys_w])
+)
+
+kableExtra::kbl(
+  results, digits = NULL, booktabs = TRUE,
+  caption = "Effect of the 2014 Medicaid expansion on county-level mortality.",
+  col.names = c("Estimator", "Covariates", "Estimate", "SE (boot)", "SE (cluster)",
+                "Estimate", "SE (boot)", "SE (cluster)"),
+  align = c("l", "c", rep("r", 6))
+) %>%
+  kableExtra::add_header_above(c(" " = 2, "Equally weighted" = 3, "Population weighted" = 3)) %>%
+  kableExtra::kable_styling(latex_options = c("hold_position", "scale_down")) %>%
+  kableExtra::footnote(
+    general = sprintf(paste(
+      "Outcome: all-cause mortality per 100,000, ages 20--64 (CDC WONDER). Sample: %s counties, %s--%s.",
+      "Each cell reports the same estimator under two standard errors: SE (boot) is the county-level bootstrap;",
+      "SE (cluster) is the state-clustered bootstrap (%s states), both with 500 replications.",
+      "Covariate rows adjust for the six time-varying county controls of Borgschulte and Vogler (2020):",
+      "percent white, percent aged 55--64, log population aged 20--64, log population aged 35--44,",
+      "log female population aged 20--64, and the unemployment rate; covariates for three FIPS-change",
+      "counties (15005, 46113, 51019) are imputed with state-year means so all rows share the same sample.",
+      "Significance stars use the state-clustered bootstrap SE: * p$<$0.10, ** p$<$0.05, *** p$<$0.01.",
+      "Synthetic control results are reported and diagnosed in Supplementary Appendix E.1."),
+      format(n_counties, big.mark = ","), year_range[1], year_range[2], n_states),
+    general_title = "Notes:", threeparttable = TRUE, escape = FALSE)
+```
+
+Table 2 reports the main results. Across both estimators, with and without covariate adjustment, the equally-weighted and population-weighted estimates diverge sharply: the equally-weighted estimates are statistically indistinguishable from zero while their population-weighted counterparts are large and negative. The equally-weighted SDID estimate is `r fmt(as.numeric(tau_sdid))` deaths per 100,000 (state-clustered bootstrap SE `r fmt(se_sdid)`); the population-weighted SDID estimate is `r fmt(as.numeric(tau_sdid_w))` (SE `r fmt(se_sdid_w)`), significant at the 1\% level. The DID estimates show the same pattern. Adjusting for the six time-varying county covariates used by @borgschulte2020 leaves both conclusions essentially unchanged (`r fmt(as.numeric(tau_sdid_eq_x))` equally weighted, `r fmt(as.numeric(tau_sdid_w_x))` population weighted for SDID), confirming that the divergence is a property of the weighting choice rather than of omitted time-varying confounders. For every specification we report both the county-level bootstrap and the state-clustered bootstrap standard error; clustering at the state level (the level at which treatment is assigned) increases the standard errors but does not change any qualitative conclusion. We exclude synthetic control from Table 2: its estimates are an extreme outlier relative to the DID--SDID family in this application, and we report them, together with the standard battery of post-estimation diagnostics that explains their magnitude, in Supplementary Appendix E.1.
+
+To confirm that the divergence between the equally-weighted and population-weighted SDID estimates is not attributable to sampling variability, we apply the paired-bootstrap divergence diagnostic recommended in Section 2.4. On each of $B = 500$ bootstrap replications we apply identical unit resamples to both estimators and compute $\Delta_b = \hat{\tau}^w_b - \hat{\tau}_b$. Recentering the bootstrap distribution to the null of no difference, the two-sided $p$-value for the observed gap of $|\Delta_{\text{obs}}| = `r abs(round(as.numeric(tau_sdid_w) - as.numeric(tau_sdid), 1))`$ deaths per 100,000 is `r p_diverge_text`. The two estimands are sharply distinguishable---in the recommended workflow, exactly the situation in which the researcher must take an explicit stand on the target estimand before reading off a policy conclusion. Both columns estimate well-defined estimands under the same assumptions; Sections 3.6 and 3.7 ask whether those assumptions in fact hold for each, and the answer differs between them.
+
+```{r event-study-both, fig.cap="Event-study decomposition under equal and population weighting.\\newline \\footnotesize\\textit{Notes:} DID (left) and SDID (right). Points are year-specific effects under equal (blue circles) and population (orange triangles) weighting of treated counties; shaded bands are 95\\% state-clustered bootstrap confidence intervals (500 replications). The vertical dashed line marks treatment onset (2014).", fig.height=4, fig.width=8, cache=TRUE}
+es_df <- ev %>% mutate(Estimator = factor(Estimator, levels = c("DID", "SDID")))
+
+rmspe_did_pre  <- es_df %>% filter(Estimator == "DID",  Weighting == "Equally weighted", year < 2014) %>% summarise(rmspe = sqrt(mean(estimate^2))) %>% pull(rmspe)
+rmspe_sdid_pre <- es_df %>% filter(Estimator == "SDID", Weighting == "Equally weighted", year < 2014) %>% summarise(rmspe = sqrt(mean(estimate^2))) %>% pull(rmspe)
+
+ggplot(es_df, aes(x = year, y = estimate, color = Weighting, fill = Weighting)) +
+  geom_ribbon(aes(ymin = ci_lower, ymax = ci_upper), alpha = 0.15, color = NA) +
+  geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
+  geom_vline(xintercept = 2013.5, linetype = "dashed", color = "gray30") +
+  geom_line(aes(linetype = Weighting), linewidth = 0.5) +
+  geom_point(aes(shape = Weighting), size = 1.3) +
+  facet_wrap(~ Estimator) +
+  scale_color_manual(values = w_pal) +
+  scale_fill_manual(values  = w_pal) +
+  scale_shape_manual(values = w_shp) +
+  scale_linetype_manual(values = w_lty) +
+  labs(x = NULL, y = "Effect on mortality\n(deaths per 100,000)",
+       color = NULL, fill = NULL, shape = NULL, linetype = NULL) +
+  theme_minimal(base_size = 10) +
+  theme(legend.position = "bottom")
+```
+
+Figure 1 displays the event-study decomposition. Under equal weighting (blue circles), pre-treatment coefficients cluster near zero for both estimators. Under population weighting (orange triangles), the DID panel shows non-trivial pre-treatment divergence between treated and control groups, raising parallel-trends concerns when larger counties are weighted more heavily---precisely the concern that motivated @borgschulte2020's DLPS approach. The SDID estimator addresses the pre-treatment fit problem through a different route: its data-driven time weights $\hat{\lambda}^w$ down-weight periods in which treated and synthetic-control trajectories diverge, yielding tighter pre-treatment coefficients in the right panel (RMSPE: `r round(rmspe_sdid_pre, 2)` for SDID vs.\ `r round(rmspe_did_pre, 2)` for DID, both equally weighted). Post-treatment, both estimators show the same qualitative pattern: under population weighting the coefficients are consistently negative ($-14$ to $-24$ deaths per 100,000); under equal weighting they fluctuate near zero. The consistency across estimators isolates the *weighting choice*, not the *estimator choice*, as the source of the divergence.
+
+## Mechanism: Heterogeneity by County Size
+
+```{r heterogeneity-plot, fig.cap="Treatment-effect heterogeneity by county population.\\newline \\footnotesize\\textit{Notes:} Binned scatter of unit-level SDID treatment effects against log county population (2013), in 20 quantile bins of log population. Point size is proportional to the total 2013 population of counties in the bin (so larger-population deciles render as larger points even though each bin holds the same number of counties). Unit-level effects use the equally-weighted SDID control weights $\\hat{\\omega}$ and time weights $\\hat{\\lambda}$ (the post-period gap relative to the synthetic control minus the $\\hat{\\lambda}$-weighted pre-period gap), isolating heterogeneity in the treatment effect from heterogeneity in the weighting scheme; the equally-weighted average of the unit-level effects recovers the SDID estimate exactly. The dashed line is a population-weighted OLS fit through the bin means.", fig.height=3.8}
+## Per-county SDID unit-level effects are precomputed in
+## results/heterogeneity.csv: the post-period gap relative to the synthetic
+## control minus the lambda-weighted pre-period gap, using the equally-weighted
+## control/time weights. By construction mean(effect) equals the SDID estimate.
+unit_effects <- het$effect
+stopifnot(abs(mean(unit_effects) - as.numeric(tau_sdid)) < 1e-6)
+
+n_bins <- 20
+
+unit_effect_df <- tibble::tibble(
+  effect = het$effect, pop = het$pop
+) %>%
+  mutate(log_pop = log(pop),
+         pop_bin = dplyr::ntile(log_pop, n_bins)) %>%
+  group_by(pop_bin) %>%
+  summarise(mean_effect  = mean(effect, na.rm = TRUE),
+            mean_log_pop = mean(log_pop, na.rm = TRUE),
+            bin_pop      = sum(pop, na.rm = TRUE),
+            n            = dplyr::n(),
+            .groups      = "drop")
+
+bin_cor         <- cov.wt(unit_effect_df[, c("mean_log_pop", "mean_effect")],
+                          wt = unit_effect_df$bin_pop, cor = TRUE)$cor[1, 2]
+ind_cor         <- cor(het$effect, log(het$pop))
+smallest_effect <- unit_effect_df$mean_effect[1]
+largest_effect  <- unit_effect_df$mean_effect[nrow(unit_effect_df)]
+smallest_logpop <- unit_effect_df$mean_log_pop[1]
+largest_logpop  <- unit_effect_df$mean_log_pop[nrow(unit_effect_df)]
+## Population-weighted mean of the unit-level effects: approximately recovers
+## the weighted SDID estimate (omega-hat/lambda-hat are held at their
+## equally-weighted values, so the recovery is not mechanical)
+popw_unit_mean  <- sum(het$effect * het$pop) / sum(het$pop)
+
+ggplot(unit_effect_df, aes(x = mean_log_pop, y = mean_effect)) +
+  geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
+  geom_point(aes(size = bin_pop), color = "steelblue", alpha = 0.85) +
+  geom_smooth(aes(weight = bin_pop), method = "lm", se = TRUE,
+              color = "gray30", linewidth = 0.6, linetype = "dashed") +
+  scale_size_area(name = "Total population\nin bin (millions)",
+                  max_size = 9,
+                  labels = function(x) round(x / 1e6, 1)) +
+  labs(x = "Log county population (2013)",
+       y = "Avg. post-treatment effect\n(deaths per 100,000)") +
+  theme_minimal(base_size = 10) +
+  theme(legend.position = "right")
+```
+
+The divergence between estimands is not a statistical artifact: it reflects substantive treatment-effect heterogeneity that is correlated with county size. Figure 2 plots mean SDID unit-level effects against log county population in 20 quantile bins of log population, with point area scaled to the total 2013 population in each bin so the visual emphasis matches the population-weighted estimand. Unit-level effects are computed with the *equally-weighted* SDID weights (the post-period gap between each treated county and the synthetic control $\hat{\omega}^\top Y_{\text{control},t}$, net of the $\hat{\lambda}$-weighted pre-period gap), so the heterogeneity displayed is in the treatment effect itself, not in the weighting scheme, and the equally-weighted average of the unit-level effects reproduces the SDID estimate by construction. Across the bottom three population quartiles, mean effects oscillate around zero (between $`r round(min(unit_effect_df$mean_effect[1:15]), 0)`$ and $+`r round(max(unit_effect_df$mean_effect[1:15]), 0)`$ deaths per 100,000) with no systematic pattern. The mortality response is concentrated in the top population bins: mean effects decline monotonically over the four largest-population bins, reaching $`r round(largest_effect, 0)`$ deaths per 100,000 in the largest bin (log population $\approx$ `r round(largest_logpop, 1)`). The population-weighted bin-level correlation between mean log population and mean treatment effect is `r round(bin_cor, 2)`; the unweighted county-level correlation is more modest (`r round(ind_cor, 2)`), reflecting noise in county-level synthetic control predictions for small counties where mortality rates are volatile. As an internal-consistency check, the *population-weighted* average of these same unit-level effects is `r round(popw_unit_mean, 1)` deaths per 100,000---nearly identical to the weighted SDID estimate of `r round(as.numeric(tau_sdid_w), 1)`, even though the unit-level effects hold $\hat{\omega}$ and $\hat{\lambda}$ at their equally-weighted values. The divergence between the two estimands is driven by *which counties* the estimand averages over, not by the re-optimization of the synthetic control.
+
+```{r urban-binscatter, dependson="heterogeneity-plot", fig.cap="Treatment-effect heterogeneity by urban-population share.\\newline \\footnotesize\\textit{Notes:} Binned scatter of unit-level SDID treatment effects against the urban-population share of each county, in 20 quantile bins of pct.\\ urban (2010 Decennial Census, P002002 / P002001). Point area is proportional to the total 2013 population of counties in the bin; the dashed line is a population-weighted OLS fit through the bin means. Urban share is fixed at its 2010 (pre-treatment) value, so the gradient reflects pre-existing county composition rather than any post-2014 reclassification.", fig.height=3.4}
+urban_share <- readr::read_csv("data/urban_share.csv", show_col_types = FALSE)
+
+unit_effect_urban <- het %>%
+  dplyr::transmute(fips = as.numeric(fips), effect, pop) %>%
+  dplyr::left_join(urban_share, by = "fips") %>%
+  dplyr::filter(!is.na(pct_urban))
+
+n_urban_dropped <- nrow(het) - nrow(unit_effect_urban)
+
+urban_bin_df <- unit_effect_urban %>%
+  ## ntile() rather than cut(quantile(...)): the suppression-recovered small
+  ## counties make pct_urban = 0 a mass point, so raw quantile breaks repeat
+  mutate(pop_bin = dplyr::ntile(pct_urban, n_bins)) %>%
+  group_by(pop_bin) %>%
+  summarise(mean_effect = mean(effect, na.rm = TRUE),
+            mean_urban  = mean(pct_urban, na.rm = TRUE),
+            bin_pop     = sum(pop, na.rm = TRUE),
+            n           = dplyr::n(),
+            .groups     = "drop")
+
+urban_bin_cor <- cov.wt(urban_bin_df[, c("mean_urban", "mean_effect")],
+                        wt = urban_bin_df$bin_pop, cor = TRUE)$cor[1, 2]
+urban_ind_cor <- cor(unit_effect_urban$pct_urban, unit_effect_urban$effect)
+urban_lo_eff  <- urban_bin_df$mean_effect[1]
+urban_hi_eff  <- urban_bin_df$mean_effect[nrow(urban_bin_df)]
+urban_lo_pct  <- urban_bin_df$mean_urban[1]
+urban_hi_pct  <- urban_bin_df$mean_urban[nrow(urban_bin_df)]
+
+ggplot(urban_bin_df, aes(x = mean_urban, y = mean_effect)) +
+  geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
+  geom_point(aes(size = bin_pop), color = "darkgreen", alpha = 0.85) +
+  geom_smooth(aes(weight = bin_pop), method = "lm", se = TRUE,
+              color = "gray30", linewidth = 0.6, linetype = "dashed") +
+  scale_size_area(name = "Total population\nin bin (millions)",
+                  max_size = 9,
+                  labels = function(x) round(x / 1e6, 1)) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(x = "Urban-population share, 2010",
+       y = "Avg. post-treatment effect\n(deaths per 100,000)") +
+  theme_minimal(base_size = 10) +
+  theme(legend.position = "right")
+```
+
+Figure 3 repeats the exercise using each county's 2010 urban-population share, fixed at its pre-treatment value to avoid contamination from any post-2014 reclassification. The pattern is the same as in Figure 2 but maps onto a more directly interpretable substantive dimension: the most-rural bin of counties (the bottom twentieth by urban share, $\approx$ `r scales::percent(urban_lo_pct, accuracy = 1)` urban) shows mean effects of $`r ifelse(urban_lo_eff >= 0, "+", "")``r round(urban_lo_eff, 0)`$ deaths per 100,000 (a noisy positive point estimate, the urban-share counterpart of the around-zero oscillation among small-county bins in Figure 2, not a precisely measured harm), while the most-urban bin ($\approx$ `r scales::percent(urban_hi_pct, accuracy = 1)` urban) shows reductions of $`r abs(round(urban_hi_eff, 0))`$. The population-weighted bin-level correlation is `r round(urban_bin_cor, 2)` (unweighted county-level: `r round(urban_ind_cor, 2)`). Urban share and log population are mechanically correlated, so this view does not provide an independent test, but it makes the substantive content of the heterogeneity gradient more transparent: the population-weighted estimand is dominated by counties that are both populous *and* highly urbanized---precisely the counties for which @sommers2016 and @miller2021 document larger pre-expansion uninsurance rates and more health-care infrastructure capable of absorbing the coverage shock.
+
+Whatever its substantive interpretation, the gradient mechanically generates the divergence between the equally-weighted and population-weighted estimands: equal weighting averages over the many small counties whose estimated effects oscillate around zero; population weighting shifts the estimand toward the few large counties where effects are large and negative.
+
+## Robustness to Alternative Weight Specifications
+
+```{r robustness-table, cache=TRUE}
+robust_results <- tibble::tibble(
+  `Weight specification` = rob$label,
+  Estimate = rob$estimate,
+  SE = rob$se,
+  `$N_1^{\\text{eff}}$` = rob$n1_eff
+)
+tau_sdid_2010_app <- rob$estimate[rob$spec == "pop_2010"]  # referenced in the prose below
+
+kableExtra::kbl(
+  robust_results, digits = 2, booktabs = TRUE, escape = FALSE,
+  caption = "Robustness to alternative treated-unit weight specifications."
+) %>%
+  kableExtra::kable_styling(latex_options = "hold_position") %>%
+  kableExtra::footnote(
+    general = "SDID estimates with state-clustered bootstrap SEs (500 replications) for every row, including equal weighting. $N_1^{\\\\text{eff}}$ is the Kish effective sample size $(\\\\sum_j \\\\tilde\\\\omega_j^2)^{-1}$. The baseline weights are each county's share of total treated-county population in 2013; alternative rows change the base year or compress the weight distribution toward equality.",
+    general_title = "Notes:", threeparttable = TRUE, escape = FALSE)
+```
+
+Table 3 examines the sensitivity of the population-weighted SDID estimate to alternative weight specifications. Replacing 2013 population with 2010 population shares yields an estimate of similar magnitude (`r round(as.numeric(tau_sdid_2010_app), 1)` deaths per 100,000), confirming that the result does not depend on the choice of base year. As the weight distribution is compressed (square-root population, log population, equal weighting), the estimate moves monotonically toward zero. The effective sample size grows correspondingly, from $N_1^{\text{eff}} \approx `r round(n1_eff, 0)`$ under linear population weights to $N_1 = `r N1`$ under equal weights. The substantive lesson is that the large negative effect requires giving substantial weight to the largest counties: log compression alone is sufficient to eliminate it. This is not an artifact of the specific 2013 linear-population specification, but it does pinpoint *which* aggregation choices produce the result.
+
+## Comparison with the Published Estimate
+
+```{r headline-comparison-table}
+headline_results <- tibble::tibble(
+  Method = c("Standard SDID (equally weighted)",
+             "Weighted SDID (population)",
+             "Weighted DID (population)",
+             "Borgschulte \\& Vogler (2020), Table 2 col.\\ 2"),
+  Estimate = c(as.numeric(tau_sdid), as.numeric(tau_sdid_w),
+               as.numeric(tau_did_w), -11.36),
+  # BV2020 SE 3.59 from Table 2, col 2 (state-clustered, 45 clusters)
+  SE = c(se_sdid, se_sdid_w, se_did_w, 3.59)
+)
+
+kableExtra::kbl(
+  headline_results, digits = 2, booktabs = TRUE, escape = FALSE,
+  caption = "Comparison with the published estimate.",
+  col.names = c("Method", "Estimate", "SE")
+) %>%
+  kableExtra::kable_styling(latex_options = c("hold_position")) %>%
+  kableExtra::footnote(
+    general = "The first three rows are estimated on our balanced county-year panel with state-clustered bootstrap SEs; the fourth row is the headline DLPS-weighted DID estimate published by Borgschulte and Vogler (2020) (Table 2, column 2; state-clustered SE, 45 clusters). Supplementary Appendix E.4 documents our public-data DLPS reproduction, which recovers the structure of the BV results, including their heterogeneity by baseline uninsurance, on a near-identical county sample.",
+    general_title = "Notes:", threeparttable = TRUE, escape = FALSE)
+```
+
+Table 4 places our population-weighted SDID estimate alongside the headline estimate from @borgschulte2020, who weight a propensity-score-adjusted DID by working-age county population using a double-lasso variable selection procedure on a broad set of demographic, economic, and political characteristics. Our population-weighted SDID estimate (`r round(as.numeric(tau_sdid_w), 2)` deaths per 100,000) is in the same neighborhood as BV's published $-11.36$, despite differences in identification strategy (data-driven control matching plus pre-treatment time-weight selection vs.\ a propensity score for treatment selection) and in data source (CDC WONDER public tabulations vs.\ restricted NVSS microdata). The corresponding equally-weighted SDID estimate is statistically indistinguishable from zero, which shows that the choice of treated-unit weights, not the choice of estimator, accounts for nearly all of the gap. Supplementary Appendix E.4 reports our public-data reproduction of the BV design itself: recovering CDC WONDER's suppressed small-count cells by allocating exact state-year residuals brings the estimation sample within two counties of BV's, and the reproduction recovers their qualitative results, including the concentration of the mortality response in counties with high baseline uninsurance. Section 3.7 subjects this benchmark to the same falsification we apply to our own estimates.
+
+## Estimand-Specific Diagnostics
+
+```{r placebo-intime-app}
+## In-time placebo estimates/SEs precomputed in results/placebo_intime.csv.
+intime_results <- pintime
+```
+
+```{r placebo-inspace-app}
+## In-space placebo distribution precomputed in results/placebo_distribution.csv;
+## p_placebo (randomization-inference p-value) is read in load-results.
+placebo_ests <- pdist$est
+```
+
+```{r placebo-figure, fig.cap="Placebo tests.\\newline \\footnotesize\\textit{Notes:} Left: in-time placebo with simulated treatment dates of 2011 and 2012, restricting to pre-treatment data (2009--2013); circles are equally-weighted and triangles population-weighted SDID estimates, with whiskers marking 95\\% state-clustered bootstrap confidence intervals (500 replications). Right: in-space placebo distribution from 500 random re-assignments of treatment to control counties, with the dashed vertical line marking the observed population-weighted estimate.", fig.height=3.6, fig.width=8}
+intime_long <- bind_rows(
+  intime_results %>%
+    transmute(placebo_year, weighting = "Equally weighted",
+              estimate = estimate_eq, se = se_eq),
+  intime_results %>%
+    transmute(placebo_year, weighting = "Population weighted",
+              estimate = estimate_wt, se = se_wt)
+)
+
+pd <- position_dodge(width = 0.35)
+p_intime <- ggplot(intime_long,
+                   aes(x = placebo_year, y = estimate,
+                       color = weighting, shape = weighting)) +
+  geom_hline(yintercept = 0, linetype = "dotted", color = "gray50") +
+  geom_errorbar(aes(ymin = estimate - 1.96 * se, ymax = estimate + 1.96 * se,
+                    linetype = weighting),
+                width = 0.12, linewidth = 0.5, position = pd) +
+  geom_point(size = 3, position = pd) +
+  scale_color_manual(values = w_pal) +
+  scale_shape_manual(values = w_shp) +
+  scale_linetype_manual(values = w_lty) +
+  scale_x_continuous(breaks = c(2011, 2012)) +   # integer years, no decimal ticks
+  labs(x = "Placebo year", y = "Estimate (deaths per 100,000)",
+       color = NULL, shape = NULL, linetype = NULL, title = "In-time") +
+  theme_minimal(base_size = 10) +
+  theme(legend.position = "bottom")
+
+p_inspace <- ggplot(tibble::tibble(est = placebo_ests[!is.na(placebo_ests)]), aes(x = est)) +
+  geom_histogram(bins = 40, fill = "gray70", color = "white") +
+  geom_vline(xintercept = as.numeric(tau_sdid_w), color = "black", linewidth = 0.9, linetype = "dashed") +
+  annotate("text", x = as.numeric(tau_sdid_w) * 1.05, y = Inf, vjust = 1.5, hjust = 0,
+           label = sprintf("Observed\n%.1f", as.numeric(tau_sdid_w)), color = "black", size = 3) +
+  labs(x = "Placebo estimate (deaths per 100,000)", y = "Count", title = "In-space") +
+  theme_minimal(base_size = 10)
+
+if (requireNamespace("patchwork", quietly = TRUE)) {
+  patchwork::wrap_plots(p_intime, p_inspace, ncol = 2)
+} else {
+  print(p_intime); print(p_inspace)
+}
+```
+
+We conduct two complementary falsification exercises. The *in-time* placebo restricts the sample to pre-treatment years (2009--2013) and assigns simulated treatment dates of 2011 and 2012. Absent a policy change, the estimator should return zero. Figure 4 (left) shows that the *equally-weighted* placebo estimates pass this test: both are statistically indistinguishable from zero. The *population-weighted* estimates do not. They are `r round(intime_results$estimate_wt[1], 1)` (2011) and `r round(intime_results$estimate_wt[2], 1)` (2012) deaths per 100,000, with 95\% state-clustered bootstrap intervals that exclude zero. A significant placebo under the estimand we favor deserves to be taken seriously as evidence of bias, not explained away, so we work through what it implies for the headline estimate.
+
+The mechanism is visible in the population-weighted event study (Figure 1): the largest treated counties were already declining relative to their synthetic control over the pre-period, with the pre-treatment gap moving from positive in 2009 to significantly negative by 2013. SDID has two tools against such a differential trend, and both are limited here. The unit weights $\hat\omega^w$ can select control counties on similar trajectories, but only within the convex hull of control trajectories. The time weights $\hat\lambda^w$ do help---the pre-treatment divergence is markedly smaller under SDID than under DID in Figure 1---but they live on the simplex: they can down-weight divergent pre-periods, not extrapolate beyond the pre-period range. A differential trend of $\delta$ per year that no convex combination of controls matches therefore survives the double difference in proportion to the time gap between the post-period average and the $\hat\lambda^w$-weighted pre-period center; that gap is mechanically positive and, with $T_0 = 5$ and a post-period running through 2017, is at least two and a half years. In the factor-model language of Section 2.3, this is a violation of the oracle-weights assumption (A5) that is specific to the *population-weighted* target: the trend component loads on the largest counties, while the equally-weighted target---in which those counties are `r N1` among equals---is essentially unexposed to it, which is why the equally-weighted placebos pass.
+
+```{r omega-size-table}
+osb <- rd("omega_size_bins.csv")
+osb <- osb[match(c("target_popw", "omega_popw", "omega_eq"), osb$series), ]
+shr <- function(x) sprintf("%.1f", 100 * x)
+
+omega_tbl <- tibble::tibble(
+  Series = c("Treated target $\\tilde\\omega$ (population weights)",
+             "Control weights $\\hat\\omega^w$ (population-weighted target)",
+             "Control weights $\\hat\\omega$ (equally-weighted target)"),
+  b1 = shr(osb$b1), b2 = shr(osb$b2), b3 = shr(osb$b3),
+  b4 = shr(osb$b4), b5 = shr(osb$b5),
+  avg = format(round(osb$wavg_pop), big.mark = ",")
+)
+
+kableExtra::kbl(
+  omega_tbl, booktabs = TRUE, escape = FALSE,
+  caption = "Size composition of the estimated control weights and the treated target.",
+  col.names = c("", "1 (smallest)", "2", "3", "4", "5 (largest)", "Avg.\\ county pop."),
+  align = c("l", rep("r", 6))
+) %>%
+  kableExtra::add_header_above(c(" " = 1, "Share of weight mass by county-size bin (\\\\%)" = 5, " " = 1),
+                               escape = FALSE) %>%
+  kableExtra::kable_styling(latex_options = c("hold_position", "scale_down")) %>%
+  kableExtra::footnote(
+    general = sprintf(paste(
+      "Bins are pooled quantiles of 2013 county population across all %s counties",
+      "(breaks at the 25th/50th/75th/90th percentiles: %s / %s / %s / %s residents;",
+      "bin 5 is the top decile). The final column is the weight-averaged 2013 county",
+      "population of each series. Control-weight rows are the Frank-Wolfe solutions",
+      "$\\\\hat\\\\omega$ from the two SDID estimates of Table 2."),
+      format(n_counties, big.mark = ","),
+      format(round(osb$brk1[1]), big.mark = ","), format(round(osb$brk2[1]), big.mark = ","),
+      format(round(osb$brk3[1]), big.mark = ","), format(round(osb$brk4[1]), big.mark = ",")),
+    general_title = "Notes:", threeparttable = TRUE, escape = FALSE)
+```
+
+Table 5 locates the failure inside the estimated weights. The population-weighted treated target places `r shr(osb$b5[1])`\% of its mass in the top size decile---the weighted-average treated resident lives in a county of roughly `r format(round(osb$wavg_pop[1], -3), big.mark = ",")` people---while the estimated control weights place `r shr(osb$b5[2])`\% there, indistinguishable from the `r sprintf("%.1f", 100 * sum(osb$b5[3]))`\% under the equally-weighted target and from what a uniform spread over the control pool would produce. More telling still, the size composition of $\hat\omega^w$ is essentially *invariant to the target*: re-solving the weight program against the population-weighted trajectory moves every bin share by less than a tenth of a percentage point. The reason is that level-plus-intercept matching over a five-year pre-period is size-blind. With the intercept absorbing the level gap, a ridge-diffused combination of small counties fits the pre-period *shape* of the big-county trajectory as well as large controls would, and the regularization prefers the diffuse solution. Because secular mortality trends vary systematically with county size, the size-blind donor portfolio imports the wrong trend into the post-period---the mechanism behind the placebo failure above, and the reason the weighted DID fails identically: what is hard-coded in the DID (a population-weighted treated average against a size-unrepresentative control average) emerges in SDID from the estimation itself.
+
+Three corroborating checks locate the failure and rule out benign readings. First, the failure tracks the weights, not the estimator: the population-weighted DID placebo fails identically (Figure 1, left), while SDID's time weights only mitigate the pre-treatment divergence rather than remove it---so the problem is the population-weighted *target*, not the SDID machinery. Second, extending the pre-period back to 2005 (a diagnostic panel detailed in Supplementary Appendix E.5) sharpens rather than softens the verdict: the population-weighted placebo is roughly $-15$ to $-17$ at every simulated onset from 2009 through 2012, including onsets trained entirely on pre-2014 data. Pre-2014 coverage expansions in early-waiver jurisdictions therefore cannot account for the failure, even the most prominent one: California's county-run Low Income Health Program of 2011--2013 operated in exactly the large urban counties that dominate the estimand [@frean2017], yet the pre-ACA-onset placebos predate it. The headline itself *grows* in magnitude on the longer panel, as a persistent differential trend accumulates over a window the simplex time weights cannot span. Third, the failure is not a California artifact: dropping all California counties shaves roughly a fifth off both the headline and the placebos, leaving their ratio unchanged. The population-weighted magnitude is thus not an upper bound to be shaded down by a few deaths; it is a trend-contaminated estimate, and Section 3.7 recovers its credible counterpart.
+
+The *in-space* placebo randomly re-assigns treatment to `r N1` control counties (matching the true number of treated counties) while keeping the real treatment date of 2014 and using equal pseudo-treated weights. Figure 4 (right) shows the resulting distribution of placebo estimates from 500 random draws; the observed population-weighted estimate (`r round(as.numeric(tau_sdid_w), 1)`) sits well in the left tail: `r if (p_placebo == 0) "no draw is as extreme, a randomization-inference $p$-value below $1/501 \\approx 0.002$" else paste0("the randomization-inference $p$-value is $", round(p_placebo, 3), "$")`. Given the in-time results, two limitations of this test are worth stating. The placebo draws are equally weighted, so their dispersion likely understates the sampling variability of a population-weighted statistic whose effective sample size is an order of magnitude smaller; and because pseudo-treated units are drawn from the control pool, the test has no power against the treated-specific differential trend diagnosed above. The in-space placebo is therefore best read as ruling out that an effect of this size arises from noise in the control pool, not as absolving the population-weighted estimate of trend bias.
+
+## Trend-Robust Estimates and Reconciliation
+
+The diagnostics of Section 3.6 leave the population-weighted estimand well-defined but reject the raw estimate as its measure. We recover a credible counterpart with the two trend-robust variants of Section 2.5, each holding the estimand at $\tau^{(\tilde\omega)}$.
+
+```{r trend-robust-load, include=FALSE}
+## Trend-robust remedy estimates (state-clustered bootstrap SEs), precomputed by
+## scripts/analyze_application.R and committed to results/. rd() is defined in
+## the load-results chunk above.
+detr    <- rd("detrended_results.csv")
+binr    <- rd("binned_results.csv")
+ladder  <- rd("dlps_ladder.csv")
+## Detrended (population weighted): headline + placebo onset 2012
+detr_wt     <- detr$estimate_wt[detr$sample == "headline"]
+detr_wt_se  <- detr$se_wt[detr$sample == "headline"]
+detr_pl12   <- detr$estimate_wt[detr$onset_year == 2012 & detr$sample == "placebo"]
+detr_pl12_se<- detr$se_wt[detr$onset_year == 2012 & detr$sample == "placebo"]
+## Stratified (population-weighted aggregate): headline + placebo onsets 2011/2012
+strat_agg   <- dplyr::filter(binr, weighting == "wt", stratum == "aggregate")
+strat_wt    <- strat_agg$estimate[strat_agg$onset_year == 2014]
+strat_wt_se <- strat_agg$se_cluster[strat_agg$onset_year == 2014]
+strat_pl11    <- strat_agg$estimate[strat_agg$onset_year == 2011]
+strat_pl11_se <- strat_agg$se_cluster[strat_agg$onset_year == 2011]
+strat_pl12    <- strat_agg$estimate[strat_agg$onset_year == 2012]
+strat_pl12_se <- strat_agg$se_cluster[strat_agg$onset_year == 2012]
+## Top size-bin (bin 5, >119k residents), holds the bulk of treated weight
+bin5      <- dplyr::filter(binr, weighting == "wt", stratum == "5", onset_year == 2014)
+bin5_wt   <- bin5$estimate; bin5_wt_se <- bin5$se_cluster; bin5_share <- bin5$share
+## DLPS bridge ladder: symmetric pop weighting (L1) and BV-preferred reproduction (L6)
+lad_L1    <- ladder$estimate[ladder$rung == "L1"]
+lad_L6    <- ladder$estimate[ladder$rung == "L6"]
+lad_L6_se <- ladder$se[ladder$rung == "L6"]
+```
+
+```{r trend-robust-table}
+fmt_es <- function(e, s) ifelse(is.na(e), "---",
+                                ifelse(is.na(s), sprintf("%.2f", e),
+                                       sprintf("%.2f (%.2f)", e, s)))
+tr_tbl <- tibble::tibble(
+  Specification = c("Raw population-weighted SDID",
+                    "Detrended weighted SDID",
+                    "Stratified weighted SDID"),
+  est   = c(fmt_es(as.numeric(tau_sdid_w), se_sdid_w),
+            fmt_es(detr_wt, detr_wt_se),
+            fmt_es(strat_wt, strat_wt_se)),
+  pl11  = c(fmt_es(intime_results$estimate_wt[1], intime_results$se_wt[1]),
+            fmt_es(NA, NA),
+            fmt_es(strat_pl11, strat_pl11_se)),
+  pl12  = c(fmt_es(intime_results$estimate_wt[2], intime_results$se_wt[2]),
+            fmt_es(detr_pl12, detr_pl12_se),
+            fmt_es(strat_pl12, strat_pl12_se))
+)
+kableExtra::kbl(
+  tr_tbl, booktabs = TRUE, escape = FALSE,
+  caption = "Trend-robust estimates of the population-weighted mortality effect.",
+  col.names = c("Specification", "Estimate", "Placebo 2011", "Placebo 2012"),
+  align = c("l", "r", "r", "r")
+) %>%
+  kableExtra::add_header_above(c(" " = 2, "In-time placebo" = 2)) %>%
+  kableExtra::kable_styling(latex_options = "hold_position") %>%
+  kableExtra::footnote(
+    general = paste(
+      "Population-weighted SDID on the 2009--2017 panel; state-clustered bootstrap standard errors",
+      "in parentheses (500 replications). The detrended variant subtracts a unit-specific linear trend",
+      "fit by OLS on pre-onset years; its bootstrap re-fits the slopes in every draw. The stratified",
+      "variant runs weighted SDID within pooled-2013 population quartiles (top decile split off),",
+      "restricting each treated county's donors to its own stratum, and aggregates with treated-weight",
+      "stratum shares---the same estimand as the raw row. Placebo columns assign simulated pre-2014",
+      "onsets; a dash marks a placebo the pre-period is too short to fit (detrending at onset 2011",
+      "leaves three slope points). Extended-panel placebos and the reconciliation exercises are in",
+      "Supplementary Appendix E.5."),
+    general_title = "Notes:", threeparttable = TRUE, escape = FALSE)
+```
+
+Table 6 reports the result. Removing a unit-specific linear pre-trend collapses the population-weighted effect from `r round(as.numeric(tau_sdid_w), 1)` to `r round(detr_wt, 1)` deaths per 100,000 (SE `r round(detr_wt_se, 1)`); restricting comparisons to same-size donors gives `r round(strat_wt, 1)` (SE `r round(strat_wt_se, 1)`). Both are a fifth to a quarter of the raw estimate, both carry clean in-time placebos, and neither is distinguishable from zero. The stratified estimate localizes what remains: the residual signal lives in the top population decile, which carries `r round(bin5_share * 100)`\% of the treated weight and shows a within-stratum effect of `r round(bin5_wt, 1)` (SE `r round(bin5_wt_se, 1)`), marginal at best; the middle bins' positive point estimates are matched by equally positive placebos and carry no causal content.
+
+The same falsification reaches the published benchmark. Holding @borgschulte2020's propensity-score weights fixed---they are functions of pre-2014 data alone---and running their weighted DID on pre-2014 windows with simulated onsets yields significant negative placebo estimates of the same order as their headline; re-estimating the entire double-lasso pipeline at each fake onset changes nothing, because the procedure balances lagged mortality *levels* and nothing in it targets slopes (Supplementary Appendix E.5). A bridge from our weighted DID to BV's specification shows where the magnitude comes from: symmetric population weighting---weighting treated and control units alike, as any population-weighted regression does---already lands at `r round(lad_L1, 1)` deaths per 100,000, near the stratified estimate, and it is the inverse-probability reweighting against a size-unrepresentative control average that adds the rest, without buying trend balance. Our own public-data reproduction of BV's preferred specification, `r round(lad_L6, 1)` (SE `r round(lad_L6_se, 1)`), covers the trend-robust cluster, and BV's published $-11.36$ sits at its edge. We read this as a demonstration of the workflow, not a refutation: on this panel the ACA design cannot trend-robustly separate a mortality reduction of $-11$ from zero. That limit is what the diagnostics expose. A Rambachan--Roth sensitivity analysis on the SDID event study points the same way but understates the adjustment, because the estimated unit and time weights absorb much of the pre-trend into the fit; truncated-window placebos and unit detrending are the sharper tools (Supplementary Appendix E.5).
+
+The lesson is methodological, not that Medicaid expansion left mortality unchanged. Equal weighting passed every test here not because the panel is clean but because two opposing size-correlated trends net out under uniform averaging: a mortality decline concentrated in large urban counties, and an opioid-era rise in small ones. The diagnostics must be run at the estimand one reports.
+
+
+# Monte Carlo Evidence
+
+We evaluate the finite-sample performance of the weighted SDID estimator and its variance estimators via simulation. Two questions are central. First, is the weighted estimator unbiased for its target $\tau^{(\tilde{\omega})}$ under heterogeneous treatment effects? Second, do the bootstrap, jackknife, and placebo variance estimators achieve nominal coverage when treatment effects are correlated with unit size?
+
+## Design
+
+The data-generating process follows the factor model of @arkhangelsky2021. For $N = N_0 + N_1$ units observed over $T = T_0 + T_1$ periods,
+$$Y_{it} = L_{it} + \tau_{it} W_{it} + \sigma \epsilon_{it},$$
+where $L = UV^\top + \alpha\mathbf{1}^\top + \mathbf{1}\beta^\top$ is rank-2 with additive fixed effects, $U \in \mathbb{R}^{N \times 2}$ and $V \in \mathbb{R}^{T \times 2}$ are factor loadings drawn from Poisson distributions, $\alpha_i = 10 i / N$, $\beta_t = 10 t / T$, and $\epsilon_{it}$ is drawn from an AR(1) process with $\rho = 0.7$. Each treated unit $j$ is assigned a "size" $s_j$ from a log-normal distribution scaled to achieve a target Herfindahl index for the population weights $\tilde{\omega}_j = s_j / \sum_k s_k$, and the treatment effect is
+$$\tau_{ij} = \bar\tau + \gamma\left(\frac{s_j}{\bar s} - 1\right),$$
+with $\bar\tau = 1$, $\bar s = N_1^{-1}\sum_j s_j$, and $\gamma \geq 0$ controlling the size-effect correlation. We fix $N_0 = 100$, $T_0 = 40$, $T_1 = 10$, $\sigma = 0.5$, and vary $N_1 \in \{5, 10, 20\}$, $\gamma \in \{0, 0.5, 1.0\}$ (homogeneous, moderate, strong heterogeneity), and the weight concentration (low, HHI $= 1.5/N_1$; high, HHI $= 3/N_1$), yielding 18 grid configurations evaluated over 100 simulations each with bootstrap and placebo variance estimators using 50 replications. A nineteenth, ACA-calibrated configuration gives the application's standard errors direct simulation backing: it reproduces the application's panel dimensions ($N_0 = 1{,}643$, $N_1 = 1{,}181$, $T_0 = 5$, $T_1 = 4$) and sets the treated-unit sizes to the application's actual 2013 county populations, so every simulation has exactly the application's weight concentration (HHI $= 0.0098$, $N_1^{\text{eff}} \approx 102$), with $\gamma = 1$, the strong size-effect-correlation regime the application's county-size gradient suggests. The simulation sweep is parallelized across configurations and simulation draws (`scripts/run_mc_simulations.R`), with seeding that reproduces the equivalent sequential loop exactly; implementation details appear in Supplementary Appendix D.
+
+A final configuration isolates the identification lesson of Section 3. To the low-rank mean $L$ we add a size-correlated differential trend $\gamma_{\text{trend}}\,(s_j/\bar s - 1)\,t$ on the treated units, so that the untreated potential outcome of larger treated units drifts relative to the controls. This violates the oracle-weights assumption (A5) for the population-weighted target while leaving the equally-weighted target unexposed, reproducing the ACA failure in a controlled design. We evaluate it at $\gamma_{\text{trend}} \in \{0, \gamma^+\}$ and, alongside the raw weighted and equally-weighted SDID, estimate the population-weighted DID, the detrended and stratified weighted SDID, and the uniform-weight in-time placebo (`scripts/run_trend_mc.R`).
+
+```{r mc-run, cache=FALSE}
+## The sweep is computed outside knitr by scripts/run_mc_simulations.R
+## (parallelized; identical seeding to a sequential loop) and written to
+## data/mc_results.csv.
+mc_available <- file.exists(file.path("data", "mc_results.csv"))
+mc_df <- if (mc_available) {
+  readr::read_csv(file.path("data", "mc_results.csv"), show_col_types = FALSE)
+} else NULL
+## The ACA-calibrated cell (config 19, N1 = 1181) is computed by the same
+## script; tables and prose accommodate builds where it has not yet been run.
+mc_has_aca <- mc_available && any(mc_df$N1 > 100)
+```
+
+## Results
+
+`r if (!mc_available) "*Monte Carlo results are generated by* \\texttt{scripts/run\\_mc\\_simulations.R}; *the results file is not present in this build, so the Monte Carlo tables are omitted.*"`
+
+Tables \ref{tab:mc-bias} and \ref{tab:mc-coverage} report bias, RMSE, and 95\% confidence-interval coverage across the simulation configurations. Three patterns are central to the inference recommendations of Section 2. First, both the equally-weighted and population-weighted SDID estimators are approximately unbiased for their respective targets, with RMSE differences favoring the equally-weighted variant for the obvious reason that it has a larger effective sample. Second, the bootstrap and placebo variance estimators achieve approximately nominal 95\% coverage, with undercoverage at high HHI for the placebo, which uses uniform pseudo-treated weights, as discussed in Section 2.4. Third, the jackknife is near-nominal with few treated units and grows conservative as the number of treated units increases, over-covering at $N_1 = 20$. Together these patterns validate Propositions 1--3 in finite samples within the regime where Assumptions W2--W3 are quantitatively reasonable.
+
+```{r mc-bias-table, eval=mc_available}
+bias_tbl <- mc_df %>%
+  group_by(N1, gamma, hhi) %>%
+  summarise(
+    Bias_unwt = mean(est_unwt - true_att_equal, na.rm = TRUE),
+    RMSE_unwt = sqrt(mean((est_unwt - true_att_equal)^2, na.rm = TRUE)),
+    Bias_wt   = mean(est_wt - true_att_weighted, na.rm = TRUE),
+    RMSE_wt   = sqrt(mean((est_wt - true_att_weighted)^2, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(across(where(is.numeric) & !c(N1, gamma, hhi), ~ round(., 3)),
+         hhi = round(hhi, 4))
+
+kableExtra::kbl(
+  bias_tbl, booktabs = TRUE,
+  caption = "Monte Carlo bias and RMSE of the SDID estimators.", label = "mc-bias",
+  col.names = c("$N_1$", "$\\gamma$", "HHI", "Bias", "RMSE", "Bias", "RMSE"),
+  escape = FALSE,
+  align = c("r", "r", "r", "r", "r", "r", "r")
+) %>%
+  kableExtra::add_header_above(c(" " = 3, "Equally weighted" = 2, "Population weighted" = 2)) %>%
+  kableExtra::kable_styling(latex_options = c("hold_position")) %>%
+  kableExtra::footnote(
+    general = "Bias and RMSE are computed against each estimator's own target ATT (the equally-weighted and population-weighted averages of the unit-level effects, respectively). 100 simulations per configuration. $N_1$ is the number of treated units, $\\\\gamma$ the size-effect correlation, and HHI the Herfindahl index of the treated-unit weights. Data-generating process described in Section 4.1.",
+    general_title = "Notes:", threeparttable = TRUE, escape = FALSE)
+```
+
+```{r mc-coverage-table, eval=mc_available}
+coverage <- function(est, se, true_val) {
+  ci_lo <- est - 1.96 * se; ci_hi <- est + 1.96 * se
+  mean(ci_lo <= true_val & true_val <= ci_hi, na.rm = TRUE)
+}
+cov_tbl <- mc_df %>%
+  group_by(N1, gamma, hhi) %>%
+  summarise(
+    Boot_unwt = coverage(est_unwt, se_boot_unwt, true_att_equal),
+    JK_unwt   = coverage(est_unwt, se_jk_unwt,   true_att_equal),
+    Plac_unwt = coverage(est_unwt, se_plac_unwt, true_att_equal),
+    Boot_wt   = coverage(est_wt,   se_boot_wt,   true_att_weighted),
+    JK_wt     = coverage(est_wt,   se_jk_wt,     true_att_weighted),
+    Plac_wt   = coverage(est_wt,   se_plac_wt,   true_att_weighted),
+    .groups = "drop"
+  ) %>%
+  mutate(across(where(is.numeric) & !c(N1, gamma, hhi), ~ round(., 2)),
+         hhi = round(hhi, 4))
+
+kableExtra::kbl(
+  cov_tbl, booktabs = TRUE,
+  caption = "Monte Carlo 95\\% confidence-interval coverage.", label = "mc-coverage",
+  col.names = c("$N_1$", "$\\gamma$", "HHI", "Boot", "JK", "Plac", "Boot", "JK", "Plac"),
+  escape = FALSE, align = c("r", "r", "r", rep("r", 6))
+) %>%
+  kableExtra::add_header_above(c(" " = 3, "Equally weighted" = 3, "Population weighted" = 3)) %>%
+  kableExtra::kable_styling(latex_options = c("hold_position", "scale_down")) %>%
+  kableExtra::footnote(
+    general = "Nominal level 0.95. Bootstrap (Boot) and placebo (Plac) variance estimators use 50 replications; JK is the fixed-weight jackknife. 100 simulations per configuration. Coverage is evaluated against each estimator's own target ATT.",
+    general_title = "Notes:", threeparttable = TRUE, escape = FALSE)
+```
+
+```{r mc-aca-summary, eval=mc_has_aca, include=FALSE}
+## Scalars for the ACA-calibrated cell (the N1 = 1181 rows), referenced in the
+## conditional paragraph below.
+aca <- mc_df %>% filter(N1 > 100)
+aca_bias_wt <- mean(aca$est_wt - aca$true_att_weighted, na.rm = TRUE)
+aca_rmse_wt <- sqrt(mean((aca$est_wt - aca$true_att_weighted)^2, na.rm = TRUE))
+aca_tau_wt  <- mean(aca$true_att_weighted, na.rm = TRUE)
+aca_cov_boot <- coverage(aca$est_wt, aca$se_boot_wt, aca$true_att_weighted)
+aca_cov_jk   <- coverage(aca$est_wt, aca$se_jk_wt,   aca$true_att_weighted)
+aca_cov_plac <- coverage(aca$est_wt, aca$se_plac_wt, aca$true_att_weighted)
+```
+
+`r if (mc_has_aca) sprintf("The ACA-calibrated configuration (the $N_1 = 1{,}181$ rows of Tables \\ref{tab:mc-bias} and \\ref{tab:mc-coverage}) speaks directly to the application: at the application's own panel dimensions and weight concentration, the population-weighted estimator has bias %.3f against its target (RMSE %.3f, target ATT %.1f), and the bootstrap attains %.0f\\%% coverage, the jackknife %.0f\\%%, and the uniform-weight placebo %.0f\\%%. The bootstrap's performance in this cell is the simulation counterpart of the cluster-robust bootstrap we rely on for Table 2.", aca_bias_wt, aca_rmse_wt, aca_tau_wt, 100 * aca_cov_boot, 100 * aca_cov_jk, 100 * aca_cov_plac)`
+
+`r if (mc_available && !mc_has_aca) "*The ACA-calibrated configuration described in Section 4.1 is not present in this build's* \\texttt{mc\\_results.csv}*; re-running* \\texttt{scripts/run\\_mc\\_simulations.R} *computes it (the completed grid configurations are skipped) and adds its row to the tables.*"`
+
+```{r mc-trend-run, cache=FALSE}
+mct_available <- file.exists(file.path("data", "mc_trend_results.csv"))
+mct <- if (mct_available) readr::read_csv(file.path("data", "mc_trend_results.csv"),
+                                          show_col_types = FALSE) else NULL
+```
+
+```{r mc-trend-table, eval=mct_available}
+trend_tbl <- mct %>%
+  group_by(gamma_trend) %>%
+  summarise(
+    `SDID (eq)`        = mean(est_sdid_eq  - true_att_equal,    na.rm = TRUE),
+    `SDID (pop)`       = mean(est_sdid_wt  - true_att_weighted, na.rm = TRUE),
+    `DID (pop)`        = mean(est_did_wt   - true_att_weighted, na.rm = TRUE),
+    `Detrended (pop)`  = mean(est_det_wt   - true_att_weighted, na.rm = TRUE),
+    `Stratified (pop)` = mean(est_strat_wt - true_att_weighted, na.rm = TRUE),
+    `Placebo (pop)`    = mean(est_plac_wt, na.rm = TRUE),
+    .groups = "drop") %>%
+  mutate(across(-gamma_trend, ~ round(., 2)))
+
+kableExtra::kbl(
+  trend_tbl, booktabs = TRUE, escape = FALSE,
+  caption = "Monte Carlo with a weight-correlated differential trend.",
+  col.names = c("$\\gamma_{\\text{trend}}$", "SDID (eq)", "SDID (pop)", "DID (pop)",
+                "Detrended", "Stratified", "Placebo"),
+  label = "mc-trend", align = c("r", rep("r", 6))) %>%
+  kableExtra::add_header_above(c(" " = 1, "Bias vs.\\ target ATT" = 5, " " = 1), escape = FALSE) %>%
+  kableExtra::kable_styling(latex_options = c("hold_position", "scale_down")) %>%
+  kableExtra::footnote(
+    general = paste(
+      "Mean bias against each estimator's own target ATT (population-weighted for the population columns,",
+      "equally weighted for SDID (eq)); the last column reports the mean uniform-weight in-time (pre-onset)",
+      "placebo estimate, which should be zero absent a trend. A size-correlated differential trend",
+      "$\\\\gamma_{\\\\text{trend}}(s_j/\\\\bar s - 1)t$ is added to the treated units' untreated potential outcomes.",
+      "100 simulations per configuration; data-generating process as in Section 4.1."),
+    general_title = "Notes:", threeparttable = TRUE, escape = FALSE)
+```
+
+`r if (!mct_available) "*The trend-cell results are generated by* \\texttt{scripts/run\\_trend\\_mc.R}; *the file is absent from this build, so Table \\ref{tab:mc-trend} is omitted.*"`
+
+Table \ref{tab:mc-trend} closes the loop between the theory and the application. Absent a differential trend ($\gamma_{\text{trend}} = 0$), every estimator is approximately unbiased and the placebo is centered at zero. Switching on a size-correlated trend, the raw population-weighted SDID and the population-weighted DID inherit a bias of the same sign and comparable magnitude, the equally-weighted SDID remains unbiased, and the in-time placebo registers a nonzero pre-onset estimate---the ACA pattern, reproduced by construction. The detrended and stratified weighted estimators recover the population-weighted target, the detrending nearly exactly and the stratification substantially. The failure is therefore a property of the data-generating process under weight-correlated trends, not of the weighted machinery, and the Section 2.5 variants are the repair.
+
+
+# Discussion
+
+We have shown that the SDID estimator of @arkhangelsky2021 admits a parsimonious extension to incorporate researcher-specified weights on treated units, with consistency and asymptotic normality results that inherit from the underlying factor-model framework subject to a no-dominant-weight regularity condition. We have also documented, through both formal characterization and direct application, that this regularity condition loses its practical bite in many policy settings, particularly those involving population weights on heterogeneously sized geographic units. In such settings, plug-in asymptotic standard errors are unreliable; cluster-robust bootstrap inference at a level of aggregation where the no-dominant-cluster condition is plausible is the appropriate finite-sample tool. Our application provides a concrete illustration: with $N_1^{\text{eff}} \approx `r round(n1_eff, 0)`$ and one county carrying $\approx `r round(top1_share * 100, 1)`\%$ of total weight, the asymptotic approximation cannot be trusted at face value, but state-level cluster bootstrapping across the `r n_states_treated` treated state clusters, complemented by randomization inference, provides a defensible alternative.
+
+The ACA application illustrates more than the technical contribution. The equally-weighted and population-weighted estimands diverge by `r round(abs(as.numeric(tau_sdid_w) - as.numeric(tau_sdid)), 0)` deaths per 100,000---enough to swing the qualitative interpretation of the policy from "no detectable effect" to "substantial mortality reduction." But the population-weighted estimate is not the size of that reduction. It failed an in-time placebo the equal-weighted estimate passed, and the two trend-robust variants of the weighted estimator returned it to `r round(abs(detr_wt))`--`r round(abs(strat_wt))` deaths per 100,000, no longer distinguishable from zero. So the weighting choice mattered on two fronts at once: it defined the target, and it determined whether that target was identified. Running the whole workflow, not any single test, is what separated the credible estimate from the trend. The choice between these estimands is not a statistical matter but a substantive one. A researcher interested in the average effect across counties as administrative units might reasonably prefer equal weighting; a researcher interested in the per-capita effect on the population exposed to expanded Medicaid coverage, as is the natural reading for cost-benefit and welfare calculations, should prefer population weighting. Both estimands are well-defined and identifiable; the published mortality literature has implicitly favored the population-weighted target through cluster sampling, propensity-score weighting, or other means [@borgschulte2020; @miller2021]. Our contribution makes this choice transparent and provides a tool that respects it directly.
+
+Four caveats merit discussion. First, our treated-unit weights are fixed by the researcher rather than estimated. We do not claim optimality in any decision-theoretic sense; the weights encode the researcher's definition of the estimand. Adapting the weights to optimally estimate a target subpopulation effect (in the spirit of @hirano2003 for propensity-score weighting) is a natural extension we leave for future work. Second, while we provide cluster-robust bootstrap and jackknife inference, our adaptation of the placebo variance estimator uses uniform weights for pseudo-treated units, which may understate variance when treatment effects are highly heterogeneous; the implications for finite-sample coverage are examined in the companion supplement. Third, our framework assumes simultaneous adoption of treatment. Extension to staggered settings, where the weighted estimator can be applied within each adoption cohort and aggregated with researcher-chosen cohort weights, raises additional questions about the interaction between within-cohort and across-cohort weighting that are left to future work---and which connect naturally to the broader literature on aggregation in heterogeneous-effects panel designs [@callaway2021; @sun2021; @dechaisemartin2020]. Fourth, the trend-robust variants were deployed after the estimand-specific placebo failed. That ordering is a feature of the diagnostic workflow, not a license for specification search: pre-registering the sequence---divergence test, then estimand-specific falsification, then a pre-committed trend-robust estimator---is the discipline we recommend. In this light, the reconciliation with @borgschulte2020 is not a refutation but a statement of what the design can support: on this panel it cannot trend-robustly separate a mortality reduction of $-11$ from zero.
+
+
+\section*{Declaration of generative AI and AI-assisted technologies in the manuscript preparation process}
+
+During the preparation of this work the authors used Claude Code (Anthropic) for R package development, code development, data processing, replication of prior work, code review, and manuscript editing. The authors reviewed and verified all analyses, results, and text, and take full responsibility for the content of the published article.
+
+
+\section*{Data availability}
+
+Data used in this study are publicly available from CDC WONDER (mortality, Underlying Cause of Death file, all-cause mortality among adults aged 20--64, ICD-10 codes A00--Y89; county-year cells with 1--9 deaths are suppressed in the public file and are imputed by allocating exact state-year residuals, as described in Supplementary Appendix E.4) [@cdcwonder]; the SEER program (county-level population by age and sex) [@seer]; and the Bureau of Labor Statistics (county-level unemployment, Local Area Unemployment Statistics) [@bls_laus]. The BV reproduction in Supplementary Appendix E.4 additionally uses the ACS 2009--2013 5-year file and Census SAHIE 2013 (via the Census API), and county presidential returns from the MIT Election Data and Science Lab. Replication code, the weighted \texttt{synthdid} R package extension, and a companion supplementary appendix containing full proofs of Propositions 1--3, synthetic-control diagnostics, alternative weight specifications, leave-one-out sensitivity, and a complete description of the DLPS implementation are available at \url{https://github.com/johniselin-econ/synthdid_weights}.
