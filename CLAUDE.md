@@ -55,8 +55,12 @@ Heavy computation and document rendering are fully decoupled, sharing
   mc → render); skips stages whose outputs exist.
 - Monte Carlo sweeps run outside knitr: `scripts/run_mc_simulations.R` →
   `paper/data/mc_results.csv`; `scripts/run_solutions_mc.R` →
-  `paper/data/mc_solutions_results.csv`. Seeding reproduces the
-  sequential loop exactly regardless of worker count.
+  `paper/data/mc_solutions_results.csv`; `scripts/run_mc_trend.R` →
+  `paper/data/mc_trend_results.csv` (the §4 diagnosis-only trend cell:
+  size-correlated trend on treated `L`, 3 `gamma_trend` values × 200 sims,
+  point estimates only). Seeding reproduces the sequential loop exactly
+  regardless of worker count — the trend cell seeds by `sim` alone so the
+  three `gamma_trend` cells share one base panel per sim.
 
 Data pipeline (raw pulls → `paper/data/analysis_data.csv`) is documented
 in `scripts/README.md`, including run order and provenance. All inputs
@@ -123,9 +127,10 @@ controls) and Propositions G1 (consistency, inherits Prop 1 cohort-wise), G2
 (\sum_g W_g^2/N^{\text{eff}}_{1,g})^{-1}$, binds on the least-informative
 cohort), G3 (reductions: single cohort -> block; uniform + treated-periods ->
 Clarke, cites the golden test), plus a cluster-bootstrap validity paragraph.
-Added `jones2026` to references.bib. STILL TODO for step 2: a `gamma_trend`
-generating block in `scripts/run_mc_simulations.R` (the trend-cell CSV the
-paper reads exists but the committed script doesn't regenerate it).
+Added `jones2026` to references.bib (later removed with all other Jones
+references — the manuscript must not cite Jones; internal provenance kept).
+**MC trend cell DONE:** `scripts/run_mc_trend.R` regenerates
+`paper/data/mc_trend_results.csv` (provenance gap closed). Step 2 complete.
 
 ## Environment gotcha (this Windows box)
 
