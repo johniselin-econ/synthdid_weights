@@ -123,6 +123,49 @@ test_that("bootstrap vcov returns a finite non-negative variance", {
   expect_true(is.finite(V[1, 1]) && V[1, 1] >= 0)
 })
 
+test_that("golden: treated-periods aggregation reproduces Stata sdid (Jones et al. 2026, Table 5)", {
+  # Reference: Stata `sdid emp_tot_serv_share state year ma_dereg_dum,
+  # method(sdid) vce(noinference)` on the Jones et al. (2026) SJE Table-5 sample
+  # (data_sje.dta; drop SD/DE, ma_dereg_year != 1960, 1969-1998). That run reports
+  # aggregate ATT = 1.799401 and stores 20 per-adoption ATTs in e(tau) with a single
+  # never-treated control (Iowa). The do-files live in docs/_gold/. This test guards
+  # that synthdid_estimate_staggered()'s treated-periods aggregation -- W_g
+  # proportional to N1_g * T_post,g -- matches sdid's staggered aggregation exactly.
+  g   <- c(1970,1975,1976,1977,1978,1979,1980,1981,1982,1983,
+           1984,1985,1986,1987,1988,1989,1990,1991,1993,1994)
+  tau <- c(0.898536,3.0149169,0.67503059,4.4611384,3.0836946,2.2149758,3.9303146,
+           0.90104583,3.9752146,1.8173267,3.0042734,0.90581351,1.2334213,2.57342,
+           0.90942796,2.27197,0.70044995,1.1989118,0.47404305,0.7850102)
+  N1  <- c(1,1,1,1,1,1,1,2,1,1,1,4,2,5,6,1,4,2,1,1)   # states adopting in each year
+  T1  <- 1999 - g                                      # post periods g..1998
+  gold <- 1.799401
+
+  w_periods <- N1 * T1
+  agg_periods <- sum(w_periods * tau) / sum(w_periods)
+  expect_equal(agg_periods, gold, tolerance = 1e-5)
+
+  # the other cohort-weight schemes are well-defined but target different estimands
+  expect_false(isTRUE(all.equal(sum(N1 * tau) / sum(N1), gold, tolerance = 1e-3)))
+})
+
+test_that("a single-control cohort is refused cleanly (needs a donor pool)", {
+  # SDID needs >= 2 controls per cohort; the default min.controls = 2 must reject a
+  # never-treated pool of size 1 (the pathological Jones case, N0 = 1) with a clear
+  # error rather than a cryptic failure deep in the solver.
+  set.seed(11)
+  N <- 20; Tt <- 10
+  Y <- matrix(rnorm(N * Tt), N, Tt) + outer(1:N, rep(1, Tt))
+  time <- 1:Tt
+  adoption.time <- rep(Inf, N)
+  adoption.time[1] <- Inf                 # exactly ONE never-treated (row 1)
+  adoption.time[2:11]  <- 6               # two cohorts, both with >= 2 pre-periods
+  adoption.time[12:20] <- 8
+  expect_equal(sum(adoption.time > Tt), 1L)                 # a single never-treated
+  expect_error(
+    synthdid_estimate_staggered(Y, adoption.time, time, control = "never"),
+    regexp = "control")
+})
+
 test_that("cluster bootstrap runs when a cluster vector is supplied", {
   p <- make_staggered_panel()
   cl <- rep(1:15, each = 2)                  # 15 clusters of 2 units

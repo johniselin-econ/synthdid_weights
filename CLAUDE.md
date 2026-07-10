@@ -109,10 +109,15 @@ aggregates by treated-weight share (`cohort.weight="treated.share"`, the
 estimand τ^{ω̃,stag}) or treated-periods (reproduces Clarke et al. 2023 at
 uniform weights). `vcov` is cluster/unit bootstrap with per-draw full
 refit. Reduces to the block estimator for a single cohort (tested). See
-`docs/reorient_plan_2026-07-10.md` Part 2. STILL TODO: Stata golden test on
-`docs/`'s Jones `data_sje.dta`, supplement proofs (per-cohort A5 /
-effective-N / not-yet-treated validity / reductions / bootstrap), and a
-`gamma_trend` generating block in `scripts/run_mc_simulations.R`.
+`docs/reorient_plan_2026-07-10.md` Part 2. **Stata golden test DONE
+(`docs/gold_test_staggered.md`):** treated-periods aggregation reproduces
+Stata `sdid` on the Jones Table-5 panel to 6.4e-08 (1.799401), single-cohort
+== block is exact. Jones has ONE never-treated unit -> `control="never"`
+gives N0=1 (degenerate SC, no donor pool); the estimator refuses it cleanly
+via `min.controls=2` and we did NOT patch core `synthdid.R` for N0=1.
+STILL TODO: supplement proofs (per-cohort A5 / effective-N / not-yet-treated
+validity / reductions / bootstrap), and a `gamma_trend` generating block in
+`scripts/run_mc_simulations.R`.
 
 ## Environment gotcha (this Windows box)
 
