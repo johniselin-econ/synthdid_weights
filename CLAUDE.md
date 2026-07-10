@@ -115,9 +115,17 @@ Stata `sdid` on the Jones Table-5 panel to 6.4e-08 (1.799401), single-cohort
 == block is exact. Jones has ONE never-treated unit -> `control="never"`
 gives N0=1 (degenerate SC, no donor pool); the estimator refuses it cleanly
 via `min.controls=2` and we did NOT patch core `synthdid.R` for N0=1.
-STILL TODO: supplement proofs (per-cohort A5 / effective-N / not-yet-treated
-validity / reductions / bootstrap), and a `gamma_trend` generating block in
-`scripts/run_mc_simulations.R`.
+**Supplement proofs DONE:** the "Staggered Treatment Adoption" subsection of
+`weighted_sdid_supplement.Rmd` (Section G) now carries Assumptions A5$'$
+(per-cohort oracle weights) + NA (no-anticipation / clean not-yet-treated
+controls) and Propositions G1 (consistency, inherits Prop 1 cohort-wise), G2
+(asymptotic normality + effective sample $N^{\text{eff}}_{\text{stag}} =
+(\sum_g W_g^2/N^{\text{eff}}_{1,g})^{-1}$, binds on the least-informative
+cohort), G3 (reductions: single cohort -> block; uniform + treated-periods ->
+Clarke, cites the golden test), plus a cluster-bootstrap validity paragraph.
+Added `jones2026` to references.bib. STILL TODO for step 2: a `gamma_trend`
+generating block in `scripts/run_mc_simulations.R` (the trend-cell CSV the
+paper reads exists but the committed script doesn't regenerate it).
 
 ## Environment gotcha (this Windows box)
 
