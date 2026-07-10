@@ -100,6 +100,28 @@ Standard R package layout (`R/`, `man/`, `tests/`, `vignettes/`,
 weight renormalization; `cluster = NULL` forces unit-level resampling).
 `tmpclaude-*` files at the root are gitignored scratch.
 
+Staggered adoption: `synthdid_estimate_staggered()` in `R/staggered.R`
+(structural sibling of `R/stratified.R`) — loops over adoption cohorts,
+runs the *block* `synthdid_estimate_weighted()` within each against
+not-yet-treated (`control="notyet"`) or never-treated-in-window
+(`control="never"`, the Stata `sdid` / golden-test pool) controls, and
+aggregates by treated-weight share (`cohort.weight="treated.share"`, the
+estimand τ^{ω̃,stag}) or treated-periods (reproduces Clarke et al. 2023 at
+uniform weights). `vcov` is cluster/unit bootstrap with per-draw full
+refit. Reduces to the block estimator for a single cohort (tested). See
+`docs/reorient_plan_2026-07-10.md` Part 2. STILL TODO: Stata golden test on
+`docs/`'s Jones `data_sje.dta`, supplement proofs (per-cohort A5 /
+effective-N / not-yet-treated validity / reductions / bootstrap), and a
+`gamma_trend` generating block in `scripts/run_mc_simulations.R`.
+
+## Environment gotcha (this Windows box)
+
+`devtools::load_all()` / `roxygen2::roxygenise()` **segfault** here
+(pkgload issue). To test package code, `source()` the R files directly
+(`utils.R`, `solver.R`, `synthdid.R`, then the target file) in a plain
+`Rscript`; NAMESPACE + man pages must be edited by hand. Plain `Rscript`
+with `RENV_CONFIG_AUTOLOADER_ENABLED=FALSE` works fine.
+
 ## Docs to read before working
 
 - `docs/TODO.md` — single live todo list.
