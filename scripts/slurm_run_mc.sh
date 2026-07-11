@@ -19,5 +19,5 @@ Rscript scripts/run_mc_simulations.R
 echo "[$(date)] main MC sweep done; solutions MC starting"
 Rscript scripts/run_solutions_mc.R
 echo "[$(date)] solutions MC done; trend MC starting"
-Rscript scripts/run_trend_mc.R
+Rscript scripts/run_mc_trend.R
 echo "[$(date)] all sweeps complete"

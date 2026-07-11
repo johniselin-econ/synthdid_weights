@@ -80,7 +80,7 @@ STAGES <- list(
   ),
   mc = list(
     scripts = file.path("scripts", c("run_mc_simulations.R", "run_solutions_mc.R",
-                                     "run_trend_mc.R")),
+                                     "run_mc_trend.R")),
     outputs = file.path("paper", "data", c("mc_results.csv", "mc_solutions_results.csv",
                                            "mc_trend_results.csv"))
   ),

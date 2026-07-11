@@ -52,7 +52,7 @@ Rscript scripts/analyze_application.R
 echo "[$(date)] (3/4) Monte Carlo sweeps -> paper/data/mc_*.csv"
 Rscript scripts/run_mc_simulations.R
 Rscript scripts/run_solutions_mc.R
-Rscript scripts/run_trend_mc.R
+Rscript scripts/run_mc_trend.R
 
 # --- 4. commit + push (best-effort) ----------------------------------------
 if [ "${RUN_ALL_COMMIT:-1}" = "1" ]; then
