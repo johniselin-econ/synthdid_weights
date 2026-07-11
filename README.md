@@ -8,6 +8,8 @@ The standard SDID estimator averages treated units equally. When treated units d
 
 - **`synthdid_estimate_weighted()`**: weighted SDID with researcher-specified treated-unit weights
 - **`sc_estimate_weighted()`**, **`did_estimate_weighted()`**: weighted SC and DiD variants
+- **`synthdid_estimate_staggered()`**: staggered-adoption weighted SDID (cohort-wise estimation against not-yet-treated or never-treated controls, aggregated with researcher-chosen cohort weights)
+- **`synthdid_estimate_stratified()`**: weighted SDID with the donor pool restricted to researcher-defined strata
 - **`synthdid_event_study()`**: event-study decomposition for both weighted and unweighted estimates, with unit-level or cluster-robust bootstrap confidence bands
 - **Adapted variance estimators**: bootstrap, jackknife, and placebo SEs with weight renormalization
 - **Cluster-robust standard errors**: cluster bootstrap and jackknife for settings where treatment is assigned at a higher level than the unit of observation
@@ -17,13 +19,13 @@ The standard SDID estimator averages treated units equally. When treated units d
 ### Installation
 
 ```R
-devtools::install_github("johniselin-econ/synthdid_weights")
+devtools::install_github("johniselin-econ/wsynthdid")
 ```
 
 ### Quick example
 
 ```R
-library(synthdid)
+library(wsynthdid)
 
 # Standard SDID (equal weights)
 data('california_prop99')
@@ -54,29 +56,9 @@ plot_event_study(es)
 
 John Iselin and Erica Ryan. **Weighted Synthetic Difference-in-Differences**. Working paper, 2026.
 
-The paper applies the weighted estimator to the ACA Medicaid expansion, following Borgschulte and Vogler (2020). The equally-weighted SDID estimate is near zero, while the population-weighted estimate indicates a mortality reduction of approximately 17 deaths per 100,000---demonstrating that the weighting choice can be economically consequential.
+The paper applies the weighted estimator to the ACA Medicaid expansion, following Borgschulte and Vogler (2020): the equally-weighted SDID estimate is near zero while the population-weighted estimate indicates a mortality reduction of roughly 17 deaths per 100,000, demonstrating that the weighting choice can be economically consequential.
 
-### Reproducing the paper
-
-The paper and supplement (`paper/*.Rmd`) read only the committed CSVs in `paper/data/`, so knitting them is self-contained---no API keys, downloads, or Monte Carlo reruns required. The R package environment is pinned with [`renv`](https://rstudio.github.io/renv/) for byte-level reproducibility across machines.
-
-```sh
-# 1. (cluster only) load R; on a desktop, just use your installed R 4.4.x
-module purge && module load R/4.4.2-gfbf-2024a
-
-# 2. restore the exact pinned package versions + install the local package
-Rscript scripts/setup.R
-
-# 3. knit
-Rscript paper/_build_all.R              # both; or `paper` / `supplement`
-```
-
-`scripts/setup.R` runs `renv::restore()` (reading `renv.lock`), installs the local `synthdid` package, and checks for the two **system** tools `renv` cannot manage:
-
-- **pandoc** --- required by `rmarkdown::render()`. `paper/_build_all.R` searches `RSTUDIO_PANDOC`, the system `PATH`, quarto, and the usual RStudio bundle locations on Windows/macOS. On Windows, RStudio's bundled pandoc is found automatically. **On a cluster there is typically no system pandoc and no module for it**---download a static `pandoc` binary into `~/bin` and ensure `~/bin` is on your `PATH` (no root needed).
-- **LaTeX** --- if no `pdflatex` is on the `PATH`, `paper/_build_all.R` bootstraps [TinyTeX](https://yihui.org/tinytex/) automatically on first run.
-
-The full regeneration chain --- data pipeline (Census API, CDC WONDER, etc.), application analysis (`results/`), and Monte Carlo sweeps --- is documented in [`scripts/README.md`](scripts/README.md); none of it is needed to reproduce the paper from the committed CSVs. `scripts/00_run_all.R` orchestrates all stages in dependency order.
+The manuscript, supplement, and full replication package (data pipeline, application analysis, Monte Carlo sweeps, and an `renv` lockfile that pins this package by commit) live in a separate repository: [**johniselin-econ/weighted-sdid**](https://github.com/johniselin-econ/weighted-sdid). This repository is the estimator only.
 
 ### References
 

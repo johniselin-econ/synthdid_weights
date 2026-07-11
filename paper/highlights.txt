@@ -1,8 +1,0 @@
-Highlights
-(Elsevier limit: 3-5 bullets, max 85 characters each including spaces)
-
-- Population weighting moves the ACA mortality effect from a null to -17 per 100,000
-- We extend SDID to researcher-specified treated-unit weights via the collapsed form
-- The divergence is an estimand choice: effects concentrate in large urban counties
-- Valid asymptotics need many effective treated units; the ACA has 102 of 1,181
-- We recommend cluster-robust bootstrap inference and a paired-bootstrap estimand test

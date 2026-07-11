@@ -1,4 +1,4 @@
-Package: synthdid
+Package: wsynthdid
 Title: Synthetic Difference-in-Difference Estimation with Weighted Extensions
 Version: 0.1.0
 Author: Dmitry Arkhangelsky [aut]
@@ -14,8 +14,9 @@ Description: Estimate average treatment effects in panel data using synthetic
     et al. (2021) with user-specified weights on treated units and post-treatment
     periods, enabling population-weighted or policy-relevant averaging. Includes
     weighted variants of the bootstrap, jackknife, and placebo variance estimators,
-    as well as event-study decomposition. Currently provides methods only for the
-    case that all treated units adopt treatment at the same time.
+    as well as event-study decomposition. Supports both simultaneous adoption and
+    staggered adoption (cohort-wise weighted estimation against not-yet-treated or
+    never-treated controls, aggregated with researcher-chosen cohort weights).
 Depends:
     R (>= 3.4)
 Imports:
@@ -43,7 +44,7 @@ Suggests:
     fixest,
     hdm,
     RPtests
-URL: https://github.com/johniselin-econ/synthdid_weights
-BugReports: https://github.com/johniselin-econ/synthdid_weights/issues
+URL: https://github.com/johniselin-econ/wsynthdid
+BugReports: https://github.com/johniselin-econ/wsynthdid/issues
 Config/roxygen2/version: 8.0.0
 RoxygenNote: 7.3.2

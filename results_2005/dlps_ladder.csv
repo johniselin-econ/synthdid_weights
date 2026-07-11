@@ -1,7 +1,0 @@
-rung,label,n_counties,estimate,se
-L1,"pop TWFE, all counties",2824,-5.235801293596706,5.1862450476701465
-L2,"pop TWFE, complete-case",2821,-5.217914116742067,5.1852011095809045
-L3,"pop TWFE, PS-trimmed sample",2494,-4.671529670318588,5.235701172939125
-L4,"pop x IPW, complete-case untrimmed",2821,-9.241077353806332,5.038194240526018
-L5,"pop x IPW, trimmed [BV base]",2494,-9.558750009367202,5.045825483274887
-L6,"pop x IPW, trimmed + controls [BV preferred]",2494,-6.6197837172711,4.137801635780621

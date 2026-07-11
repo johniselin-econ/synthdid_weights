@@ -49,3 +49,7 @@ vignettes/output/
 paper/data/raw/seer_us.*.txt.gz
 paper/data/raw/la.data.64.County
 paper/data/raw/countypres_*.csv
+
+# downloaded reference texts (never commit)
+w33719.txt
+*.nber.txt
