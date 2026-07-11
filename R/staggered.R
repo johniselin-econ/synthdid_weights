@@ -23,9 +23,12 @@
 #'        balanced, with rows and columns in a fixed order shared with
 #'        `adoption.time` and `time`.
 #' @param adoption.time length-N vector giving each unit's first treated period,
-#'        in the same units as `time`; use `Inf` for never-treated units.
-#' @param time length-T vector of period labels, strictly increasing. Defaults to
-#'        `1:ncol(Y)`. A unit j is treated in column t iff `time[t] >= adoption.time[j]`.
+#'        in the same units as `time`; use `Inf` for never-treated units. NA is an
+#'        error (it would otherwise silently exclude the unit from every role);
+#'        recode NA to `Inf` explicitly if it means never-treated.
+#' @param time length-T vector of period labels, strictly increasing (enforced).
+#'        Defaults to `1:ncol(Y)`. A unit j is treated in column t iff
+#'        `time[t] >= adoption.time[j]`.
 #' @param treated.weights length-N1 vector of researcher weights over the treated
 #'        units (those with finite `adoption.time` no later than the last period),
 #'        ordered by unit (i.e., by row of Y). If NULL, uniform 1/N1. Normalized to
@@ -37,6 +40,10 @@
 #'        adoption among the candidate controls so they stay untreated); "never" uses
 #'        units never treated within the observed window (`adoption.time` beyond the
 #'        last period), the pool the Stata `sdid` package uses and the golden-test target.
+#'        CAUTION: with densely spaced adoptions (e.g. one cohort per period), the
+#'        "notyet" cap truncates each cohort's post-window -- to as little as a single
+#'        period -- so the estimand becomes a correspondingly short-run effect; inspect
+#'        `cohort.table$T1` before interpreting.
 #' @param cohort.weight aggregation weight for cohort g. "treated.share" (default)
 #'        uses W_g = sum of treated.weights in g, giving the estimand
 #'        tau^(omega-tilde, stag). "treated.periods" multiplies that by the number of
@@ -49,8 +56,10 @@
 #'        cohort weights renormalized, rather than raising an error. Used by the
 #'        bootstrap. Default FALSE.
 #' @param ... additional options passed to every within-cohort
-#'        [synthdid_estimate_weighted] call (e.g. `detrend = TRUE`, `X` is not supported
-#'        because cohorts have different time windows).
+#'        [synthdid_estimate_weighted] call (e.g. `detrend = TRUE`). `X`,
+#'        `period.weights`, and `weights` are rejected with an error: cohorts have
+#'        different time windows and donor pools, so panel-shaped arguments cannot
+#'        be passed through.
 #' @return The aggregate estimate: a scalar of class 'synthdid_estimate_staggered' with
 #'         attributes 'cohort.fits' (named list of within-cohort fits), 'cohort.table'
 #'         (data.frame: cohort, N1, N0, T0, T1, share, weight, estimate), 'setup'
@@ -68,8 +77,16 @@ synthdid_estimate_staggered = function(Y, adoption.time, time = NULL,
   cohort.weight = match.arg(cohort.weight)
   N = nrow(Y); Tt = ncol(Y)
   if (is.null(time)) time = seq_len(Tt)
-  stopifnot(length(adoption.time) == N, length(time) == Tt, !is.unsorted(time),
+  # NA adoption dates would silently vanish from every role (treated, never
+  # pool, not-yet candidates) via which()'s NA-dropping; refuse them instead.
+  # Recode NA to Inf explicitly if it means never-treated.
+  stopifnot(length(adoption.time) == N, !anyNA(adoption.time),
+            length(time) == Tt, !anyNA(time), all(diff(time) > 0),
             is.null(cluster) || length(cluster) == N)
+  forbidden = intersect(c("X", "period.weights", "weights"), names(list(...)))
+  if (length(forbidden))
+    stop("unsupported in the staggered estimator (cohorts have different time windows ",
+         "and donor pools): ", paste(forbidden, collapse = ", "))
 
   last.time = time[Tt]
   treated.index = which(is.finite(adoption.time) & adoption.time <= last.time)
@@ -102,12 +119,14 @@ synthdid_estimate_staggered = function(Y, adoption.time, time = NULL,
       post = which(time >= g & time < cap)
       ctl.idx = cand
     }
-    infeasible = length(pre) < min.pre || length(post) < 1 || length(ctl.idx) < min.controls
+    share = sum(w.by.unit[trt.idx])
+    infeasible = length(pre) < min.pre || length(post) < 1 ||
+                 length(ctl.idx) < min.controls || share <= 0
     if (infeasible) {
       if (drop.infeasible) { dropped = c(dropped, g); next }
-      stop(sprintf(paste("cohort %s infeasible: %d pre-period(s), %d post-period(s), %d control(s);",
-                         "need >= %d pre, >= 1 post, >= %d controls (or set drop.infeasible = TRUE)"),
-                   as.character(g), length(pre), length(post), length(ctl.idx), min.pre, min.controls))
+      stop(sprintf(paste("cohort %s infeasible: %d pre-period(s), %d post-period(s), %d control(s), weight share %g;",
+                         "need >= %d pre, >= 1 post, >= %d controls, share > 0 (or set drop.infeasible = TRUE)"),
+                   as.character(g), length(pre), length(post), length(ctl.idx), share, min.pre, min.controls))
     }
     rows.idx = c(ctl.idx, trt.idx)            # controls first, then treated
     cols.idx = c(pre, post)                   # pre first, then post (time order within each)
@@ -119,7 +138,6 @@ synthdid_estimate_staggered = function(Y, adoption.time, time = NULL,
                                      treated.weights = as.numeric(tw.g),
                                      cluster = if (is.null(cluster)) NULL else cluster[rows.idx],
                                      ...)
-    share = sum(w.by.unit[trt.idx])
     Wg    = if (cohort.weight == "treated.share") share else share * length(post)
     key   = as.character(g)
     fits[[key]] = fit
@@ -131,7 +149,9 @@ synthdid_estimate_staggered = function(Y, adoption.time, time = NULL,
   if (length(fits) == 0) stop("no estimable cohort")
 
   cohort.table = do.call(rbind, rows); rownames(cohort.table) = NULL
-  cohort.table$weight = cohort.table$weight / sum(cohort.table$weight)  # renormalize if any dropped
+  # renormalize if any cohort was dropped (mirrors stratified.R)
+  cohort.table$share  = cohort.table$share  / sum(cohort.table$share)
+  cohort.table$weight = cohort.table$weight / sum(cohort.table$weight)
   estimate = sum(cohort.table$weight * cohort.table$estimate)
 
   class(estimate) = 'synthdid_estimate_staggered'
@@ -210,7 +230,7 @@ staggered_boot_rep = function(object, method, cluster = NULL) {
   if (method == "cluster") {
     stopifnot(!is.null(cluster), length(cluster) == N)
     drawn = sample(unique(cluster), replace = TRUE)
-    ind = unlist(lapply(drawn, function(g) which(cluster == g)))
+    ind = unlist(lapply(drawn, function(cl) which(cluster == cl)))
   } else {
     ind = sample(seq_len(N), replace = TRUE)
   }

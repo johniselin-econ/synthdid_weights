@@ -24,10 +24,13 @@ balanced, with rows and columns in a fixed order shared with
 \code{adoption.time} and \code{time}.}
 
 \item{adoption.time}{length-N vector giving each unit's first treated period,
-in the same units as \code{time}; use \code{Inf} for never-treated units.}
+in the same units as \code{time}; use \code{Inf} for never-treated units. NA is an
+error (it would otherwise silently exclude the unit from every role); recode
+NA to \code{Inf} explicitly if it means never-treated.}
 
-\item{time}{length-T vector of period labels, strictly increasing. Defaults to
-\code{1:ncol(Y)}. A unit j is treated in column t iff \code{time[t] >= adoption.time[j]}.}
+\item{time}{length-T vector of period labels, strictly increasing (enforced).
+Defaults to \code{1:ncol(Y)}. A unit j is treated in column t iff
+\code{time[t] >= adoption.time[j]}.}
 
 \item{treated.weights}{length-N1 vector of researcher weights over the treated
 units (those with finite \code{adoption.time} no later than the last period),
@@ -41,7 +44,11 @@ for cluster-robust \code{vcov()} and subset into each cohort fit.}
 yet treated over the cohort's post-window (the window is capped at the next
 adoption among the candidate controls so they stay untreated); "never" uses
 units never treated within the observed window (\code{adoption.time} beyond the
-last period), the pool the Stata \code{sdid} package uses and the golden-test target.}
+last period), the pool the Stata \code{sdid} package uses and the golden-test target.
+CAUTION: with densely spaced adoptions (e.g. one cohort per period), the
+"notyet" cap truncates each cohort's post-window -- to as little as a single
+period -- so the estimand becomes a correspondingly short-run effect; inspect
+\code{cohort.table$T1} before interpreting.}
 
 \item{cohort.weight}{aggregation weight for cohort g. "treated.share" (default)
 uses W_g = sum of treated.weights in g, giving the estimand
@@ -59,8 +66,10 @@ cohort weights renormalized, rather than raising an error. Used by the
 bootstrap. Default FALSE.}
 
 \item{...}{additional options passed to every within-cohort
-\link{synthdid_estimate_weighted} call (e.g. \code{detrend = TRUE}; \code{X} is not
-supported because cohorts have different time windows).}
+\link{synthdid_estimate_weighted} call (e.g. \code{detrend = TRUE}). \code{X},
+\code{period.weights}, and \code{weights} are rejected with an error: cohorts
+have different time windows and donor pools, so panel-shaped arguments cannot
+be passed through.}
 }
 \value{
 The aggregate estimate: a scalar of class 'synthdid_estimate_staggered' with

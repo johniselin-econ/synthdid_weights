@@ -83,18 +83,93 @@ test_that("cohort.weight schemes match documented aggregations (uniform weights)
   expect_equal(cp$weight, (cp$N1 * cp$T1) / sum(cp$N1 * cp$T1), tolerance = 1e-12)
 })
 
-test_that("population weights shift the estimand relative to uniform", {
+test_that("aggregate recovers a known homogeneous effect (both control modes)", {
+  # make_staggered_panel plants tau = 3 on every treated cell; the aggregate
+  # should recover it. This is the guard a window-construction off-by-one
+  # would trip that the structural identity tests cannot. Averaged over five
+  # fixed seeds because the notyet mode's capped windows leave cohorts 7 and 8
+  # with a single post period each (single-draw sd ~0.7 for the aggregate;
+  # seeds 1-5 means: never 2.94, notyet 2.58) -- itself a live demonstration
+  # of the documented notyet window-truncation caveat.
+  for (ctrl in c("never", "notyet")) {
+    ests <- sapply(1:5, function(s) {
+      p <- make_staggered_panel(seed = s)
+      as.numeric(synthdid_estimate_staggered(p$Y, p$adoption.time, p$time, control = ctrl))
+    })
+    expect_lt(abs(mean(ests) - 3), 0.75)
+  }
+})
+
+test_that("population weights shift the estimand under heterogeneous effects", {
+  # Give cohort 9 a LARGER effect (tau = 6 vs 3 elsewhere). Uniform
+  # treated.share estimand = (6*3 + 4*3 + 6*6)/16 = 4.125; upweighting
+  # cohort 9 by 5x gives (6*3 + 4*3 + 30*6)/40 = 5.25. The weighted estimate
+  # must move toward cohort 9's effect by a gap large relative to noise.
   p <- make_staggered_panel()
-  N1 <- sum(is.finite(p$adoption.time) & p$adoption.time <= p$Tt)
-  # weight the cohort-9 (largest, latest) units heavily
+  extra <- 3
+  for (j in which(p$adoption.time == 9)) {
+    post <- which(p$time >= 9)
+    p$Y[j, post] <- p$Y[j, post] + extra
+  }
   trt.idx <- which(is.finite(p$adoption.time) & p$adoption.time <= p$Tt)
   w <- ifelse(p$adoption.time[trt.idx] == 9, 5, 1)
 
   e.uni <- synthdid_estimate_staggered(p$Y, p$adoption.time, p$time, control = "never")
   e.pop <- synthdid_estimate_staggered(p$Y, p$adoption.time, p$time,
              treated.weights = w, control = "never")
-  # different estimands: aggregate weights should differ
-  expect_false(isTRUE(all.equal(as.numeric(e.uni), as.numeric(e.pop))))
+  expect_gt(as.numeric(e.pop) - as.numeric(e.uni), 0.5)
+})
+
+test_that("interleaved treated/control rows match the reordered block fit", {
+  # Treated units scattered among control rows: exercises the per-cohort
+  # reordering (rows.idx = c(ctl.idx, trt.idx)) that the contiguous-block
+  # tests never touch. Weights are ordered by row among treated units.
+  set.seed(7)
+  N <- 24; Tt <- 10; time <- 1:Tt
+  Y <- matrix(rnorm(N * Tt), N, Tt) + outer(1:N, rep(1, Tt))
+  adoption.time <- rep(Inf, N)
+  trt <- c(3, 7, 11, 15, 19, 23)
+  adoption.time[trt] <- 6
+  for (j in trt) Y[j, time >= 6] <- Y[j, time >= 6] + 2
+  w <- runif(length(trt)) + 0.1
+
+  est.stag <- synthdid_estimate_staggered(Y, adoption.time, time,
+                treated.weights = w, control = "never")
+
+  ctl <- which(adoption.time > Tt)
+  est.block <- synthdid_estimate_weighted(Y[c(ctl, trt), ], length(ctl), sum(time < 6),
+                 treated.weights = w)
+  expect_equal(as.numeric(est.stag), as.numeric(est.block), tolerance = 1e-10)
+})
+
+test_that("NA adoption.time is refused, not silently dropped", {
+  p <- make_staggered_panel()
+  p$adoption.time[1] <- NA
+  expect_error(
+    synthdid_estimate_staggered(p$Y, p$adoption.time, p$time, control = "never"),
+    regexp = "anyNA")
+})
+
+test_that("panel-shaped arguments are rejected via ...", {
+  p <- make_staggered_panel()
+  X <- array(rnorm(p$N * p$Tt), dim = c(p$N, p$Tt, 1))
+  expect_error(
+    synthdid_estimate_staggered(p$Y, p$adoption.time, p$time, control = "never", X = X),
+    regexp = "unsupported in the staggered estimator")
+})
+
+test_that("an all-zero-weight cohort is infeasible (share <= 0), like stratified", {
+  p <- make_staggered_panel()
+  trt.idx <- which(is.finite(p$adoption.time) & p$adoption.time <= p$Tt)
+  w <- ifelse(p$adoption.time[trt.idx] == 8, 0, 1)   # cohort 8 carries zero weight
+  expect_error(
+    synthdid_estimate_staggered(p$Y, p$adoption.time, p$time,
+                                treated.weights = w, control = "never"),
+    regexp = "share > 0")
+  est <- synthdid_estimate_staggered(p$Y, p$adoption.time, p$time,
+           treated.weights = w, control = "never", drop.infeasible = TRUE)
+  expect_true(8 %in% attr(est, "cohort.dropped"))
+  expect_equal(sum(attr(est, "cohort.table")$weight), 1, tolerance = 1e-12)
 })
 
 test_that("not-yet-treated control mode runs and is feasible", {
@@ -123,14 +198,21 @@ test_that("bootstrap vcov returns a finite non-negative variance", {
   expect_true(is.finite(V[1, 1]) && V[1, 1] >= 0)
 })
 
-test_that("golden: treated-periods aggregation reproduces Stata sdid (Jones et al. 2026, Table 5)", {
+test_that("golden: the treated-periods aggregation FORMULA matches Stata sdid (Jones et al. 2026, Table 5)", {
+  # SCOPE: this test validates the aggregation FORMULA (W_g proportional to
+  # N1_g * T_post,g) against the Stata reference, NOT the estimator end-to-end.
+  # The formula is applied inline to Stata's own per-adoption ATTs; the guard
+  # that synthdid_estimate_staggered() implements this same formula in code is
+  # the "cohort.weight schemes match documented aggregations" test above.
+  # End-to-end comparison on this panel is impossible: it has a single
+  # never-treated control (Iowa), which Stata sdid runs as a degenerate
+  # one-donor synthetic control and our estimator refuses (min.controls = 2;
+  # see the single-control test below).
+  #
   # Reference: Stata `sdid emp_tot_serv_share state year ma_dereg_dum,
   # method(sdid) vce(noinference)` on the Jones et al. (2026) SJE Table-5 sample
-  # (data_sje.dta; drop SD/DE, ma_dereg_year != 1960, 1969-1998). That run reports
-  # aggregate ATT = 1.799401 and stores 20 per-adoption ATTs in e(tau) with a single
-  # never-treated control (Iowa). The do-files live in docs/_gold/. This test guards
-  # that synthdid_estimate_staggered()'s treated-periods aggregation -- W_g
-  # proportional to N1_g * T_post,g -- matches sdid's staggered aggregation exactly.
+  # (data_sje.dta; drop SD/DE, ma_dereg_year != 1960, 1969-1998): aggregate
+  # ATT = 1.799401, 20 per-adoption ATTs in e(tau).
   g   <- c(1970,1975,1976,1977,1978,1979,1980,1981,1982,1983,
            1984,1985,1986,1987,1988,1989,1990,1991,1993,1994)
   tau <- c(0.898536,3.0149169,0.67503059,4.4611384,3.0836946,2.2149758,3.9303146,
@@ -156,14 +238,13 @@ test_that("a single-control cohort is refused cleanly (needs a donor pool)", {
   N <- 20; Tt <- 10
   Y <- matrix(rnorm(N * Tt), N, Tt) + outer(1:N, rep(1, Tt))
   time <- 1:Tt
-  adoption.time <- rep(Inf, N)
-  adoption.time[1] <- Inf                 # exactly ONE never-treated (row 1)
+  adoption.time <- rep(Inf, N)            # row 1 stays Inf: the ONE never-treated
   adoption.time[2:11]  <- 6               # two cohorts, both with >= 2 pre-periods
   adoption.time[12:20] <- 8
   expect_equal(sum(adoption.time > Tt), 1L)                 # a single never-treated
   expect_error(
     synthdid_estimate_staggered(Y, adoption.time, time, control = "never"),
-    regexp = "control")
+    regexp = "need >= .* controls")
 })
 
 test_that("cluster bootstrap runs when a cluster vector is supplied", {
